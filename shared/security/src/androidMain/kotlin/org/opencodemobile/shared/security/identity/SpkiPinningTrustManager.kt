@@ -40,7 +40,7 @@ public class SpkiPinningTrustManager(
         val pin = expectedProvider()
         if (!SpkiPinCheck.matches(pin, presented)) {
             throw CertificateException(
-                "Server identity changed: pinned ${pin.colonSeparated}, " +
+                "Server identity changed: pinned ${pin?.colonSeparated}, " +
                     "presented ${presented.colonSeparated}",
             )
         }

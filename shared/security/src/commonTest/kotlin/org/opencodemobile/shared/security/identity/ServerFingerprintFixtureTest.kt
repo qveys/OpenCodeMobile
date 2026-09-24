@@ -46,8 +46,8 @@ class ServerFingerprintFixtureTest {
         val compact = hex.filter { !it.isWhitespace() }
         val out = ByteArray(compact.length / 2)
         for (i in out.indices) {
-            val high = Character.digit(compact[i * 2], 16)
-            val low = Character.digit(compact[i * 2 + 1], 16)
+            val high = compact[i * 2].digitToInt(16)
+            val low = compact[i * 2 + 1].digitToInt(16)
             out[i] = ((high shl 4) or low).toByte()
         }
         return out

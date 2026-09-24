@@ -51,7 +51,7 @@ internal object Der {
             require(length >= 0) { "Unsupported DER length overflow" }
         }
         val contentEnd = pos + length
-        require(contentEnd <= data.size) { "DER value overflows input at offset $offset" }
+        require(contentEnd in pos..data.size) { "DER value length out of range at offset $offset" }
         return Tlv(tag = tag, start = offset, contentStart = pos, contentEnd = contentEnd)
     }
 
