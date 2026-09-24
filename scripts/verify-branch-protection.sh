@@ -74,6 +74,27 @@ check_rule "Disallow branch deletion" ".allow_deletions.enabled" "false"
 # Status checks
 check_rule "Strict status checks (branch up to date)" ".required_status_checks.strict" "true"
 
+# Criterion 4: Fork pull request workflows / Actions permissions (T10 / OPE-23)
+echo ""
+echo "--- Actions Security Configuration Checks (T10 / OPE-23) ---"
+ACTIONS_RESPONSE=$(gh api "repos/$REPO/actions/permissions/workflow" 2>/dev/null || echo "{}")
+ACTIONS_DEFAULT_PERM=$(echo "$ACTIONS_RESPONSE" | jq -r ".default_workflow_permissions // empty" 2>/dev/null)
+ACTIONS_APPROVE_PR=$(echo "$ACTIONS_RESPONSE" | jq -r ".can_approve_pull_request_reviews" 2>/dev/null)
+
+if [ "$ACTIONS_DEFAULT_PERM" = "read" ]; then
+  echo "[✓] PASS: Actions default workflow permissions restricted to 'read'"
+else
+  echo "[-] FAIL: Actions default workflow permissions (expected: read, actual: $ACTIONS_DEFAULT_PERM)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+if [ "$ACTIONS_APPROVE_PR" = "false" ]; then
+  echo "[✓] PASS: Actions workflows cannot approve pull request reviews"
+else
+  echo "[-] FAIL: Actions can approve pull requests (expected: false, actual: $ACTIONS_APPROVE_PR)"
+  FAILURES=$((FAILURES + 1))
+fi
+
 echo ""
 if [ "$FAILURES" -eq 0 ]; then
   echo "[✓] ALL ACCEPTANCE CRITERIA VERIFIED via GitHub API readback."
