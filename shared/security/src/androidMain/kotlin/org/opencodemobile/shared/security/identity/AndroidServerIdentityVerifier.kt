@@ -43,6 +43,7 @@ public class AndroidServerIdentityVerifier(
             }
             val client = OkHttpClient.Builder()
                 .sslSocketFactory(sslContext.socketFactory, trustManager)
+                .hostnameVerifier { _, _ -> true }
                 .connectTimeout(timeoutSeconds, TimeUnit.SECONDS)
                 .readTimeout(timeoutSeconds, TimeUnit.SECONDS)
                 .build()

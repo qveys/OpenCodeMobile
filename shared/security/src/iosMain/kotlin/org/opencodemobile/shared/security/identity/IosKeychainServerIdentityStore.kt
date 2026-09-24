@@ -53,7 +53,10 @@ public class IosKeychainServerIdentityStore : ServerIdentityStore {
         val result = alloc<COpaquePointerVar>()
         val status = SecItemCopyMatching(query, result.ptr)
         CFRelease(query)
-        if (status != errSecSuccess) return@memScoped null
+        if (status == errSecItemNotFound) return@memScoped null
+        check(status == errSecSuccess) {
+            "Keychain read of the server identity pin failed (status $status); failing closed"
+        }
 
         val data = CFBridgingRelease(result.value) as? NSData ?: return@memScoped null
         ServerFingerprint.fromHex(data.toByteArray().decodeToString())

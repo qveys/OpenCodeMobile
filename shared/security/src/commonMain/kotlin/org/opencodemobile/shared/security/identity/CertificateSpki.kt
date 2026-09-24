@@ -48,6 +48,7 @@ internal object Der {
                 length = (length shl 8) or (data[pos].toInt() and 0xFF)
                 pos++
             }
+            require(length >= 0) { "Unsupported DER length overflow" }
         }
         val contentEnd = pos + length
         require(contentEnd <= data.size) { "DER value overflows input at offset $offset" }

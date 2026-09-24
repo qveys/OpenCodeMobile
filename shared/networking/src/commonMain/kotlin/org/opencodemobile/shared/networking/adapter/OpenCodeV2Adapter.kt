@@ -30,12 +30,19 @@ import org.opencodemobile.shared.security.identity.ServerIdentityPinController
  *    check, and cannot survive [disconnect].
  * 3. The platform TLS engine additionally enforces the pin during the
  *    handshake (defense in depth), so even a future bug that reorders the two
- *    steps cannot send the credential over an unverified connection.
+ *    steps cannot send the credential over an unverified connection. [identityPin]
+ *    is required and must be the same instance passed to
+ *    [createOpenCodeHttpClient]/`OpenCodeHttpClient.create`, otherwise this
+ *    backstop silently disappears.
+ *
+ * The adapter holds a single active connection: [connect] starts by clearing any
+ * previous permit, and the permit state is process-global. Concurrent [connect]
+ * calls on one instance are not supported.
  */
 public class OpenCodeV2Adapter(
     private val httpClient: HttpClient,
     private val identityGate: ServerIdentityGate,
-    private val identityPin: ServerIdentityPinController? = null,
+    private val identityPin: ServerIdentityPinController,
 ) : OpenCodeGateway {
 
     @Volatile
@@ -55,7 +62,7 @@ public class OpenCodeV2Adapter(
 
         val identityCheck = when (val authorization = identityGate.authorize(profile)) {
             is ServerIdentityAuthorization.Authorized -> {
-                identityPin?.setExpectedPin(authorization.fingerprint)
+                identityPin.setExpectedPin(authorization.fingerprint)
                 plaintextWarning = authorization.plaintextWarning
                 if (authorization.plaintextWarning != null) {
                     ServerIdentityCheck.PlaintextHttp
@@ -101,7 +108,7 @@ public class OpenCodeV2Adapter(
         authorizationsEnabled = false
         credentialPermit = null
         plaintextWarning = null
-        identityPin?.reset()
+        identityPin.reset()
     }
 
     /**
@@ -114,4 +121,7 @@ public class OpenCodeV2Adapter(
 
     /** Non-null when the active connection is plaintext HTTP; must be shown as text (T1). */
     public fun plaintextWarningForActiveConnection(): String? = plaintextWarning
+
+    /** Test/diagnostic hook: whether an active connection currently permits the credential. */
+    internal fun isCredentialPermitActive(): Boolean = authorizationsEnabled && credentialPermit != null
 }

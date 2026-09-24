@@ -54,7 +54,7 @@ public class IosSpkiPinningChallengeDelegate(
         onPresented?.invoke(presented)
 
         val pin = expectedProvider()
-        if (pin != null && pin != presented) {
+        if (!SpkiPinCheck.matches(pin, presented)) {
             completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, null)
         } else {
             completionHandler(

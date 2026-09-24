@@ -48,16 +48,18 @@ public class AndroidKeystoreServerIdentityStore(
         fingerprint: ServerFingerprint,
     ): Unit = withContext(ioDispatcher) {
         mutex.withLock {
-            preferences.edit()
+            val persisted = preferences.edit()
                 .putString(entryKey(profileId), encrypt(fingerprint.hex))
                 .commit()
+            check(persisted) { "Failed to persist the server identity pin; failing closed" }
         }
     }
 
     override suspend fun clearPinnedFingerprint(profileId: String): Unit =
         withContext(ioDispatcher) {
             mutex.withLock {
-                preferences.edit().remove(entryKey(profileId)).commit()
+                val cleared = preferences.edit().remove(entryKey(profileId)).commit()
+                check(cleared) { "Failed to clear the server identity pin" }
             }
         }
 

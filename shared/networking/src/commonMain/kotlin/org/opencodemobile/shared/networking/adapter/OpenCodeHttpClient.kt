@@ -4,17 +4,19 @@ import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.LogLevel
-import io.ktor.client.plugins.logging.Logging
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
+import org.opencodemobile.shared.networking.logging.installSanitizingLogging
 import org.opencodemobile.shared.security.identity.ServerIdentityPinController
 
 /**
  * Entry point for building the Ktor client used by `OpenCodeV2Adapter`.
  *
  * The default configuration installs JSON content negotiation (the generated
- * client calls `body()`) and a logging plugin that redacts the `Authorization`
- * header, so the server credential can never be written to logs (T4).
+ * client calls `body()`), and enables HTTP logging only through the sanctioned
+ * `installSanitizingLogging` factory, which routes every line through
+ * `LogRedactor` and redacts credential headers. A raw Ktor `Logging` plugin
+ * install is rejected by the T4 CI gate (`scripts/check-no-secret-logging.sh`).
  */
 public object OpenCodeHttpClient {
 
@@ -35,14 +37,7 @@ public object OpenCodeHttpClient {
         install(ContentNegotiation) {
             json(defaultJson)
         }
-        install(Logging) {
-            level = LogLevel.INFO
-            sanitizeHeader { header ->
-                header.equals(HEADER_AUTHORIZATION, ignoreCase = true)
-            }
-        }
+        installSanitizingLogging(level = LogLevel.INFO)
         configure()
     }
-
-    private const val HEADER_AUTHORIZATION = "Authorization"
 }

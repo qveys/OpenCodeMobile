@@ -12,6 +12,7 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import org.opencodemobile.shared.domain.connection.ServerCredential
@@ -21,6 +22,7 @@ import org.opencodemobile.shared.domain.connection.ServerIdentityStore
 import org.opencodemobile.shared.domain.connection.ServerIdentityVerifier
 import org.opencodemobile.shared.domain.connection.ServerProfile
 import org.opencodemobile.shared.security.identity.ServerIdentityGate
+import org.opencodemobile.shared.security.identity.ServerIdentityPinController
 import org.opencodemobile.shared.security.identity.TofuServerIdentityCoordinator
 
 private class InMemoryStore(
@@ -40,6 +42,12 @@ private class StaticVerifier(private val presented: ServerFingerprint) : ServerI
     override suspend fun presentedFingerprint(profile: ServerProfile): ServerFingerprint = presented
 }
 
+private class Harness(
+    val adapter: OpenCodeV2Adapter,
+    val pin: ServerIdentityPinController,
+    val engine: MockEngine,
+)
+
 class OpenCodeV2AdapterTest {
 
     private val profile = ServerProfile(id = "p1", host = "192.168.1.10", port = 4096)
@@ -47,88 +55,97 @@ class OpenCodeV2AdapterTest {
     private val credential = ServerCredential("s3cr3t")
 
     @Test
-    fun trustedIdentityConnectsAndReleasesCredential() = runTest {
-        val engine = healthEngine()
-        val adapter = adapter(engine, store = InMemoryStore(mutableMapOf(profile.id to pinned)), presented = pinned)
+    fun trustedIdentityConnectsReleasesCredentialAndArmsTheHandshakePin() = runTest {
+        val harness = harness(
+            store = InMemoryStore(mutableMapOf(profile.id to pinned)),
+            presented = pinned,
+        )
 
-        val handshake = adapter.connect(profile, credential)
+        val handshake = harness.adapter.connect(profile, credential)
 
         assertEquals(profile.id, handshake.profileId)
         assertEquals("1.18.32", handshake.health.version)
-        assertEquals(1, engine.requestHistory.size)
+        assertEquals(1, harness.engine.requestHistory.size)
         assertEquals(
             "Bearer s3cr3t",
-            engine.requestHistory.first().headers[HttpHeaders.Authorization],
+            harness.engine.requestHistory.first().headers[HttpHeaders.Authorization],
         )
+        assertEquals(pinned, harness.pin.expectedPin())
     }
 
     @Test
     fun firstContactFailsClosedBeforeAnyRequest() = runTest {
-        val engine = healthEngine()
-        val adapter = adapter(engine, store = InMemoryStore(), presented = pinned)
+        val harness = harness(store = InMemoryStore(), presented = pinned)
 
         assertFailsWith<ServerIdentityException.ConfirmationRequired> {
-            adapter.connect(profile, credential)
+            harness.adapter.connect(profile, credential)
         }
-        assertTrue(engine.requestHistory.isEmpty(), "no request may be sent before confirmation")
+        assertTrue(harness.engine.requestHistory.isEmpty(), "no request may be sent before confirmation")
+        assertFalse(harness.adapter.isCredentialPermitActive())
     }
 
     @Test
     fun changedIdentityFailsClosedBeforeAnyRequest() = runTest {
-        val engine = healthEngine()
-        val adapter = adapter(
-            engine,
+        val harness = harness(
             store = InMemoryStore(mutableMapOf(profile.id to pinned)),
             presented = fingerprint(2),
         )
 
         assertFailsWith<ServerIdentityException.IdentityChanged> {
-            adapter.connect(profile, credential)
+            harness.adapter.connect(profile, credential)
         }
-        assertTrue(engine.requestHistory.isEmpty(), "no request may be sent on an identity mismatch")
+        assertTrue(harness.engine.requestHistory.isEmpty(), "no request may be sent on an identity mismatch")
+        assertFalse(harness.adapter.isCredentialPermitActive())
     }
 
     @Test
     fun plaintextProfileConnectsWithWarningAndNoPin() = runTest {
-        val engine = healthEngine()
+        val harness = harness(store = InMemoryStore(), presented = pinned)
         val plaintext = profile.copy(tls = ServerProfile.TlsMode.PlaintextHttp)
-        val adapter = adapter(engine, store = InMemoryStore(), presented = pinned)
 
-        val handshake = adapter.connect(plaintext, credential)
+        val handshake = harness.adapter.connect(plaintext, credential)
 
         assertEquals(
             org.opencodemobile.shared.security.identity.PlaintextHttpWarning.TEXT,
-            adapter.plaintextWarningForActiveConnection(),
+            harness.adapter.plaintextWarningForActiveConnection(),
         )
         assertEquals(
             org.opencodemobile.shared.domain.connection.ServerIdentityCheck.PlaintextHttp,
             handshake.identity,
         )
+        assertEquals(null, harness.pin.expectedPin())
     }
 
     @Test
-    fun disconnectDropsTheCredentialPermit() = runTest {
-        val engine = healthEngine()
-        val adapter = adapter(engine, store = InMemoryStore(mutableMapOf(profile.id to pinned)), presented = pinned)
+    fun disconnectDropsTheCredentialPermitAndThePin() = runTest {
+        val harness = harness(
+            store = InMemoryStore(mutableMapOf(profile.id to pinned)),
+            presented = pinned,
+        )
 
-        adapter.connect(profile, credential)
-        adapter.disconnect()
+        harness.adapter.connect(profile, credential)
+        assertTrue(harness.adapter.isCredentialPermitActive())
 
-        assertEquals(null, adapter.plaintextWarningForActiveConnection())
+        harness.adapter.disconnect()
+
+        assertFalse(harness.adapter.isCredentialPermitActive())
+        assertEquals(null, harness.pin.expectedPin())
+        assertEquals(null, harness.adapter.plaintextWarningForActiveConnection())
     }
 
-    private fun adapter(
-        engine: MockEngine,
+    private fun harness(
         store: ServerIdentityStore,
         presented: ServerFingerprint,
-    ): OpenCodeV2Adapter {
+    ): Harness {
+        val engine = healthEngine()
         val client = HttpClient(engine) {
             install(ContentNegotiation) { json() }
         }
+        val pin = ServerIdentityPinController()
         val gate = ServerIdentityGate(
             TofuServerIdentityCoordinator(store, StaticVerifier(presented)),
         )
-        return OpenCodeV2Adapter(client, gate)
+        return Harness(OpenCodeV2Adapter(client, gate, pin), pin, engine)
     }
 
     private fun healthEngine(): MockEngine = MockEngine { _ ->
