@@ -1,0 +1,47 @@
+# Gradle
+.gradle/
+build/
+**/build/
+!src/**/build
+
+# Local configuration
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# Android Studio / IntelliJ
+.idea/libraries
+.idea/modules.xml
+.idea/workspace.xml
+.idea/caches
+.idea/compiler.xml
+.idea/dictionaries/
+.idea/codeStyles/
+
+# Kotlin Multiplatform / Native
+.konan/
+kotlin-js-store/
+
+# Xcode / CocoaPods
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+*.xcworkspace/*
+!*.xcworkspace/contents.xcworkspacedata
+DerivedData/
+Pods/
+build/
+
+# Signing keys & Keystores (Never commit keystores)
+*.jks
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
+
+# OS & Environment files
+.env
+.env.local
+*.swp
+*~
+Thumbs.db
