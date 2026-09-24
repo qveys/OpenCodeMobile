@@ -1,10 +1,10 @@
 # ADR: Force on-device speech recognition for dictation, or disable it
 
-- **Status**: Accepted — binding for the L4 "Mobile integration" implementation (`ROADMAP.md`); not yet implemented (no KMP/CMP module scaffold exists yet, see OPE-30).
+- **Status**: Accepted for Version 1 (V1) — binding for the L4 "Mobile integration" implementation (`ROADMAP.md`); extensible design for post-V1 evolution.
 - **Resolves**: `docs/THREAT-MODEL.md` T5 (High) — "Speech-to-text dictation may silently use a cloud STT provider (Apple/Google) on some OS versions/locales, sending spoken prompts (which may contain code or secrets) off-device — contradicting the product's 'no code/prompt telemetry' promise."
 - **Trust boundary**: B3 (App process ↔ OS speech-to-text service).
 - **Data flow**: #3 in `docs/THREAT-MODEL.md` §3, "Prompt dictation".
-- **Deciders**: Engineer, informed by the Security Engineer's threat model.
+- **Deciders**: Engineer, informed by the Security Engineer's threat model and board/product guidance.
 
 ## Context
 
@@ -32,13 +32,13 @@ platforms does not guarantee on-device-only processing — it has to be forced,
 and the forcing has to be verified per platform, per OS version, and per
 locale, because on-device support is not universal.
 
-## Decision
+## Decision (Version 1)
 
-Dictation must use **only** recognition entry points that the platform
-contractually documents as on-device-only. If the platform cannot guarantee
-that for the user's current locale/OS version, dictation must be **disabled
-with a clear in-app message** — never silently fall through to a
-cloud-capable entry point.
+For **Version 1 (V1)**, dictation must use **only** recognition entry points that
+the platform contractually documents as on-device-only. If the platform cannot
+guarantee that for the user's current locale/OS version, dictation must be
+**disabled with a clear in-app message** — never silently fall through to a
+cloud-capable platform entry point.
 
 ### iOS
 
@@ -85,18 +85,47 @@ cloud-capable entry point.
   on-device model for every language): the capability check must be a live
   runtime query, not a build-time assumption from the API level alone.
 
-### Shared platform-layer contract (`expect`/`actual`)
+### Shared platform-layer contract (`expect`/`actual`) & Extensibility
 
-- The `expect` API exposed to shared code must model availability as a
-  closed set: **available (on-device, active locale)** or **unavailable
-  (reason)**. There is no third state that means "available via network" —
-  that path must not exist in the `actual` implementations at all, so it
-  can't be reached by a future change to error handling or a missed edge
-  case. This is a stronger guarantee than "prefer on-device": the capability
-  to call a cloud-backed recognizer should not be linked into the app.
+- The domain layer interacts with dictation through an extensible interface
+  (e.g., `DictationProvider` / `SpeechToTextService`), returning a closed
+  availability model:
+  - `Available(locale)`
+  - `Unavailable(reason)`
+- For **V1**, the sole implementation is `PlatformOnDeviceDictationProvider`,
+  bound via `expect`/`actual` to the platform APIs above. No network-capable
+  platform STT route exists in the V1 binary, guaranteeing that errors or
+  misconfigurations cannot fall back to cloud endpoints.
 - Capability must be re-checked whenever the app's active locale changes
   (V1 ships French + English per `docs/TECH-STACK.md`; on-device support can
   differ between the two on either platform).
+
+### Future Evolution (Post-V1)
+
+As confirmed by product guidance, while **Version 1 must strictly enforce
+on-device speech-to-text or disable dictation**, the architecture must remain
+open to future evolution beyond V1. The clean abstraction boundary between the
+UI/composer and dictation providers ensures that subsequent product versions can
+introduce alternative transcription mechanisms without compromising V1's security
+guarantees:
+
+1. **Self-hosted Server-side Transcription (OpenCode Server)**:
+   A future version may allow the user's OpenCode server to host a speech-to-text
+   engine (such as local Whisper running on the host machine). Audio would be
+   streamed directly to the user's own OpenCode server across the existing
+   authenticated and encrypted TLS tunnel (Boundary B1). Because audio goes
+   exclusively to the user's self-hosted server and never to Apple, Google, or
+   any third party, this fully respects the product's zero-third-party-telemetry
+   promise while bringing dictation to devices or languages lacking native OS
+   on-device models.
+2. **User-Configured External Transcription**:
+   If prioritized in future milestones, users could optionally configure third-party
+   or custom transcription endpoints using their own credentials / API keys.
+   This would require explicit user opt-in, dedicated settings UI, and clear
+   disclosures that audio is sent to the user's specified service.
+
+In V1, only on-device platform STT is active; these future evolution paths are
+architecturally enabled without weakening V1's immediate protections.
 
 ### UX when unavailable
 
@@ -126,18 +155,21 @@ is a flag for that lot rather than a request to write the policy text now.
 
 ## Consequences
 
-- Dictation will be **unavailable on some device/OS-version/locale
+- For V1, dictation will be **unavailable on some device/OS-version/locale
   combinations** where the platform has no on-device model — this is an
   accepted, deliberate trade-off: a disabled feature with a clear message is
   correct product behavior here, a silent privacy violation is not.
-- No network-connectivity requirement is introduced for dictation itself
+- No network-connectivity requirement is introduced for dictation itself in V1
   (on-device recognition works offline once any required language model is
   present); this is a net UX positive, not just a privacy one.
 - Engineering follow-up when L4 starts: this decision should be written as an
-  explicit rejection criterion for that lot's code review (e.g. "any
-  dictation code path that can reach a non-on-device-guaranteed recognition
-  API is an automatic rejection"), alongside the project's existing
-  systematic-rejection list in `BOOTSTRAP.md`.
+  explicit rejection criterion for V1 code review (e.g. "any dictation code path
+  in V1 that can reach a non-on-device-guaranteed recognition API is an automatic
+  rejection"), alongside the project's existing systematic-rejection list in
+  `BOOTSTRAP.md`.
+- Future evolutions (such as server-hosted Whisper on OpenCode server) can be
+  added in post-V1 lots as new `DictationProvider` implementations behind the
+  shared interface without requiring refactoring of the composer UI layer.
 - No code changes accompany this ADR: the KMP/CMP module scaffold and the
   `expect`/`actual` platform layer do not exist yet (repository is at lot L0
   per `ROADMAP.md`, tracked by OPE-30/OPE-31/OPE-32/OPE-33). This document is
@@ -146,7 +178,7 @@ is a flag for that lot rather than a request to write the policy text now.
 ## Alternatives considered
 
 - **Use `EXTRA_PREFER_OFFLINE` / default recognizers and accept occasional
-  cloud fallback** — rejected: this is precisely the silent-violation
+  cloud fallback in V1** — rejected: this is precisely the silent-violation
   scenario T5 identifies; "prefer" is not "require", and the product's
   no-telemetry promise is absolute, not best-effort.
 - **Always disable dictation entirely (never attempt on-device)** — rejected:
@@ -157,3 +189,8 @@ is a flag for that lot rather than a request to write the policy text now.
   routing is not reliably observable by testing on a single device/locale,
   and the failure mode is a silent, unlogged privacy leak — this has to be
   prevented structurally in the API contract, not caught after the fact.
+- **Enforce on-device-only as an immutable architecture that can never evolve**
+  — rejected: while V1 strictly mandates on-device platform recognition to
+  guarantee zero telemetry, future versions may legitimately support self-hosted
+  server-side Whisper (B1) or user-configured endpoints; the architecture must
+  allow this evolution via clean provider abstractions.

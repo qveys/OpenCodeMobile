@@ -354,3 +354,67 @@ shared/security and the adapter/generated-client boundary, any implementing
 PR requires the reinforced review path (Code Reviewer + Security Engineer +
 explicit owner approval) per `BOOTSTRAP.md`. Treat this section as fixed
 guidance for that work, the same as the T8 and T3 sections above.
+
+## Speech-to-text dictation and on-device enforcement (T5)
+
+Resolves `docs/THREAT-MODEL.md` T5 (B3, Data flow #3). Dictation allows users to
+speak prompts (which may contain proprietary code, file paths, or credentials)
+into the composer for transmission to their OpenCode Server. Mobile platform
+speech-to-text APIs often default to cloud-assisted recognition (routing audio to
+Apple or Google servers), which would silently violate the product's fundamental
+no-telemetry promise.
+
+### Requirements (mandatory for Version 1)
+
+- **Strictly on-device speech recognition in V1.** Dictation must use exclusively
+  on-device recognition APIs. No audio or transcript may leave the device toward
+  any third party (Apple, Google, etc.).
+- **iOS enforcement**:
+  - Check `SFSpeechRecognizer.supportsOnDeviceRecognition` for the active locale.
+  - Explicitly set `SFSpeechAudioBufferRecognitionRequest.requiresOnDeviceRecognition = true`
+    on every recognition request. If on-device recognition is unsupported or models
+    are missing, the request must fail closed rather than falling back to cloud.
+- **Android enforcement**:
+  - Instantiate recognizers strictly via `SpeechRecognizer.createOnDeviceSpeechRecognizer(Context)`
+    (API 31+ project floor). Never use `SpeechRecognizer.createSpeechRecognizer(Context)`.
+  - Do not rely on `RecognizerIntent.EXTRA_PREFER_OFFLINE` as an enforcement mechanism,
+    as Android documentation defines it as a non-binding hint.
+  - Verify runtime availability via `SpeechRecognizer.isOnDeviceRecognitionAvailable(Context)`
+    (API 33+) or handle `ERROR_LANGUAGE_NOT_SUPPORTED` / `ERROR_LANGUAGE_UNAVAILABLE`
+    as an unavailable state without network fallback.
+- **UX when unavailable**:
+  - If on-device recognition is unavailable for the current device/OS/locale, the
+    mic button in the composer is disabled (not hidden) with a clear message:
+    "Dictation isn't available on this device for [language]. Type your prompt instead."
+  - The keyboard remains the standard fallback input method.
+- **Privacy policy disclosure**: The privacy policy (owned by Technical Writer)
+  must explicitly state that V1 dictation is processed strictly on-device and
+  disabled when on-device recognition is unavailable.
+
+### Extensibility & Future Evolution (Post-V1)
+
+While Version 1 strictly mandates on-device platform recognition, the application
+architecture must remain extensible for future evolution beyond V1:
+
+- **Interface abstraction**: The shared platform layer defines a clean
+  `DictationProvider` interface that yields a closed availability model
+  (`Available`, `Unavailable(reason)`). The composer interacts solely with this
+  interface.
+- **V1 implementation**: Only `PlatformOnDeviceDictationProvider` is active in V1,
+  guaranteeing zero network-fallback capability in the shipped binary.
+- **Post-V1 evolution options**:
+  1. *Server-side OpenCode transcription*: A future release may allow the user's
+     self-hosted OpenCode server to transcribe audio (e.g. via local Whisper on
+     the host). Spoken audio is transmitted solely over the existing authenticated
+     TLS connection (B1) to the user's server, preserving zero third-party
+     telemetry while expanding language/device support.
+  2. *User-configured external endpoints*: Users may optionally configure custom
+     STT services with their own API credentials, gated by explicit opt-in and
+     prominent privacy notices.
+
+### Status
+
+Decision resolved for Version 1; binding guidance for lot L4 ("Mobile
+integration") implementation per `ROADMAP.md`. See full specification in
+`docs/adr/on-device-speech-to-text.md`.
+
