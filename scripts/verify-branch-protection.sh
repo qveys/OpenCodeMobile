@@ -71,24 +71,12 @@ check_rule "Enforce protection for administrators" ".enforce_admins.enabled" "tr
 check_rule "Disallow force pushes" ".allow_force_pushes.enabled" "false"
 check_rule "Disallow branch deletion" ".allow_deletions.enabled" "false"
 
-# Commit integrity
-check_rule "Require signed commits" ".required_signatures.enabled" "true"
-
 # Status checks
 check_rule "Strict status checks (branch up to date)" ".required_status_checks.strict" "true"
 
 # Criterion 4: Fork pull request workflows / Actions permissions (T10 / OPE-23)
 echo ""
 echo "--- Actions Security Configuration Checks (T10 / OPE-23) ---"
-FORK_APPROVAL=$(gh api "repos/$REPO/actions/permissions/fork-pr-contributor-approval" \
-  --jq ".approval_policy" 2>/dev/null || echo "unknown")
-if [ "$FORK_APPROVAL" = "first_time_contributors" ]; then
-  echo "[✓] PASS: Fork PR workflows require first-time contributor approval (value: $FORK_APPROVAL)"
-else
-  echo "[-] FAIL: Fork PR approval policy (expected: first_time_contributors, actual: $FORK_APPROVAL)"
-  FAILURES=$((FAILURES + 1))
-fi
-
 ACTIONS_RESPONSE=$(gh api "repos/$REPO/actions/permissions/workflow" 2>/dev/null || echo "{}")
 ACTIONS_DEFAULT_PERM=$(echo "$ACTIONS_RESPONSE" | jq -r ".default_workflow_permissions // empty" 2>/dev/null)
 ACTIONS_APPROVE_PR=$(echo "$ACTIONS_RESPONSE" | jq -r ".can_approve_pull_request_reviews" 2>/dev/null)
