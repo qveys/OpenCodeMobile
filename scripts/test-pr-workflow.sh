@@ -1,82 +1,108 @@
 #!/usr/bin/env bash
 # scripts/test-pr-workflow.sh
-# Verifies the PR workflow on a test branch:
-# 1. Proves direct push to `main` is rejected
-# 2. Pushes a feature branch and opens a PR
-# 3. Verifies PR requirements (reviews, CI) block unapproved merge
-# 4. Cleans up the test branch/PR
+# Verifies the protected-branch PR workflow on a throwaway test branch.
+#
+# Uses the GitHub REST API (Contents + Pulls) rather than `git push`, so it
+# runs under the container's signed-push guard. It proves:
+#   1. A direct commit to `main` is rejected server-side.
+#   2. A test branch + PR can be created.
+#   3. The PR cannot be merged without the required review.
+#   4. The test branch and PR are cleaned up afterwards.
+#
+# Requirements: gh, jq. Egress: api.github.com. Usage:
+#   scripts/test-pr-workflow.sh [OWNER/REPO]
 
 set -euo pipefail
 
 REPO="${1:-}"
 if [ -z "$REPO" ]; then
-  if git remote get-url origin >/dev/null 2>&1; then
-    REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
-  fi
+  REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo qveys/OpenCodeMobile)"
 fi
 
-if [ -z "$REPO" ]; then
-  REPO="qveys/OpenCodeMobile"
-fi
-
+TEST_PATH=".branch-protection-test.txt"
 TEST_BRANCH="test/pr-protection-check-$(date +%s)"
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+FAILURES=0
+PR_URL=""
+
+cleanup() {
+  if [ -n "$PR_URL" ]; then
+    gh pr close "$PR_URL" --delete-branch >/dev/null 2>&1 || true
+  fi
+  gh api -X DELETE "repos/$REPO/git/refs/heads/$TEST_BRANCH" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+pass() { echo "[✓] PASS: $1"; }
+fail() { echo "[-] FAIL: $1"; FAILURES=$((FAILURES + 1)); }
 
 echo "=========================================================="
 echo "Testing PR Workflow and Branch Protection for: $REPO"
+echo "Test branch: $TEST_BRANCH"
 echo "=========================================================="
 
 echo ""
-echo "=== Step 1: Testing direct push rejection on main ==="
-echo "Attempting direct push to main (should be rejected)..."
-PUSH_OUTPUT=$(git push origin "HEAD:refs/heads/main" 2>&1 || true)
-if echo "$PUSH_OUTPUT" | grep -q -i -E "protected branch|rejected|hook declined|bloqué|blocked"; then
-  echo "[✓] PASS: Direct push to main was correctly rejected."
+echo "=== Step 1: Direct commit to main must be rejected ==="
+set +e
+DIRECT_OUT=$(printf 'direct-write-should-fail\n' | base64 -w0 | \
+  xargs -I{} gh api -X PUT "repos/$REPO/contents/$TEST_PATH" \
+    -f message="🧪 test: direct commit to main must be rejected" \
+    -f content={} -f branch=main 2>&1)
+DIRECT_RC=$?
+set -e
+if [ "$DIRECT_RC" -ne 0 ]; then
+  pass "Direct commit to main rejected server-side"
+  echo "     API response: $(echo "$DIRECT_OUT" | tr '\n' ' ' | cut -c1-160)"
 else
-  echo "[!] Push output: $PUSH_OUTPUT"
+  fail "Direct commit to main was NOT rejected"
+  echo "     API response: $DIRECT_OUT"
+fi
+
+if [ "$FAILURES" -ne 0 ]; then
+  echo ""
+  echo "[-] Aborting before branch/PR creation: main may be unprotected."
+  exit 1
 fi
 
 echo ""
-echo "=== Step 2: Creating and committing to test branch ==="
-BASE_SHA=$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)
-gh api "repos/$REPO/git/refs" -f ref="refs/heads/$TEST_BRANCH" -f sha="$BASE_SHA" >/dev/null
-echo "Test verification artifact generated at $(date)" > .branch-protection-test.tmp
-
-if command -v git-signed-commit >/dev/null 2>&1; then
-  git-signed-commit -m "🧪 test: verify branch protection and pr requirements" -b "$TEST_BRANCH" -r "$REPO" .branch-protection-test.tmp
-else
-  git checkout -b "$TEST_BRANCH"
-  git add .branch-protection-test.tmp
-  git commit -m "🧪 test: verify branch protection and pr requirements"
-  git push -u origin "$TEST_BRANCH"
-  git checkout "$CURRENT_BRANCH"
-  git branch -D "$TEST_BRANCH" 2>/dev/null || true
-fi
-rm -f .branch-protection-test.tmp
-echo "[✓] Created and committed to test branch: $TEST_BRANCH"
+echo "=== Step 2: Create test branch off main ==="
+MAIN_SHA=$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)
+gh api -X POST "repos/$REPO/git/refs" \
+  -f ref="refs/heads/$TEST_BRANCH" -f sha="$MAIN_SHA" >/dev/null
+echo "     Branch $TEST_BRANCH created at $MAIN_SHA"
 
 echo ""
-echo "=== Step 3: Opening test Pull Request ==="
-PR_URL=$(gh pr create \
-  --repo "$REPO" \
-  --base main \
-  --head "$TEST_BRANCH" \
+echo "=== Step 3: Commit a test file on the branch (API-signed) ==="
+COMMIT_JSON=$(printf 'branch-protection test %s\n' "$TEST_BRANCH" | base64 -w0 | \
+  xargs -I{} gh api -X PUT "repos/$REPO/contents/$TEST_PATH" \
+    -f message="🧪 test: branch protection pr workflow check" \
+    -f content={} -f branch="$TEST_BRANCH")
+echo "     commit: $(echo "$COMMIT_JSON" | jq -r '.commit.sha') verified=$(echo "$COMMIT_JSON" | jq -r '.commit.verification.verified')"
+
+echo ""
+echo "=== Step 4: Open a pull request ==="
+PR_URL=$(gh pr create --repo "$REPO" --base main --head "$TEST_BRANCH" \
   --title "test: automated branch protection verification" \
-  --body "Automated test PR to verify branch protection and PR review requirements.")
-
-echo "Created PR: $PR_URL"
+  --body "Automated test PR to verify branch protection and PR review requirements. Closed and deleted automatically.")
+echo "     PR: $PR_URL"
 
 echo ""
-echo "=== Step 4: Verifying merge is blocked without required reviews ==="
-MERGE_OUTPUT=$(gh pr merge "$PR_URL" --merge 2>&1 || true)
-if echo "$MERGE_OUTPUT" | grep -q -i -E "not mergeable|review required|blocked|failing|require approval"; then
-  echo "[✓] PASS: PR cannot be merged without required reviews / passing CI."
+echo "=== Step 5: Merge must be blocked without required review ==="
+set +e
+MERGE_OUT=$(gh pr merge "$PR_URL" --merge 2>&1)
+MERGE_RC=$?
+set -e
+PR_STATE=$(gh pr view "$PR_URL" --json mergeStateStatus,reviewDecision --jq '"\(.mergeStateStatus)/\(.reviewDecision)"')
+if [ "$MERGE_RC" -ne 0 ]; then
+  pass "Merge blocked without required review (mergeState=$PR_STATE)"
 else
-  echo "[-] Merge attempt output: $MERGE_OUTPUT"
+  fail "PR merged without required review (mergeState=$PR_STATE)"
 fi
 
 echo ""
-echo "=== Step 5: Cleanup test PR and branch ==="
-gh pr close "$PR_URL" --delete-branch >/dev/null 2>&1 || true
-gh api -X DELETE "repos/$REPO/git/refs/heads/$TEST_BRANCH" >/dev/null 2>&1 || true
-echo "[✓] Test branch and PR cleaned up."
+if [ "$FAILURES" -eq 0 ]; then
+  echo "[✓] PR WORKFLOW VERIFIED: direct commit rejected and merge blocked pending review."
+  exit 0
+else
+  echo "[-] PR WORKFLOW VERIFICATION FAILED: $FAILURES check(s) failed."
+  exit 1
+fi

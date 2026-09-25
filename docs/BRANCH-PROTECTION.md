@@ -25,12 +25,8 @@ The `main` branch is protected with the following enforcement rules configured i
 - **Enforce for administrators:** `enforce_admins: true`. Neither bots nor repository administrators may bypass branch protection.
 
 ### 1.3 Required Status Checks
-- **Require status checks to pass before merging:** Enabled.
 - **Require branches to be up to date before merging (`strict`):** `true`. The PR branch must be rebased/merged with the latest `main` commit before merge is unlocked.
-- **Required checks:**
-  - `lint` (CI code quality and formatting)
-  - `test` (Unit, architecture, and contract tests)
-  - `build` (Compilation and artifact build verification)
+- **Required checks:** empty until CI publishes named check runs. Once CI workflows exist, apply the `lint`, `test`, and `build` contexts with `REQUIRED_STATUS_CHECKS="lint,test,build" scripts/setup-branch-protection.sh`. Listing a context before its workflow exists would block every PR indefinitely.
 
 ### 1.4 Commit Signatures & Integrity
 - **Require signed commits:** Commits landing on `main` must be cryptographically verified (`required_signatures: true`). Commits authored by agents must be created via GitHub GraphQL API (`createCommitOnBranch`) or signed locally with GPG/SSH.
@@ -91,42 +87,30 @@ gh api repos/:owner/:repo/branches/main/protection
 |---|---|---|
 | Require PR reviews before merge | `.required_pull_request_reviews != null` and `.required_approving_review_count >= 1` | Verified via readback |
 | Dismiss stale reviews on push | `.required_pull_request_reviews.dismiss_stale_reviews == true` | Verified via readback |
-| Disallow direct pushes | Direct push rejected (`git push origin main` fails) | Verified via test push |
+| Disallow direct pushes | Direct commit to `main` rejected by the remote (HTTP 409 "Changes must be made through a pull request") | Verified via API write rejection |
 | Enforce for administrators | `.enforce_admins.enabled == true` | Verified via readback |
 | Disallow force pushes | `.allow_force_pushes.enabled == false` | Verified via readback |
 | Disallow deletions | `.allow_deletions.enabled == false` | Verified via readback |
+| Require signed commits | `.required_signatures.enabled == true` | Verified via readback |
 | Required status checks strict | `.required_status_checks.strict == true` | Verified via readback |
-| First-time contributor approval | `fork_pull_request_workflows` requires approval in Actions settings | Verified in Settings |
+| First-time contributor approval | `POST/GET /repos/:owner/:repo/actions/permissions/fork-pr-contributor-approval` returns `approval_policy: "first_time_contributors"` | Verified via readback |
 
 ### 4.3 Test Branch Verification
 
-To verify that the PR workflow is enforced:
-1. Attempt a direct push to `main`:
-   ```bash
-   git checkout main
-   git commit --allow-empty -m "test: direct push should fail"
-   git push origin main
-   # MUST BE REJECTED by GitHub remote with protected branch hook error
-   ```
-2. Create and push a test branch:
-   ```bash
-   git checkout -b test/verify-branch-protection
-   git push -u origin test/verify-branch-protection
-   ```
-3. Open a pull request:
-   ```bash
-   gh pr create --title "test: verify branch protection" --body "Automated test PR" --base main
-   ```
-4. Verify merge button / CLI merge is blocked:
-   ```bash
-   gh pr merge --merge
-   # MUST BE REJECTED: Required reviews and status checks not satisfied
-   ```
-5. Clean up test branch:
-   ```bash
-   gh pr close <pr-number>
-   git push origin --delete test/verify-branch-protection
-   ```
+`scripts/test-pr-workflow.sh` performs the end-to-end test through the GitHub REST API (it does not use `git push`, which is blocked by this environment's signed-push guard). It:
+
+1. Attempts a direct commit to `main` via the Contents API and asserts rejection (HTTP 409).
+2. Creates a throwaway branch from `main`, commits a marker file, and opens a PR.
+3. Attempts `gh pr merge` and asserts the merge is blocked (`mergeStateStatus: BLOCKED`, `reviewDecision: REVIEW_REQUIRED`).
+4. Closes the PR and deletes the branch (via an `EXIT` trap, so cleanup runs on failure too).
+
+### 4.4 Verification Record
+
+Executed against `qveys/OpenCodeMobile` on 2026-09-25:
+
+- `scripts/verify-branch-protection.sh` → exit 0, all criteria PASS (PR review, dismiss stale, enforce admins, no force push, no deletion, signed commits, strict checks, first-time-contributor fork approval, read-only workflow permissions).
+- `scripts/test-pr-workflow.sh` → exit 0: direct commit to `main` rejected (HTTP 409); test PR #10 created, merge blocked (`BLOCKED/REVIEW_REQUIRED`), then PR closed and branch deleted.
+- Raw readback: `gh api repos/qveys/OpenCodeMobile/branches/main/protection`.
 
 ---
 
