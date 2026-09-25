@@ -52,9 +52,27 @@ echo "Applying protection configuration via GitHub API..."
 echo "$PROTECTION_PAYLOAD" | gh api --method PUT "repos/$REPO/branches/main/protection" --input -
 
 # 2. Require Signed Commits
+# Fail closed: a signing-enforcement failure must abort nonzero, never report success.
 echo "Enabling required commit signatures..."
-gh api --method POST "repos/$REPO/branches/main/protection/required_signatures" \
-  -H "Accept: application/vnd.github.zzzax-preview+json" 2>/dev/null || \
-gh api --method POST "repos/$REPO/branches/main/protection/required_signatures" || true
+if ! gh api --method POST "repos/$REPO/branches/main/protection/required_signatures" \
+     -H "Accept: application/vnd.github+json" >/dev/null; then
+  echo "[-] FAILED: could not enable required commit signatures for $REPO:main" >&2
+  exit 1
+fi
+
+# Read back the enabled state and require enabled=true before claiming success.
+SIGNATURES_RESPONSE="$(gh api "repos/$REPO/branches/main/protection/required_signatures")" || {
+  echo "[-] FAILED: could not read back required-signatures state for $REPO:main" >&2
+  exit 1
+}
+SIGNATURES_ENABLED="$(printf '%s' "$SIGNATURES_RESPONSE" | jq -r '.enabled')" || {
+  echo "[-] FAILED: required-signatures readback is not valid JSON for $REPO:main" >&2
+  exit 1
+}
+if [ "$SIGNATURES_ENABLED" != "true" ]; then
+  echo "[-] FAILED: required signatures readback enabled=$SIGNATURES_ENABLED (expected true)" >&2
+  exit 1
+fi
+echo "[+] Required commit signatures enabled and verified (enabled=true)."
 
 echo "Branch protection setup complete for $REPO:main."
