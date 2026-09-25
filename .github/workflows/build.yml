@@ -78,6 +78,8 @@ jobs:
       - name: Verify iOS frameworks
         run: |
           set -euo pipefail
-          find . -maxdepth 6 -path '*/build/bin/*/debugFramework/*.framework' -print
-          test -n "$(find . -maxdepth 6 -path '*/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
-          test -n "$(find . -maxdepth 6 -path '*/build/bin/iosArm64/debugFramework/*.framework' -print -quit)"
+          find . -path '*/build/bin/*/debugFramework/*.framework' -print | sort
+          test -n "$(find . -path '*/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
+          test -n "$(find . -path '*/build/bin/iosArm64/debugFramework/*.framework' -print -quit)"
+          test -n "$(find . -path '*/shared/security/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
+          test -n "$(find . -path '*/shared/domain/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
