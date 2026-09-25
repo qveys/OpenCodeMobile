@@ -14,58 +14,137 @@
 
 **OpenCode Mobile** is a native companion application for Android and iOS that acts as a remote control for your self-hosted **OpenCode Server v2** instance. Whether your server runs on your local machine, a workstation across your local area network (LAN), or a private Tailscale tailnet, OpenCode Mobile lets you interact with autonomous coding sessions from your phone without opening your laptop.
 
-### Core Capabilities
+The app is a **client only**. It has no product backend, runs no cloud proxy, and collects no prompt or code telemetry. Your OpenCode Server remains the single source of truth; the on-device cache is disposable and can be rebuilt from the server at any time.
 
-- **Real-Time Session Tracking**: Stream active agent thoughts, command executions, and progress in real time via Server-Sent Events (SSE) with resilient exponential backoff and polling fallback.
-- **Interactive Permission Approval**: Grant or deny granular tool execution requests (terminal commands, file writes, web requests) directly from push notifications or inside the app.
-- **Agent Chat & Voice Dictation**: Send instructions, clarify context, and answer agent questions. Supports on-device speech-to-text dictation to keep prompt audio private.
-- **File & Diff Review**: Inspect modified files and syntax-highlighted diffs on mobile before approving commits or test executions.
-- **Privacy & Security First**: Zero intermediary cloud servers, zero prompt or code telemetry. Direct point-to-point connections with credentials stored exclusively in Android Keystore / iOS Keychain.
+### Core capabilities
+
+- **Real-time session tracking** — stream agent thoughts, command executions, and progress in real time over Server-Sent Events (SSE), with exponential backoff and a polling fallback.
+- **Interactive permission approval** — review and grant or deny tool-call permissions. Approval always requires an explicit foreground confirmation plus platform biometrics.
+- **Agent chat and dictation** — send prompts and answer agent questions, with strictly on-device speech-to-text dictation (no audio leaves the device).
+- **File and diff review** — inspect modified files and diffs on mobile.
+- **Security first** — trust-on-first-use (TOFU) server identity pinning, credentials in Android Keystore / iOS Keychain, encrypted cache, zero third-party telemetry.
 
 ---
 
-## Tech Stack & Architecture
+## Tech stack
 
 OpenCode Mobile follows Clean Architecture principles in a feature-modular Kotlin Multiplatform monorepo.
 
-| Component | Technology | Rationale |
+| Component | Technology | Notes |
 |---|---|---|
-| **Core & Shared Logic** | Kotlin Multiplatform (KMP 2.1+) | Maximum shared code across Android (API 31+) and iOS (iOS 16+). |
-| **User Interface** | Compose Multiplatform (Material 3) | Unified, declarative UI with platform-native adaptations. |
-| **Networking & API** | Ktor HTTP Client + OpenAPI Generator | Type-safe generated client isolated behind `OpenCodeGateway` adapter. |
-| **Realtime Engine** | Custom `EventProcessor` | Unified SSE pipeline with automatic snapshot reconciliation and fallback. |
-| **Local Storage** | SQLDelight + SQLCipher | Offline-first, encrypted local cache for session history. |
-| **Dependency Injection** | Koin Multiplatform | Lightweight, idiomatic multiplatform service locator and DI. |
-| **Platform Integration** | `expect` / `actual` | Hardware-backed Keychain/Keystore, biometric auth, and local notifications. |
+| **Shared logic** | Kotlin Multiplatform 2.1.0 | One codebase targets Android (minSdk 31) and iOS (16+). |
+| **User interface** | Compose Multiplatform 1.7.1 (Material 3) | Shared, declarative UI on both platforms (ADR 0003). |
+| **HTTP / API** | Ktor 3.0.1 + OpenAPI-generated client | Generated types stay inside `shared/networking` (ADR 0002). |
+| **Realtime** | Custom `EventProcessor` | SSE with polling fallback and snapshot reconciliation. |
+| **Local cache** | SQLDelight 2.0.2 | Offline, read-only, encrypted at rest, disposable. |
+| **Dependency injection** | Koin 4.0.0 | Composition root in `androidApp`. |
+| **Serialization / time** | kotlinx.serialization 1.7.3, kotlinx-datetime 0.6.1 | |
+| **Architecture tests** | Konsist 0.8.0 | Enforces module dependency rules in CI (ADR 0004). |
+
+Pinned versions live in [`gradle/libs.versions.toml`](gradle/libs.versions.toml).
 
 ---
 
-## Project Structure
+## Repository layout
 
 ```text
-├── composeApp/                 # Compose Multiplatform UI application
-│   ├── androidMain/            # Android-specific entry point & actuals
-│   ├── commonMain/             # Shared UI components, screens, navigation
-│   └── iosMain/                # iOS-specific entry point & actuals
-├── shared/                     # Business logic and data modules
-│   ├── core/                   # Utilities, error handling, dispatchers
-│   ├── domain/                 # Domain entities, repositories, use cases
-│   ├── data/                   # SQLDelight database, network clients, adapters
-│   └── security/               # Keystore / Keychain secure storage
-├── docs/                       # Architecture decisions, threat models, specs
-└── scripts/                    # Maintenance, CI/CD, and verification scripts
+.
+├── androidApp/            # Android host app and Koin composition root
+├── iosApp/                # iOS host (Swift entry point; not a Gradle module)
+├── shared/
+│   ├── domain/            # Entities, value objects, ports (Kotlin stdlib only)
+│   ├── application/       # Use cases / interactors
+│   ├── data/              # Repository implementations and adapters
+│   ├── networking/        # Ktor client + generated OpenAPI client
+│   ├── realtime/          # EventProcessor (SSE + polling fallback)
+│   ├── persistence/       # SQLDelight cache
+│   ├── security/          # Keychain/Keystore, TLS pinning, biometrics
+│   └── test-support/      # Shared fakes, fixtures, MockOpenCodeServer
+├── features/              # One module per feature (connection, projects,
+│                          # sessions, transcript, composer, files,
+│                          # permissions, settings)
+├── design-system/         # Theme, typography, Compose components
+├── architecture-tests/    # Konsist module-boundary tests
+├── docs/                  # Architecture, API, contribution, security docs
+├── scripts/               # Maintenance, CI/CD, and verification scripts
+└── gradle/                # Version catalog and wrapper
+```
+
+The module list and the forbidden dependency edges are fixed by the architecture specification and enforced by [`architecture-tests/`](architecture-tests) (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
+
+---
+
+## Getting started
+
+### Prerequisites
+
+- **JDK 21** (subprojects target JVM 17–21).
+- **Android SDK** with API 35 (`compileSdk 35`, `minSdk 31`) and the Android Studio toolchain, for the Android app.
+- **Xcode 16+** on macOS, for the iOS app.
+- A reachable **OpenCode Server v2** instance (`opencode serve`). No product backend is required.
+
+### Build the shared modules
+
+```bash
+git clone https://github.com/qveys/OpenCodeMobile.git
+cd OpenCodeMobile
+
+# Compile the shared Kotlin Multiplatform graph
+./gradlew build
+```
+
+### Run the Android app
+
+```bash
+./gradlew :androidApp:installDebug
+```
+
+Or open the project in Android Studio and run the `androidApp` configuration.
+
+### Run on iOS
+
+`iosApp/` is a native Xcode project host, **not** a Gradle module. It currently ships the Swift entry point and `Info.plist` only; generating and committing the `.xcodeproj` and wiring the per-module frameworks is tracked as follow-up work. See [`iosApp/README.md`](iosApp/README.md) and [ADR 0001](docs/adr/0001-monorepo-module-scaffold.md).
+
+### Generate the API client
+
+The typed OpenCode Server v2 client is generated from the pinned OpenAPI specification:
+
+```bash
+./gradlew :shared:networking:generateOpenApiClient
+```
+
+Generated code is never hand-edited. See [docs/API.md](docs/API.md).
+
+### Tests
+
+```bash
+# Unit tests across all modules
+./gradlew test
+
+# Architecture / module-boundary rules (Konsist)
+./gradlew :architecture-tests:test
 ```
 
 ---
 
-## Development & Git Workflow
+## Documentation
 
-- **Branch Protection**: Direct pushes to `main` are disabled. All changes must be submitted via pull request.
-- **Continuous Integration**: Every PR must pass compilation, static analysis (linting), unit tests, and architecture dependency validation.
-- **Fork PR Security**: In compliance with threat model policy T10, GitHub Actions workflows for first-time contributors require maintainer approval before running.
-- **Conventions**: Conventional Commits format (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`).
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system context, module map, dependency rules, data flow, security design.
+- [docs/API.md](docs/API.md) — OpenCode Server v2 API surface used by the app, authentication, and client generation.
+- [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) — contribution guide: workflow, commits, review tiers, testing, architecture rules.
+- [docs/git-workflow.md](docs/git-workflow.md) and [docs/pr-conventions.md](docs/pr-conventions.md) — detailed branch/PR conventions.
+- [docs/BRANCH-PROTECTION.md](docs/BRANCH-PROTECTION.md) — protected-branch and required-check rules.
+- [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) and [docs/CI-CD-SECURITY.md](docs/CI-CD-SECURITY.md) — security model and CI hardening.
+- [ROADMAP.md](ROADMAP.md) — milestones, lots L0–L6, and delivery gates.
+- [docs/adr/](docs/adr/) — architecture decision records.
 
-For full details, see [`docs/git-workflow.md`](docs/git-workflow.md), [`docs/pr-conventions.md`](docs/pr-conventions.md), and [`docs/BRANCH-PROTECTION.md`](docs/BRANCH-PROTECTION.md).
+---
+
+## Contributing
+
+All changes ship through a pull request against `main` — direct commits are disabled, and commits must be signed/verified. Use Conventional Commits with an emoji prefix, keep architectural boundaries intact, and never commit secrets.
+
+See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for the full guide.
 
 ---
 
