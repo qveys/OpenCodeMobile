@@ -4,7 +4,8 @@ name: Build
 #
 # Compiles/bundles the application into deployable artifacts for BOTH target
 # families from the SAME revision (one workflow run => one github.sha):
-#   - Android: debug + release APK/AAB via :androidApp:assemble{Debug,Release}
+#   - Android: debug + release APK and release AAB via
+#     :androidApp:assemble{Debug,Release} + :androidApp:bundleRelease
 #   - Apple (iOS/macOS host): Kotlin/Native framework link for iosSimulatorArm64
 #     and iosArm64
 #
@@ -50,7 +51,7 @@ jobs:
           export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
           chmod +x gradlew
           java -version
-          ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease --no-daemon --stacktrace
+          ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease :androidApp:bundleRelease --no-daemon --stacktrace
       - name: Verify Android artifacts
         run: |
           set -euo pipefail
@@ -58,6 +59,8 @@ jobs:
           find androidApp/build/outputs/apk -name '*.apk' -print -exec sha256sum {} \;
           echo "AAB outputs:"
           find androidApp/build/outputs/bundle -name '*.aab' -print -exec sha256sum {} \;
+          test -n "$(find androidApp/build/outputs/apk -name '*.apk' -print -quit)"
+          test -n "$(find androidApp/build/outputs/bundle -name '*.aab' -print -quit)"
 
   build-ios:
     name: Build iOS/macOS frameworks
