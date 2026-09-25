@@ -17,6 +17,10 @@ import platform.Foundation.NSURLSessionConfiguration
 import platform.Foundation.NSURLSessionDelegateProtocol
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLSessionTask
+import platform.Foundation.credentialForTrust
+import platform.Foundation.dataTaskWithRequest
+import platform.Foundation.serverTrust
+import platform.Foundation.setHTTPMethod
 import platform.Security.SecTrustGetCertificateAtIndex
 import platform.darwin.NSObject
 import kotlin.coroutines.resume

@@ -5,13 +5,14 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
+import kotlinx.cinterop.value
 import org.opencodemobile.shared.domain.connection.ServerFingerprint
 import org.opencodemobile.shared.domain.connection.ServerIdentityStore
-import platform.CoreFoundation.CFBridgingRelease
-import platform.CoreFoundation.CFBridgingRetain
 import platform.CoreFoundation.CFDictionaryCreateMutable
 import platform.CoreFoundation.CFDictionarySetValue
 import platform.CoreFoundation.CFRelease
+import platform.Foundation.CFBridgingRelease
+import platform.Foundation.CFBridgingRetain
 import platform.Foundation.NSData
 import platform.Security.SecItemAdd
 import platform.Security.SecItemCopyMatching
@@ -95,12 +96,14 @@ public class IosKeychainServerIdentityStore : ServerIdentityStore {
     }
 
     private fun baseQuery(profileId: String): platform.CoreFoundation.CFMutableDictionaryRef {
-        val query = CFDictionaryCreateMutable(
-            null,
-            0,
-            kCFTypeDictionaryKeyCallBacks.ptr,
-            kCFTypeDictionaryValueCallBacks.ptr,
-        )
+        val query = requireNotNull(
+            CFDictionaryCreateMutable(
+                null,
+                0,
+                kCFTypeDictionaryKeyCallBacks.ptr,
+                kCFTypeDictionaryValueCallBacks.ptr,
+            ),
+        ) { "CFDictionaryCreateMutable returned null" }
         CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword)
         CFDictionarySetValue(query, kSecAttrService, CFBridgingRetain(KEYCHAIN_SERVICE))
         CFDictionarySetValue(query, kSecAttrAccount, CFBridgingRetain(profileId))
@@ -108,12 +111,14 @@ public class IosKeychainServerIdentityStore : ServerIdentityStore {
     }
 
     private fun valueAttributes(value: NSData): platform.CoreFoundation.CFMutableDictionaryRef {
-        val attributes = CFDictionaryCreateMutable(
-            null,
-            0,
-            kCFTypeDictionaryKeyCallBacks.ptr,
-            kCFTypeDictionaryValueCallBacks.ptr,
-        )
+        val attributes = requireNotNull(
+            CFDictionaryCreateMutable(
+                null,
+                0,
+                kCFTypeDictionaryKeyCallBacks.ptr,
+                kCFTypeDictionaryValueCallBacks.ptr,
+            ),
+        ) { "CFDictionaryCreateMutable returned null" }
         CFDictionarySetValue(attributes, kSecValueData, CFBridgingRetain(value))
         return attributes
     }

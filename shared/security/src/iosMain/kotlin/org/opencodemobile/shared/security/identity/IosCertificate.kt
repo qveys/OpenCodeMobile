@@ -11,6 +11,7 @@ import platform.CoreFoundation.CFDataGetLength
 import platform.CoreFoundation.CFRangeMake
 import platform.CoreFoundation.CFRelease
 import platform.Foundation.NSData
+import platform.Foundation.create
 import platform.Security.SecCertificateCopyData
 import platform.Security.SecCertificateRef
 import platform.posix.memcpy
