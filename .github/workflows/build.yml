@@ -1,0 +1,85 @@
+name: Build
+
+# OPE-18 — Build step.
+#
+# Compiles/bundles the application into deployable artifacts for BOTH target
+# families from the SAME revision (same workflow run => same github.sha):
+#   - Android: debug + release APK/AAB via :androidApp:assemble{Debug,Release}
+#   - Apple (iOS/macOS host): Kotlin/Native framework link for iosSimulatorArm64
+#
+# Reproducibility across environments comes from pinned toolchains:
+#   - JDK 21 (Temurin), matching the JVM 21 targets in the scaffold
+#   - Gradle 8.10.2, pinned by gradle/wrapper/gradle-wrapper.properties
+#   - Kotlin / AGP / Compose Multiplatform versions, pinned in gradle/libs.versions.toml
+#   - All actions pinned to a full commit SHA (threat T10, docs/CI-CD-SECURITY.md)
+#
+# CI runs from a clean checkout, so the Gradle wrapper is made executable first
+# (the Git data API used to publish commits does not carry the executable bit).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    name: Build Android (APK/AAB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - uses: gradle/actions/setup-gradle@da187c8e6ffbd3802e00f2477aa5a822b25f2dda # v4.4.4
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+      - name: Assemble Android debug + release artifacts
+        run: ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease --no-daemon --stacktrace
+      - name: Upload Android artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-artifacts
+          path: |
+            androidApp/build/outputs/apk/**
+            androidApp/build/outputs/bundle/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  build-ios:
+    name: Build iOS/macOS frameworks
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@da187c8e6ffbd3802e00f2477aa5a822b25f2dda # v4.4.4
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+      - name: Link Kotlin/Native iOS frameworks
+        run: ./gradlew linkDebugFrameworkIosSimulatorArm64 linkDebugFrameworkIosArm64 --no-daemon --stacktrace
+      - name: Upload iOS frameworks
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ios-frameworks
+          path: |
+            **/build/bin/iosSimulatorArm64/debugFramework/*.framework/**
+            **/build/bin/iosArm64/debugFramework/*.framework/**
+          if-no-files-found: warn
+          retention-days: 14
