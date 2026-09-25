@@ -52,6 +52,7 @@ OpenCode Mobile follows Clean Architecture principles in a feature-modular Kotli
 │   ├── domain/                 # Domain entities, repositories, use cases
 │   ├── data/                   # SQLDelight database, network clients, adapters
 │   └── security/               # Keystore / Keychain secure storage
+├── design-system/              # Imported token/logo sources and references
 ├── docs/                       # Architecture decisions, threat models, specs
 └── scripts/                    # Maintenance, CI/CD, and verification scripts
 ```
@@ -66,6 +67,10 @@ OpenCode Mobile follows Clean Architecture principles in a feature-modular Kotli
 - **Conventions**: Conventional Commits format (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`).
 
 For full details, see [`docs/git-workflow.md`](docs/git-workflow.md), [`docs/pr-conventions.md`](docs/pr-conventions.md), and [`docs/BRANCH-PROTECTION.md`](docs/BRANCH-PROTECTION.md).
+
+## Design System
+
+The visual foundation — colour tokens, typography, spacing, component patterns and brand rules — is specified in [`docs/DESIGN-SYSTEM.md`](docs/DESIGN-SYSTEM.md). Imported sources and their integrity records are in [`design-system/`](design-system/README.md).
 
 ---
 
