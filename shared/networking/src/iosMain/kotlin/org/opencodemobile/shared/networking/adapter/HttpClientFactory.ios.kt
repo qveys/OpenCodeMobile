@@ -21,7 +21,7 @@ public actual fun createOpenCodeHttpClient(
 
     return HttpClient(Darwin) {
         engine {
-            handleChallenge = { session, challenge, handler ->
+            handleChallenge { session, challenge, handler ->
                 delegate.URLSession(session, challenge, handler)
             }
         }
