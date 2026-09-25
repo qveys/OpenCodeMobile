@@ -12,7 +12,7 @@ lives in [`docs/DESIGN-SYSTEM.md`](../docs/DESIGN-SYSTEM.md).
 | `source/tokens.json` | Token set, v1 (colour themes, type, spacing, radius, shadow, size). Imported byte-for-byte. |
 | `source/design-system.json` | Original supplier manifest, v3. Imported byte-for-byte and preserved unmodified. |
 | `logos/*.svg` | The eight official OpenCode marks (logos and wordmarks, light/dark). |
-| `references/*_preview.html` | The 14 supplier previews, plus `Cover_preview.html`. Reference only; not runtime code. |
+| `references/*_preview.html` | The 13 component previews plus `Cover_preview.html` (14 reference files in total). Reference only; not runtime code. |
 | `SOURCES.sha256` | Local SHA-256 of every file in `source/`, `logos/` and `references/`. |
 
 ## Provenance and integrity
@@ -49,7 +49,7 @@ preserved unchanged for traceability.
 | `opencode-wordmark-simple-light.svg` | 1554 | 1494 | −60 | `c0c19dd9…4ef06a` |
 | `opencode-wordmark-simple-dark.svg` | 1577 | 1517 | −60 | `e48e97a8…d87264` |
 
-The manifest covers only the `Logos` group; `tokens.json`, the 14 component
+The manifest covers only the `Logos` group; `tokens.json`, the 13 component
 previews and `Cover_preview.html` have no entry in it.
 
 ## References are not runnable

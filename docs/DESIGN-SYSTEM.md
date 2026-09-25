@@ -89,7 +89,7 @@ All per-theme colour tokens from `design-system/source/tokens.json` (v1):
 | `bg` | `#fdfcfc` | `#131010` | `#0a0a0a` | Page ground. Always opaque. |
 | `bg-panel` | `#f8f7f7` | `#1b1818` | `#141414` | Inputs, pressed/selected rows, code, composer field. |
 | `bg-raised` | `#f1eeee` | `#292424` | `#1c1c1c` | Secondary controls, permission banner, sheet content, disabled fills. |
-| `line` | `rgba(15,0,0,.12)` | `#3d3838` | `#282828` | Default 1 px hairline; ghost-button border. |
+| `line` | `rgba(15, 0, 0, 0.12)` | `#3d3838` | `#282828` | Default 1 px hairline; ghost-button border. |
 | `line-strong` | `#646262` | `#7f7a7a` | `#707070` | Input and keycap borders (≥ 3:1 on every ground). |
 | `text` | `#201d1d` | `#f2eded` | `#eeeeee` | Primary text and headings; ≥ 13:1 on every ground. |
 | `text-body` | `#646262` | `#b8b2b2` | `#a0a0a0` | Body copy and long secondary text. |
@@ -172,7 +172,7 @@ accessibility setting, not a default.
 
 | style | size | line height | weight | tracking | usage |
 |---|---|---|---|---|---|
-| `display` | 32 | 40 | 700 | −0.02em | Splash, onboarding, rare empty-state emphasis. |
+| `display` | 32 | 40 | 700 | -0.02em | Splash, onboarding, rare empty-state emphasis. |
 | `title` | 22 | 32 | 700 | — | Screen titles. One line + ellipsis. |
 | `section` | 17 | 24 | 700 | — | Section headings, sheet titles. |
 | `body` | 16 | 24 | 400 | — | Agent prose, user prompts, settings copy. |
@@ -344,8 +344,8 @@ Actions are exactly the server-provided decisions (Deny `danger`, Allow once,
 Allow session `ghost`); no Allow is pre-selected and no scope is invented.
 `role="alert"`. The Inbox lists pending permissions across sessions.
 
-**CommandSheet.** The one sheet for slash commands, model, agent, attachments,
-session actions and branch selection. Opaque `bg-raised` content styled as
+**CommandSheet.** The one sheet for slash commands, model, agent, session
+actions and branch selection. Opaque `bg-raised` content styled as
 OpenCode; rows as ProjectRow with `hit-ios` height. Search field on top (`/`
 prefix), `radius-md`, `bg`. Selected `●` in `agent`, others `○`. Native
 presentation (iOS detents, Android ModalBottomSheet) without any glass or
@@ -390,8 +390,9 @@ native material behind the list.
   preserved unmodified; its logo sizes differ from the real attachments and
   the discrepancy is recorded.
 - `design-system/logos/` — the eight official marks.
-- `design-system/references/` — the 14 supplier previews plus Cover; reference
-  only, not runtime code.
+- `design-system/references/` — the 13 component previews plus
+  `Cover_preview.html` (14 reference files in total); reference only, not
+  runtime code.
 - `design-system/SOURCES.sha256` — local SHA-256 of every imported file.
 - Run `scripts/verify-design-system-sources.sh` to re-verify all imported
   sources against these hashes.
