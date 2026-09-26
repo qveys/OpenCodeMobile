@@ -1,0 +1,65 @@
+name: T1 device validation
+
+# OPE-94 — real-device/simulator TLS handshake validation for T1 pinning.
+#
+# Exercises the fail-closed server-identity check end to end over a real TLS
+# handshake against a self-signed OpenCode server, on an Android emulator and
+# an iOS simulator. This is the "verified on device" gap left after OPE-35:
+# `commonTest` covers the decision logic with a fake verifier, this workflow
+# runs the platform pinning engines (OkHttp `X509TrustManager`,
+# `NSURLSession` challenge delegate) against a real handshake.
+#
+# Toolchain policy (repo Actions allowlist): only `actions/checkout@*` may run.
+# The emulator and simulator are therefore provisioned from shell steps (see
+# scripts/t1/), not from marketplace actions. If an emulator/simulator ever
+# needs a widened allowlist, escalate to the repo admin (qveys) with the exact
+# action and justification instead of bypassing the policy.
+#
+# No `actions/upload-artifact` is available, so each script prints its JUnit
+# output and host-side TLS request logs into the job log.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: t1-device-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  jvm-handshake:
+    name: T1 handshake (JVM)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Run T1 handshake unit tests
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          chmod +x gradlew
+          java -version
+          ./gradlew :shared:security:testDebugUnitTest --no-daemon --stacktrace
+
+  android-emulator:
+    name: T1 handshake (Android emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Provision emulator and run instrumented T1 tests
+        run: bash scripts/t1/run-android-device-validation.sh
+
+  ios-simulator:
+    name: T1 handshake (iOS simulator)
+    runs-on: macos-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Run iOS simulator T1 tests against host TLS servers
+        run: bash scripts/t1/run-ios-simulator-validation.sh

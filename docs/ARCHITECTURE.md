@@ -363,6 +363,17 @@ OpenAPI-generated client (OPE-31):
 - Regression tests cover first contact, pinned match, mismatch, explicit
   re-confirmation, plaintext warnings, fingerprint formatting, and DER SPKI
   extraction (`shared/security/src/commonTest`, `shared/networking/src/commonTest`).
+- Real-handshake validation (OPE-94) runs the platform pinning engines against
+  a live self-signed TLS peer, on an Android emulator and an iOS simulator, and
+  asserts the three T1 acceptance cases: TOFU capture, fail-closed on a
+  certificate swap with no request carrying the `Authorization` header reaching
+  the server, and a successful reconnect on a matching pin. The fixtures live in
+  `shared/tls-test-support`; the Android path uses an in-process
+  `SSLServerSocket` peer, while the iOS path uses the host-side recording server
+  `tests/t1/tls_recording_server.py` (a `SecIdentity`/`NWListener` TLS server is
+  not exposed by public Kotlin/Native iOS APIs). Both run from shell steps in
+  `.github/workflows/t1-device-validation.yml`, because the org Actions
+  allowlist permits only `actions/checkout@*`.
 
 Because this touches shared/security and the adapter/generated-client boundary,
 the implementing PR requires the reinforced review path (Code Reviewer +
