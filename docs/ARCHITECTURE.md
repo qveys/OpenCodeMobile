@@ -490,14 +490,27 @@ tool calls believing they're reviewing their own agent's work.
 
 ### Status
 
-Decision resolved; the pinning/verification logic above is scoped for
-implementation once the KMP/CMP module scaffold (OPE-30) and the
-OpenAPI-generated client (OPE-31) exist, landing inside
-`OpenCodeV2Adapter`'s connection/handshake path. Because this touches
-shared/security and the adapter/generated-client boundary, any implementing
-PR requires the reinforced review path (Code Reviewer + Security Engineer +
-explicit owner approval) per `BOOTSTRAP.md`. Treat this section as fixed
-guidance for that work, the same as the T8 and T3 sections above.
+Implemented (OPE-35) on top of the KMP module scaffold (OPE-30) and the
+OpenAPI-generated client (OPE-31):
+
+- `shared/domain` defines the `ServerProfile`, `ServerFingerprint` (SHA-256
+  SPKI), `ServerIdentityCheck`, and the `ServerIdentityStore` /
+  `ServerIdentityVerifier` ports.
+- `shared/security` implements the TOFU decision logic
+  (`TofuServerIdentityCoordinator` / `ServerIdentityGate`), the shared DER
+  SPKI extraction, the plaintext-HTTP warning text, and the platform pieces:
+  Android Keystore-backed pin storage plus an OkHttp `X509TrustManager`;
+  iOS Keychain-backed pin storage plus a `URLSession` challenge delegate.
+- `shared/networking` implements `OpenCodeV2Adapter.connect` so the credential
+  permit only exists after the gate returns `Authorized`; the platform TLS
+  engine additionally enforces the pin during the handshake.
+- Regression tests cover first contact, pinned match, mismatch, explicit
+  re-confirmation, plaintext warnings, fingerprint formatting, and DER SPKI
+  extraction (`shared/security/src/commonTest`, `shared/networking/src/commonTest`).
+
+Because this touches shared/security and the adapter/generated-client boundary,
+the implementing PR requires the reinforced review path (Code Reviewer +
+Security Engineer + explicit owner approval) per `BOOTSTRAP.md`.
 
 ## Speech-to-text dictation and on-device enforcement (T5)
 
@@ -561,4 +574,60 @@ architecture must remain extensible for future evolution beyond V1:
 Decision resolved for Version 1; binding guidance for lot L4 ("Mobile
 integration") implementation per `ROADMAP.md`. See full specification in
 `docs/adr/on-device-speech-to-text.md`.
+
+## HTTP logging redaction (T4)
+
+Implements `docs/THREAT-MODEL.md` T4 (B7). Verbose Ktor HTTP logging in the
+generated OpenAPI client or the `OpenCodeV2Adapter` must never emit the server
+auth token or full prompt bodies, because those logs may be captured by
+logcat/sysdiagnose, crash reporters, or shared bug reports.
+
+### Requirements (mandatory)
+
+- **Redaction is structural, not call-site discipline.** The redaction lives
+  inside the logger and the plugin configuration, so a future call site cannot
+  regress it by forgetting to scrub a value.
+- **Credential headers are never logged verbatim.** `Authorization` (and
+  cookies, API-key headers, session tokens) are redacted at the Ktor
+  `sanitizeHeader` boundary and again in the logger.
+- **Sensitive JSON body fields are never logged verbatim.** Prompt/message
+  content, credentials, and diff/patch payloads are replaced with a marker;
+  structural metadata (method, URL, status, content type, size) is preserved.
+- **One sanctioned logging entry point.** HTTP logging in `shared/networking` /
+  `shared/data` is enabled only through `installSanitizingLogging`, which wires
+  `SanitizingHttpLogger` and the header sanitizer.
+
+### Implementation
+
+- `shared/networking/src/commonMain/kotlin/org/opencodemobile/shared/networking/logging/LogRedactor.kt`
+  — pure redaction rules (sensitive headers, bearer/basic credentials, sensitive
+  JSON keys), with no logging side effects so it is exhaustively testable.
+- `.../logging/SanitizingHttpLogger.kt` — Ktor `Logger` that routes every line
+  through `LogRedactor.redact` before emitting it.
+- `.../logging/SanitizingLogging.kt` — `HttpClientConfig.installSanitizingLogging`
+  extension that installs Ktor's `Logging` plugin with the sanitizing logger and
+  a `sanitizeHeader` predicate; the only supported way to turn on HTTP logging.
+- Tests: `shared/networking/src/commonTest/.../logging/LogRedactorTest.kt` and
+  `SanitizingHttpLoggerTest.kt` assert that a fixture request carrying a fake
+  `Authorization: Bearer sk-test-…` header and a fake prompt body produces log
+  output that contains neither value, even at `LogLevel.ALL`.
+
+### Enforcement (CI, not just review)
+
+- `scripts/check-no-secret-logging.sh` is a JDK-free static gate: it fails if any
+  production source under `shared/networking` / `shared/data` (outside the
+  sanctioned `logging/` package and generated code) installs the raw `Logging`
+  plugin, uses a verbose `LogLevel`, or logs an `Authorization`/`Bearer` value or
+  a raw request/response body.
+- `.github/workflows/security-logging.yml` runs that gate and the redaction unit
+  tests on every PR touching those modules; it is intended to be a **required**
+  check in branch protection so the PR policy's "secret in logs" rejection
+  criterion is machine-enforced.
+
+### Status
+
+Implemented for the scaffolded `shared/networking` module; wired into CI. Any
+future `OpenCodeV2Adapter` HTTP client must obtain its `HttpClient` from a
+configuration that calls `installSanitizingLogging`; the CI gate fails the build
+otherwise.
 
