@@ -28,6 +28,8 @@ echo "Setting up branch protection for repository: $REPO on branch: main"
 # requiring a context no workflow emits would leave every PR "Expected" forever.
 # The lint/test/build contexts (OPE-14/OPE-15/OPE-16/OPE-17) are added to this
 # list once those workflows exist on `main`.
+# The `main` repository ruleset (id 23940009) carries the same required check;
+# verify both layers with `gh api repos/$REPO/rules/branches/main`.
 PROTECTION_PAYLOAD=$(cat <<'EOF'
 {
   "required_status_checks": {
@@ -44,13 +46,13 @@ PROTECTION_PAYLOAD=$(cat <<'EOF'
     "require_last_push_approval": true
   },
   "restrictions": null,
-  "required_linear_history": false,
+  "required_linear_history": true,
   "allow_force_pushes": false,
   "allow_deletions": false,
   "block_creations": false,
   "required_conversation_resolution": true,
   "lock_branch": false,
-  "allow_fork_syncing": true
+  "allow_fork_syncing": false
 }
 EOF
 )
