@@ -44,8 +44,12 @@ kotlin {
         }
 
         // Instrumentation runtime for the on-device T1 handshake test (OPE-94).
+        // `androidInstrumentedTest` does not inherit `commonTest`, so the test
+        // framework and fixtures are declared here explicitly.
         val androidInstrumentedTest by getting {
             dependencies {
+                implementation(libs.kotlin.test)
+                implementation(project(":shared:tls-test-support"))
                 implementation(libs.okhttp)
                 implementation("androidx.test.ext:junit:1.2.1")
                 implementation("androidx.test:runner:1.6.2")
