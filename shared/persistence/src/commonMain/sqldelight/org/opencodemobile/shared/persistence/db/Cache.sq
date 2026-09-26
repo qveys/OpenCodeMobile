@@ -1,0 +1,6 @@
+-- Placeholder schema so the SQLDelight plugin has a database to generate.
+-- Real tables (scoped ServerId -> ProjectId -> SessionId per §5.3) land with
+-- the shared/persistence implementation work, not this scaffold.
+CREATE TABLE cacheMarker (
+    id INTEGER NOT NULL PRIMARY KEY
+);
