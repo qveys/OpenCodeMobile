@@ -37,35 +37,55 @@ echo "== Creating AVD $AVD_NAME =="
 echo no | avdmanager create avd -n "$AVD_NAME" -k "$SYSTEM_IMAGE" --device "pixel_2" --force
 
 echo "== KVM availability =="
+echo "== Installing emulator host dependencies =="
+sudo apt-get update -y
+sudo apt-get install -y --no-install-recommends \
+  libpulse0 libglu1-mesa libnss3 libxcomposite1 libxcursor1 libxi6 libxtst6 libasound2t64
+
 if [ -e /dev/kvm ]; then
   ls -l /dev/kvm
   sudo chmod 666 /dev/kvm 2>/dev/null || true
+  ACCEL=on
 else
   echo "WARNING: /dev/kvm is missing; the emulator will run without hardware acceleration"
+  ACCEL=off
 fi
 
 echo "== Booting emulator (headless) =="
 nohup emulator -avd "$AVD_NAME" \
   -no-window -no-audio -no-boot-anim -no-snapshot \
-  -gpu swiftshader_indirect -accel auto \
+  -gpu swiftshader_indirect -accel "$ACCEL" \
   >"$EMULATOR_LOG" 2>&1 &
 EMULATOR_PID=$!
 
 adb start-server
-if ! adb wait-for-device; then
+if ! timeout 240 adb wait-for-device; then
   echo "FAIL: adb never saw the emulator"
-  tail -200 "$EMULATOR_LOG" || true
+  echo "== Emulator log =="
+  tail -300 "$EMULATOR_LOG" || true
   kill "$EMULATOR_PID" 2>/dev/null || true
   exit 1
 fi
 
-if ! timeout 900 bash -c '
-  until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = "1" ]; do
-    sleep 5
-  done
-'; then
-  echo "FAIL: emulator did not finish booting"
-  tail -200 "$EMULATOR_LOG" || true
+booted=0
+deadline=$(( $(date +%s) + 900 ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
+    echo "FAIL: emulator process exited before boot completed"
+    echo "== Emulator log =="
+    tail -300 "$EMULATOR_LOG" || true
+    exit 1
+  fi
+  if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
+    booted=1
+    break
+  fi
+  sleep 5
+done
+if [ "$booted" -ne 1 ]; then
+  echo "FAIL: emulator did not finish booting within 900s"
+  echo "== Emulator log =="
+  tail -300 "$EMULATOR_LOG" || true
   kill "$EMULATOR_PID" 2>/dev/null || true
   exit 1
 fi
