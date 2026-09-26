@@ -1,22 +1,15 @@
 plugins {
-    alias(libs.plugins.kotlinMultiplatform)
+    alias(libs.plugins.kotlinJvm)
 }
 
-kotlin {
-    jvm()
-    sourceSets {
-        val test by getting {
-            dependencies {
-                implementation(libs.konsist)
-                implementation(libs.konsistTest)
-                implementation(libs.kotlin.test)
-                implementation(libs.kotlinx.coroutines.test)
-                implementation(libs.kotestCore)
-                implementation(libs.kotestAssertions)
-                implementation(libs.kotestProperty)
-            }
-        }
-    }
+dependencies {
+    testImplementation(libs.konsist)
+    testImplementation(libs.konsist.test)
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.kotest.core)
+    testImplementation(libs.kotest.assertions)
+    testImplementation(libs.kotest.property)
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {

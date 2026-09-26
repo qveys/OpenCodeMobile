@@ -1,5 +1,11 @@
 name: Architecture Tests
 
+# Repo Actions allowlist: only `actions/checkout@*` may run; every other action
+# is rejected by the org policy with `startup_failure` before the job starts
+# (same constraint documented in build.yml and security-logging.yml on main).
+# This workflow therefore uses ONLY `actions/checkout` and relies on the JDK /
+# Gradle preinstalled on GitHub-hosted runners.
+
 on:
   pull_request:
     branches: [main]
@@ -37,30 +43,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-          cache: gradle
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: wrapper
-
-      - name: Make gradlew executable
-        run: chmod +x gradlew
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Run architecture tests
-        run: ./gradlew :architecture-tests:test --no-daemon
-
-      - name: Upload test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: architecture-test-reports
-          path: architecture-tests/build/reports/tests/
-          retention-days: 7
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          chmod +x gradlew
+          java -version
+          ./gradlew :architecture-tests:test --no-daemon --stacktrace

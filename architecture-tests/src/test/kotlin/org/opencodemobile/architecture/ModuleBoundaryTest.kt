@@ -5,8 +5,10 @@ import com.lemonapp.konsist.assertions.assertTrue
 import com.lemonapp.konsist.koin.KonsistKoin
 import com.lemonapp.konsist.scope.*
 import com.lemonapp.konsist.test.assertion.*
-import kotest.framework.style.StringSpec
-import kotest.framework.style.should
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldNotBeEmpty
 import java.io.File
 
 class ModuleBoundaryTest : StringSpec() {
