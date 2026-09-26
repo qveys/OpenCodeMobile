@@ -25,10 +25,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # Device validation is expensive (emulator boot / simulator run). Do NOT
-  # cancel an in-flight run on a new push; queue the next one so a late commit
-  # does not throw away a completed emulator result.
-  group: t1-device-${{ github.workflow }}-${{ github.ref }}
+  # One group per run: device validation is long (emulator boot), and a new
+  # commit must not be serialized behind a stalled in-flight emulator run. Each
+  # revision gets its own validation instead.
+  group: t1-device-${{ github.workflow }}-${{ github.sha }}-${{ github.run_id }}
   cancel-in-progress: false
 
 permissions:
