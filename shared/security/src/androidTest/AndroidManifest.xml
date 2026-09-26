@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The in-process TLS test peer binds a loopback socket (OPE-94). -->
+    <!-- The T1 instrumented test binds an in-process loopback TLS peer and
+         opens a client connection to it (OPE-94). -->
     <uses-permission android:name="android.permission.INTERNET" />
 
 </manifest>
