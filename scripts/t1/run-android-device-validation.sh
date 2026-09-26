@@ -24,6 +24,14 @@ AVD_NAME="${T1_AVD_NAME:-t1-device}"
 SYSTEM_IMAGE="${T1_SYSTEM_IMAGE:-system-images;android-31;default;x86_64}"
 EMULATOR_LOG="${RUNNER_TEMP:-/tmp}/t1-emulator.log"
 
+# Pin one AVD directory for both avdmanager and the emulator. On CI images
+# (ANDROID_PREFS_ROOT/ANDROID_SDK_HOME set), avdmanager can write the AVD
+# somewhere the emulator does not search, producing "Unknown AVD name".
+export ANDROID_AVD_HOME="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
+mkdir -p "$ANDROID_AVD_HOME"
+
+echo "== Android env =="
+env | grep -i '^ANDROID' || true
 echo "== Android SDK: $SDK =="
 echo "== System image: $SYSTEM_IMAGE =="
 
@@ -36,7 +44,14 @@ sdkmanager --install "platform-tools" "platforms;android-31" "$SYSTEM_IMAGE"
 echo "== Creating AVD $AVD_NAME =="
 echo no | avdmanager create avd -n "$AVD_NAME" -k "$SYSTEM_IMAGE" --device "pixel_2" --force
 
-echo "== KVM availability =="
+echo "== AVDs =="
+avdmanager list avd || true
+if [ ! -f "$ANDROID_AVD_HOME/$AVD_NAME.ini" ]; then
+  echo "FAIL: AVD $AVD_NAME was not created under $ANDROID_AVD_HOME"
+  ls -la "$ANDROID_AVD_HOME" || true
+  exit 1
+fi
+
 echo "== Installing emulator host dependencies =="
 sudo apt-get update -y
 sudo apt-get install -y --no-install-recommends \
