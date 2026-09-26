@@ -6,6 +6,7 @@ import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.usePinned
 import org.opencodemobile.shared.domain.connection.ServerFingerprint
 import org.opencodemobile.shared.domain.connection.ServerIdentityException
+import platform.CoreFoundation.CFArrayGetValueAtIndex
 import platform.CoreFoundation.CFDataGetBytes
 import platform.CoreFoundation.CFDataGetLength
 import platform.CoreFoundation.CFRangeMake
@@ -14,6 +15,8 @@ import platform.Foundation.NSData
 import platform.Foundation.create
 import platform.Security.SecCertificateCopyData
 import platform.Security.SecCertificateRef
+import platform.Security.SecTrustCopyCertificateChain
+import platform.Security.SecTrustRef
 import platform.posix.memcpy
 
 /**
@@ -47,6 +50,24 @@ internal object IosCertificate {
 
     fun fingerprint(certificate: SecCertificateRef): ServerFingerprint =
         CertificateSpki.fingerprint(derBytes(certificate))
+
+    /**
+     * Leaf SPKI fingerprint of the trust chain, or `null` when the chain is
+     * empty. Uses `SecTrustCopyCertificateChain` — the supported iOS 15+
+     * replacement for `SecTrustGetCertificateAtIndex` — and releases the copied
+     * array before returning, once the fingerprint has been computed.
+     */
+    fun fingerprint(trust: SecTrustRef): ServerFingerprint? {
+        val chain = SecTrustCopyCertificateChain(trust) ?: return null
+        try {
+            @Suppress("UNCHECKED_CAST")
+            val leaf = CFArrayGetValueAtIndex(chain, 0) as SecCertificateRef?
+                ?: return null
+            return fingerprint(leaf)
+        } finally {
+            CFRelease(chain)
+        }
+    }
 }
 
 @OptIn(ExperimentalForeignApi::class)
