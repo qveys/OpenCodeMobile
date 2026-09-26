@@ -22,14 +22,18 @@ fi
 echo "Setting up branch protection for repository: $REPO on branch: main"
 
 # 1. Configure Branch Protection Rules
+# Required check: "T4 static scan" is the job name in
+# `.github/workflows/security-logging.yml` (OPE-56 / threat T4). Only checks
+# produced by a workflow that actually runs on every PR may be required here;
+# requiring a context no workflow emits would leave every PR "Expected" forever.
+# The lint/test/build contexts (OPE-14/OPE-15/OPE-16/OPE-17) are added to this
+# list once those workflows exist on `main`.
 PROTECTION_PAYLOAD=$(cat <<'EOF'
 {
   "required_status_checks": {
     "strict": true,
     "contexts": [
-      "lint",
-      "test",
-      "build"
+      "T4 static scan"
     ]
   },
   "enforce_admins": true,
