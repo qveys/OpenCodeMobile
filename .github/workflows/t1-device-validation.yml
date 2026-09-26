@@ -49,6 +49,19 @@ jobs:
           java -version
           ./gradlew :shared:security:testDebugUnitTest --no-daemon --stacktrace
 
+  android-instrumented-compile:
+    name: T1 Android instrumented test compiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Assemble Android instrumented test APK
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          chmod +x gradlew
+          ./gradlew :shared:security:assembleDebugAndroidTest --no-daemon --stacktrace
+
   android-emulator:
     name: T1 handshake (Android emulator)
     runs-on: ubuntu-latest
