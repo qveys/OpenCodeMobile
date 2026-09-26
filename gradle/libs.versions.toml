@@ -29,7 +29,7 @@ kotest = "5.9.1"
 androidx-activity-compose = "1.9.3"
 
 # Architecture tests
-konsist = "0.8.0"
+konsist = "0.17.3"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }

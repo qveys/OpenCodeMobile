@@ -61,7 +61,7 @@ This ensures the rules apply to the actual source code that ships, not just Grad
 ### Negative / Trade-offs
 
 - **JVM-only test module**: `architecture-tests/` runs on JVM only (Konsist requirement). This is acceptable because it analyzes source code statically; it does not need to compile for iOS/Android targets.
-- **Konsist version pinned**: Added `konsist = "0.8.0"` to `gradle/libs.versions.toml` with `konsist` and `konsist-test` libraries.
+- **Konsist version pinned**: Added `konsist = "0.17.3"` to `gradle/libs.versions.toml` with `konsist` and `konsist-test` libraries.
 - **Test execution time**: Adds ~30-60s to CI. Acceptable for PR gate.
 
 ### Known Gaps / Follow-up
