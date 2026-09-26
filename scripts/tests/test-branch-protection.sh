@@ -98,7 +98,7 @@ fork_path() { printf 'repos/%s/actions/permissions/fork-pr-contributor-approval'
 workflow_path() { printf 'repos/%s/actions/permissions/workflow' "$REPO"; }
 
 COMPLIANT_PROTECTION='{
-  "required_status_checks": { "strict": true, "contexts": ["lint", "test", "build"] },
+  "required_status_checks": { "strict": true, "contexts": ["T4 static scan"] },
   "enforce_admins": { "enabled": true },
   "required_pull_request_reviews": {
     "dismiss_stale_reviews": true,
@@ -257,7 +257,7 @@ check_contains "compliant policy reports all controls verified" "$out" "ALL DECL
 
 s="$(new_scenario sec02-missing-context)"
 put_json "$s" GET "$(protection_path)" '{
-  "required_status_checks": { "strict": true, "contexts": ["lint", "build"] },
+  "required_status_checks": { "strict": true, "contexts": [] },
   "enforce_admins": { "enabled": true },
   "required_pull_request_reviews": { "dismiss_stale_reviews": true, "require_last_push_approval": true, "required_approving_review_count": 1 },
   "allow_force_pushes": { "enabled": false },
@@ -269,7 +269,7 @@ put_json "$s" GET "$(fork_path)" "$FORK_APPROVAL"
 put_json "$s" GET "$(workflow_path)" "$WORKFLOW_PERMS"
 out="$(run_verify "$s")"; code=$?
 check "missing CI context exits nonzero" "1" "$code"
-check_contains "missing CI context is named" "$out" "context 'test' is missing"
+check_contains "missing CI context is named" "$out" "context 'T4 static scan' is missing"
 
 s="$(new_scenario sec02-last-push)"
 seed_compliant "$s"
@@ -329,7 +329,7 @@ check "unreadable protection exits nonzero" "1" "$code"
 s="$(new_scenario sec02-null-reviews)"
 seed_compliant "$s"
 put_json "$s" GET "$(protection_path)" '{
-  "required_status_checks": { "strict": true, "contexts": ["lint", "test", "build"] },
+  "required_status_checks": { "strict": true, "contexts": ["T4 static scan"] },
   "enforce_admins": { "enabled": true },
   "required_pull_request_reviews": null,
   "allow_force_pushes": { "enabled": false },

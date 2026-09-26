@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The T1 identity probe and the pinned transport open TLS connections. -->
+    <!-- The in-process TLS test peer binds a loopback socket (OPE-94). -->
     <uses-permission android:name="android.permission.INTERNET" />
 
 </manifest>

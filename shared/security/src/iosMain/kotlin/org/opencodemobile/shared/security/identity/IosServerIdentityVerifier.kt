@@ -21,7 +21,6 @@ import platform.Foundation.credentialForTrust
 import platform.Foundation.dataTaskWithRequest
 import platform.Foundation.serverTrust
 import platform.Foundation.setHTTPMethod
-import platform.Security.SecTrustGetCertificateAtIndex
 import platform.darwin.NSObject
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -48,13 +47,12 @@ public class IosSpkiPinningChallengeDelegate(
         completionHandler: (NSURLSessionAuthChallengeDisposition, NSURLCredential?) -> Unit,
     ) {
         val trust = didReceiveChallenge.protectionSpace.serverTrust
-        val leaf = trust?.let { SecTrustGetCertificateAtIndex(it, 0) }
-        if (leaf == null) {
+        val presented = trust?.let { IosCertificate.fingerprint(it) }
+        if (presented == null) {
             completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, null)
             return
         }
 
-        val presented = IosCertificate.fingerprint(leaf)
         onPresented?.invoke(presented)
 
         val pin = expectedProvider()
