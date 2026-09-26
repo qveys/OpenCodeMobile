@@ -16,9 +16,7 @@ import platform.Foundation.NSURL
 import platform.Foundation.NSURLSession
 import platform.Foundation.NSURLSessionConfiguration
 import platform.Foundation.dataTaskWithRequest
-import platform.Foundation.requestWithURL
 import platform.Foundation.setHTTPMethod
-import platform.Foundation.setTimeoutInterval
 import kotlin.coroutines.resume
 
 /**
@@ -124,7 +122,7 @@ class IosTlsHandshakePinningTest {
         request.setHTTPMethod(method)
         request.setTimeoutInterval(10.0)
         if (authorization != null) {
-            request.setValue(authorization, forHTTPHeaderField = "Authorization")
+            request.allHTTPHeaderFields = mapOf<Any?, Any?>("Authorization" to authorization)
         }
 
         val task = session.dataTaskWithRequest(request) { _, response, error ->
