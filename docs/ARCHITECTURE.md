@@ -1,15 +1,159 @@
 # Architecture — OpenCode Mobile
 
-Status: **partial**. This document currently covers only the server-profile
-import mechanism (resolving `docs/THREAT-MODEL.md` T8, tracked by OPE-29),
-permission approval confirmation (resolving T2, tracked by OPE-25), local
-cache encryption at rest (resolving T3, tracked by OPE-26), and server
-identity verification (resolving T1, tracked by OPE-24).
-The full system architecture — component structure, data flow, API
-boundaries, deployment model — is the scope of OPE-5 and is not yet written;
-it depends on the tech-stack decisions in OPE-4. This file will be expanded
-in place once OPE-5 lands; do not treat it as complete until that note is
-removed.
+This document describes the architecture of OpenCode Mobile at foundation
+level: the system context, the module and layer map, the enforced dependency
+rules, and the runtime data flow. The sections under **Detailed security
+design** record mandatory security decisions in full and are binding for
+implementation.
+
+Where a component still needs its own deep-dive specification, the relevant
+issue owns it and this document says so explicitly rather than silently
+omitting it.
+
+## System context
+
+OpenCode Mobile is a thin, native client. It talks directly to the user's own
+OpenCode Server v2 over LAN or Tailscale. There is no product backend, no
+relay, and no prompt or code telemetry.
+
+```text
+┌──────────────────────────┐      HTTPS / SSE       ┌───────────────────────────┐
+│  OpenCode Mobile (app)   │  ───────────────────▶  │  OpenCode Server v2       │
+│  Android  ·  iOS         │  ◀───────────────────  │  (self-hosted by user)    │
+│  Compose UI + shared KMP │      /event stream     │  sole source of truth     │
+└──────────────────────────┘                        └───────────────────────────┘
+      │  disposable, encrypted cache (read-only offline)
+      ▼
+  SQLDelight
+```
+
+- **The server is authoritative.** Sessions, messages, permissions,
+  questions, and file state all come from the server. The local cache only
+  serves offline reads and is rebuilt from the next server snapshot.
+- **Point-to-point connection.** The app connects to the server address the
+  user configured; credentials and traffic never traverse a third party.
+- **Platform-native where it must be.** Secure storage, biometrics,
+  notifications, and speech recognition are implemented per platform behind
+  `expect`/`actual`; the rest is shared Kotlin.
+
+## Design principles
+
+1. **Clean Architecture layering.** `domain` at the center, then
+   `application`, then `data` / `networking` / `realtime` / `persistence` /
+   `security`, then `features` and the app shells. Dependencies point inward
+   only.
+2. **Feature modularization.** Each user-facing capability is its own
+   `features/*` module; features must not reach into one another.
+3. **Isolated protocol surface.** The generated OpenAPI client is confined to
+   `shared/networking` and hidden behind the `OpenCodeGateway` domain port
+   (`OpenCodeV2Adapter`). Every protocol assumption and version idiosyncrasy
+   stays in the adapter.
+4. **Offline-tolerant realtime.** A single `EventProcessor` owns the event
+   stream, with polling fallback, backoff, and snapshot reconciliation.
+5. **Security by default.** TOFU identity pinning, explicit foreground
+   confirmation for consequential actions, encrypted-at-rest cache, and
+   on-device-only dictation.
+6. **Documented deviations.** Anything not literally fixed by the architecture
+   specification goes through an ADR.
+
+## Module map
+
+| Module | Kind | Responsibility |
+|---|---|---|
+| `androidApp` | Android app | Host shell, Koin composition root, platform `actual` wiring. |
+| `iosApp` | Swift/Xcode host | Swift entry point; not a Gradle module. See `iosApp/README.md`. |
+| `shared/domain` | KMP library | Entities, value objects, and ports. Kotlin stdlib only. |
+| `shared/application` | KMP library | Use cases that orchestrate domain ports and coroutines. |
+| `shared/data` | KMP library | Repository implementations, coordinating networking, realtime, persistence, and security. |
+| `shared/networking` | KMP library | Ktor client, `OpenCodeV2Adapter`, generated OpenAPI client. |
+| `shared/realtime` | KMP library | Event pipeline: SSE, polling fallback, backoff, reconciliation. |
+| `shared/persistence` | KMP library | SQLDelight cache schema and drivers. |
+| `shared/security` | KMP library | Secure storage, TLS/TOFU identity verification, biometrics. |
+| `shared/test-support` | KMP library | Fakes, fixtures, and the deterministic `MockOpenCodeServer`. |
+| `features/*` | KMP libraries | One module per feature: connection, projects, sessions, transcript, composer, files, permissions, settings. |
+| `design-system` | KMP library | Design tokens, typography, and reusable Compose components. |
+| `architecture-tests` | JVM test module | Konsist assertions that enforce the dependency rules below. |
+
+## Dependency rules
+
+The architecture specification fixes the edges below.
+`architecture-tests/ModuleBoundaryTest.kt` encodes them and fails CI on any
+violation; see ADR 0004.
+
+1. `shared/domain` depends only on the Kotlin stdlib.
+2. `shared/application` may depend only on `shared/domain` and
+   `kotlinx.coroutines`.
+3. `shared/data` may depend on `shared/domain`, `shared/networking`,
+   `shared/realtime`, `shared/persistence`, and `shared/security`.
+4. `shared/networking` may depend only on `shared/domain` and Ktor. It
+   exclusively owns the generated OpenAPI client.
+5. `shared/realtime` may depend only on `shared/domain` and
+   `shared/networking`.
+6. `shared/persistence` may depend only on `shared/domain` and SQLDelight.
+7. `shared/security` may depend only on `shared/domain`.
+8. Each `features/*` module may depend only on `shared/domain`,
+   `shared/application`, `design-system`, Compose, and Koin. Features must not
+   reach into another feature's internals.
+9. `design-system` may depend only on Compose and the Kotlin stdlib.
+10. Features, `design-system`, and `androidApp` must not import Ktor,
+    SQLDelight, or platform secure-storage APIs directly.
+11. The generated client is never hand-edited.
+12. Koin module declarations are permitted only in `androidApp` and
+    `features/*`.
+
+## Runtime data flow
+
+### Connection and handshake
+
+1. The user supplies a server profile (manual entry, deep link, or QR import).
+   Import always routes through a review screen — see **Server profile import**
+   below.
+2. The adapter calls `GET /global/health`, reads the server version, and gates
+   the connection behind a `CompatibilityProfile`.
+3. The TLS fingerprint is verified (TOFU) before any credential is attached —
+   see **Server identity verification** below.
+4. A typed `DomainError` surfaces failures (unreachable, incompatible,
+   untrusted identity).
+
+### Realtime event pipeline
+
+1. `EventProcessor` subscribes to `GET /event` (SSE).
+2. On stream loss it degrades to polling `GET /session/status`, with
+   exponential backoff.
+3. Events update an in-memory model; the cache is refreshed for offline reads.
+4. Reconnection reconciles a fresh server snapshot against local state before
+   resuming live updates.
+
+### Prompt, permission, and question flows
+
+1. Prompts are sent with `POST /session/{sessionID}/prompt_async`
+   (fire-and-forget, `204`). Output streams over `/event`.
+2. Permission requests arrive as server state; the app surfaces them and
+   requires an explicit foreground confirmation plus biometrics before
+   replying. See **Permission approval confirmation** below.
+3. Agent questions are answered or rejected through the question endpoints;
+   dictation uses on-device recognition only. See **Speech-to-text dictation
+   and on-device enforcement** below.
+4. `POST /session/{sessionID}/abort` interrupts a turn.
+
+### Local cache
+
+The SQLDelight cache stores session transcripts, prompts, and diffs for
+offline, read-only access. It is never a second source of truth and is
+encrypted at rest — see **Local cache encryption at rest** below.
+
+### UI and dependency injection
+
+Compose screens and shared ViewModels observe application-layer flows. Koin
+modules are declared in `androidApp` (composition root) and `features/*`; the
+`iosApp` Swift shell starts Koin and hosts the Compose UI. Pure Compose
+Multiplatform owns navigation and lifecycle on both platforms; `iosApp` is a
+thin host (ADR 0003).
+
+## Detailed security design
+
+The sections below record mandatory security decisions. They are binding for
+implementation, not suggestions.
 
 ## Server profile import (deep link / QR)
 
