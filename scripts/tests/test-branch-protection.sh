@@ -122,6 +122,23 @@ seed_compliant() { # dir
   put_json "$1" GET "$(workflow_path)" "$WORKFLOW_PERMS"
 }
 
+# Seed the setup call + readback fixtures for the two Actions controls
+# applied by setup-branch-protection.sh (fork-PR approval, workflow perms).
+seed_setup_actions() { # dir
+  put_json "$1" PUT "$(fork_path)" "$FORK_APPROVAL"
+  put_json "$1" GET "$(fork_path)" "$FORK_APPROVAL"
+  put_json "$1" PUT "$(workflow_path)" "$WORKFLOW_PERMS"
+  put_json "$1" GET "$(workflow_path)" "$WORKFLOW_PERMS"
+}
+
+# Seed only the setup prerequisites for the signing step, up to (not including)
+# the Actions controls, so callers can simulate a failure at one of them.
+seed_setup_pre_actions() { # dir
+  put_json "$1" PUT "$(protection_path)" '{}'
+  put_json "$1" POST "$(signatures_path)" '{}'
+  put_json "$1" GET "$(signatures_path)" "$SIGNATURES_ENABLED"
+}
+
 # --- run + assertion helpers ----------------------------------------------
 
 run_setup() { # scenario-dir
@@ -182,13 +199,52 @@ check_not_contains "disabled readback does not report completion" "$out" "setup 
 check_contains "disabled readback reports enabled=false" "$out" "enabled=false"
 
 s="$(new_scenario sec01-success)"
-put_json "$s" PUT "$(protection_path)" '{}'
-put_json "$s" POST "$(signatures_path)" '{}'
-put_json "$s" GET "$(signatures_path)" "$SIGNATURES_ENABLED"
+seed_setup_pre_actions "$s"
+seed_setup_actions "$s"
 out="$(run_setup "$s")"; code=$?
 check "enabled readback exits zero" "0" "$code"
 check_contains "enabled readback reports verified" "$out" "verified"
+check_contains "setup applies fork-PR approval and verifies it" "$out" "Fork-PR contributor approval policy verified"
+check_contains "setup applies read-only workflow permissions and verifies them" "$out" "workflow permissions restricted to read"
 check_contains "enabled readback reports completion" "$out" "setup complete"
+
+s="$(new_scenario sec01-fork-put-fails)"
+seed_setup_pre_actions "$s"
+put_exit "$s" PUT "$(fork_path)" 1
+out="$(run_setup "$s")"; code=$?
+check "fork-approval PUT failure exits nonzero" "1" "$code"
+check_not_contains "fork-approval PUT failure does not report completion" "$out" "setup complete"
+check_contains "fork-approval PUT failure names the control" "$out" "fork-PR contributor approval"
+
+s="$(new_scenario sec01-fork-readback-missing)"
+seed_setup_pre_actions "$s"
+put_json "$s" PUT "$(fork_path)" "$FORK_APPROVAL"
+put_json "$s" GET "$(fork_path)" '{}'
+out="$(run_setup "$s")"; code=$?
+check "missing fork-approval readback exits nonzero" "1" "$code"
+check_not_contains "missing fork-approval readback does not report completion" "$out" "setup complete"
+check_contains "missing fork-approval readback names approval_policy" "$out" "approval_policy"
+
+s="$(new_scenario sec01-workflow-put-fails)"
+seed_setup_pre_actions "$s"
+put_json "$s" PUT "$(fork_path)" "$FORK_APPROVAL"
+put_json "$s" GET "$(fork_path)" "$FORK_APPROVAL"
+put_exit "$s" PUT "$(workflow_path)" 1
+out="$(run_setup "$s")"; code=$?
+check "workflow-permissions PUT failure exits nonzero" "1" "$code"
+check_not_contains "workflow-permissions PUT failure does not report completion" "$out" "setup complete"
+check_contains "workflow-permissions PUT failure names the control" "$out" "workflow permissions"
+
+s="$(new_scenario sec01-workflow-readback-unsafe)"
+seed_setup_pre_actions "$s"
+put_json "$s" PUT "$(fork_path)" "$FORK_APPROVAL"
+put_json "$s" GET "$(fork_path)" "$FORK_APPROVAL"
+put_json "$s" PUT "$(workflow_path)" "$WORKFLOW_PERMS"
+put_json "$s" GET "$(workflow_path)" '{"default_workflow_permissions": "write", "can_approve_pull_request_reviews": true}'
+out="$(run_setup "$s")"; code=$?
+check "unsafe workflow readback exits nonzero" "1" "$code"
+check_not_contains "unsafe workflow readback does not report completion" "$out" "setup complete"
+check_contains "unsafe workflow readback is reported" "$out" "workflow-permissions readback"
 
 echo ""
 echo "== SEC-02: verify-branch-protection.sh verifies every declared control =="

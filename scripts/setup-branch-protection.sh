@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # scripts/setup-branch-protection.sh
 # Applies branch protection on `main` branch via GitHub REST API.
+# Also applies the Actions fork-PR approval and workflow-permission controls
+# (T10 / OPE-10 criterion 4). Every step fails closed: a failed call or a
+# readback that is missing/false aborts nonzero instead of reporting success.
 # Requirements: gh, jq
 
 set -euo pipefail
@@ -74,5 +77,62 @@ if [ "$SIGNATURES_ENABLED" != "true" ]; then
   exit 1
 fi
 echo "[+] Required commit signatures enabled and verified (enabled=true)."
+
+# 3. Require approval for first-time contributors on fork pull request workflows (T10 / OPE-10 criterion 4)
+# Fail closed: the setting must be applied AND read back before claiming success.
+echo "Setting fork pull request workflow approval policy..."
+if ! gh api --method PUT "repos/$REPO/actions/permissions/fork-pr-contributor-approval" \
+     -f approval_policy=first_time_contributors >/dev/null; then
+  echo "[-] FAILED: could not set fork-PR contributor approval policy for $REPO" >&2
+  exit 1
+fi
+
+FORK_RESPONSE="$(gh api "repos/$REPO/actions/permissions/fork-pr-contributor-approval")" || {
+  echo "[-] FAILED: could not read back fork-PR contributor approval policy for $REPO" >&2
+  exit 1
+}
+FORK_POLICY="$(printf '%s' "$FORK_RESPONSE" | jq -r '.approval_policy // empty')" || {
+  echo "[-] FAILED: fork-PR approval readback is not valid JSON for $REPO" >&2
+  exit 1
+}
+case "$FORK_POLICY" in
+  first_time_contributors | first_time_contributors_new_to_github | all_external_contributors)
+    echo "[+] Fork-PR contributor approval policy verified (approval_policy=$FORK_POLICY)."
+    ;;
+  *)
+    echo "[-] FAILED: fork-PR approval readback approval_policy=${FORK_POLICY:-<missing>} (expected first_time_contributors)" >&2
+    exit 1
+    ;;
+esac
+
+# 4. Restrict default GITHUB_TOKEN workflow permissions to read-only (T10 / OPE-10)
+# Fail closed: the setting must be applied AND read back before claiming success.
+echo "Restricting default workflow permissions to read..."
+if ! gh api --method PUT "repos/$REPO/actions/permissions/workflow" \
+     -f default_workflow_permissions=read \
+     -F can_approve_pull_request_reviews=false >/dev/null; then
+  echo "[-] FAILED: could not restrict Actions workflow permissions for $REPO" >&2
+  exit 1
+fi
+
+WORKFLOW_RESPONSE="$(gh api "repos/$REPO/actions/permissions/workflow")" || {
+  echo "[-] FAILED: could not read back Actions workflow permissions for $REPO" >&2
+  exit 1
+}
+WORKFLOW_DEFAULT="$(printf '%s' "$WORKFLOW_RESPONSE" | jq -r '.default_workflow_permissions // empty')" || {
+  echo "[-] FAILED: Actions workflow-permissions readback is not valid JSON for $REPO" >&2
+  exit 1
+}
+# Note: a JSON `false` must be compared as the string "false"; `// empty` would
+# erase it, so read the raw value (missing key yields the string "null").
+WORKFLOW_APPROVE="$(printf '%s' "$WORKFLOW_RESPONSE" | jq -r '.can_approve_pull_request_reviews')" || {
+  echo "[-] FAILED: Actions workflow-permissions readback is not valid JSON for $REPO" >&2
+  exit 1
+}
+if [ "$WORKFLOW_DEFAULT" != "read" ] || [ "$WORKFLOW_APPROVE" != "false" ]; then
+  echo "[-] FAILED: workflow-permissions readback default=${WORKFLOW_DEFAULT:-<missing>} can_approve=${WORKFLOW_APPROVE:-<missing>} (expected read/false)" >&2
+  exit 1
+fi
+echo "[+] Actions default workflow permissions restricted to read and cannot approve PR reviews."
 
 echo "Branch protection setup complete for $REPO:main."
