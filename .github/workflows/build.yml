@@ -1,0 +1,85 @@
+name: Build
+
+# OPE-18 — Build step.
+#
+# Compiles/bundles the application into deployable artifacts for BOTH target
+# families from the SAME revision (one workflow run => one github.sha):
+#   - Android: debug + release APK and release AAB via
+#     :androidApp:assemble{Debug,Release} + :androidApp:bundleRelease
+#   - Apple (iOS/macOS host): Kotlin/Native framework link for iosSimulatorArm64
+#     and iosArm64
+#
+# Toolchain policy (repo Actions allowlist):
+#   The organization allows only `actions/checkout@*` to run. Every other
+#   action (`actions/setup-java`, `gradle/actions/setup-gradle`,
+#   `android-actions/setup-android`, `actions/upload-artifact`) is rejected with
+#   `startup_failure` before the job starts. This workflow therefore uses ONLY
+#   `actions/checkout` and relies on the JDK / Gradle / Android SDK / Xcode that
+#   GitHub-hosted runners already provide. Reproducibility across environments
+#   comes from the checked-in pinning instead:
+#     - Gradle 8.10.2, pinned by gradle/wrapper/gradle-wrapper.properties
+#     - Kotlin / AGP / Compose Multiplatform, pinned in gradle/libs.versions.toml
+#     - JDK: JAVA_HOME_21_X64 (ubuntu) / JAVA_HOME_21_* (macOS) supplied by the
+#       runner image, so both jobs build with the same major JDK.
+#   If the allowlist is later widened to include `actions/upload-artifact`, add
+#   an upload step for the paths listed under each job.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    name: Build Android (APK/AAB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Assemble Android debug + release artifacts
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          chmod +x gradlew
+          java -version
+          ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease :androidApp:bundleRelease --no-daemon --stacktrace
+      - name: Verify Android artifacts
+        run: |
+          set -euo pipefail
+          echo "APK outputs:"
+          find androidApp/build/outputs/apk -name '*.apk' -print -exec sha256sum {} \;
+          echo "AAB outputs:"
+          find androidApp/build/outputs/bundle -name '*.aab' -print -exec sha256sum {} \;
+          test -n "$(find androidApp/build/outputs/apk -name '*.apk' -print -quit)"
+          test -n "$(find androidApp/build/outputs/bundle -name '*.aab' -print -quit)"
+
+  build-ios:
+    name: Build iOS/macOS frameworks
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Link Kotlin/Native iOS frameworks
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-$JAVA_HOME}}"
+          chmod +x gradlew
+          java -version
+          ./gradlew linkDebugFrameworkIosSimulatorArm64 linkDebugFrameworkIosArm64 --no-daemon --stacktrace
+      - name: Verify iOS frameworks
+        run: |
+          set -euo pipefail
+          find . -path '*/build/bin/*/debugFramework/*.framework' -print | sort
+          test -n "$(find . -path '*/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
+          test -n "$(find . -path '*/build/bin/iosArm64/debugFramework/*.framework' -print -quit)"
+          test -n "$(find . -path '*/shared/security/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
+          test -n "$(find . -path '*/shared/domain/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
