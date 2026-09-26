@@ -109,6 +109,9 @@ class IosTlsHandshakePinningTest {
         )
         val configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration()
         configuration.timeoutIntervalForRequest = 10.0
+        if (authorization != null) {
+            configuration.HTTPAdditionalHeaders = mapOf<Any?, Any?>("Authorization" to authorization)
+        }
         val session = NSURLSession.sessionWithConfiguration(
             configuration = configuration,
             delegate = delegate,
@@ -121,9 +124,6 @@ class IosTlsHandshakePinningTest {
         val request: NSMutableURLRequest = NSMutableURLRequest.requestWithURL(url)
         request.setHTTPMethod(method)
         request.setTimeoutInterval(10.0)
-        if (authorization != null) {
-            request.allHTTPHeaderFields = mapOf<Any?, Any?>("Authorization" to authorization)
-        }
 
         val task = session.dataTaskWithRequest(request) { _, response, error ->
             session.invalidateAndCancel()
