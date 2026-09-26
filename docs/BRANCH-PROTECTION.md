@@ -44,7 +44,7 @@ Reviews follow a graduated intensity model based on change sensitivity (`BOOTSTR
 ### 2.1 Standard / Light Review
 - **Scope:** Pure UI changes, design system assets, translations, and non-security public documentation.
 - **Required Approvals:** Code Reviewer + passing CI.
-- **Owner Gate:** Maintainer merges after approvals.
+- **Owner Gate:** Maintainer approves on GitHub; an agent then merges via `scripts/merge-agent-pr.sh` once the gate is satisfied (see `docs/MERGE-PATH.md`).
 
 ### 2.2 Enhanced Review (Security & Core Infrastructure)
 - **Scope:**
