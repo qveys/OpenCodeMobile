@@ -42,6 +42,3 @@ include(":features:settings")
 
 // design-system/ — theme, typography, CMP components
 include(":design-system")
-
-// architecture-tests/ — Konsist architecture/dependency rule enforcement (§5.2)
-include(":architecture-tests")
