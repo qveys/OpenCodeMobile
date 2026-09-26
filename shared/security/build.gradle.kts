@@ -19,12 +19,17 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation(project(":shared:domain"))
+            api(project(":shared:domain"))
             implementation(libs.kotlinx.coroutines.core)
         }
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
+        }
+
+        androidMain.dependencies {
+            implementation(libs.okhttp)
         }
     }
 }
