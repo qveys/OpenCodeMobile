@@ -9,10 +9,11 @@ name: Logging Redaction (T4)
 # before the job starts (same constraint documented in build.yml). This workflow
 # therefore uses ONLY `actions/checkout`.
 #
-# Runner policy: jobs run on the company self-hosted runner pool
-# (`[self-hosted, hostinger]` -> vps-dokploy / vps-openclaw), not on
-# GitHub-hosted runners. The static scan is plain bash; the redaction tests use
-# the JDK / Gradle / Android SDK provisioned on those runners.
+# Runner policy: jobs run on the company self-hosted runner pool, not on
+# GitHub-hosted runners. The lightweight static scan runs on the Linux hostinger
+# VPS (`[self-hosted, hostinger]` -> vps-dokploy / vps-openclaw); the Gradle /
+# Android redaction tests run on the macOS runner (`[self-hosted, mac]` ->
+# macbook-openclaw), which carries the JVM / Android toolchain.
 #
 # The `pull_request` trigger is intentionally NOT path-filtered. A path-filtered
 # workflow produces no status when a PR touches none of its paths, which would
@@ -45,7 +46,7 @@ jobs:
 
   redaction-tests:
     name: Redaction unit tests
-    runs-on: [self-hosted, hostinger]
+    runs-on: [self-hosted, mac]
     needs: static-scan
     timeout-minutes: 40
     steps:
@@ -55,6 +56,9 @@ jobs:
           set -euo pipefail
           if [ -z "${JAVA_HOME:-}" ] && [ -n "${JAVA_HOME_21_X64:-}" ]; then
             export JAVA_HOME="$JAVA_HOME_21_X64"
+          fi
+          if [ -z "${JAVA_HOME:-}" ] && [ -x /usr/libexec/java_home ]; then
+            export JAVA_HOME="$(/usr/libexec/java_home 2>/dev/null || true)"
           fi
           if [ -n "${JAVA_HOME:-}" ]; then
             export PATH="$JAVA_HOME/bin:$PATH"
