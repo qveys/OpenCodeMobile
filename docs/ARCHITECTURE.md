@@ -1,15 +1,462 @@
 # Architecture — OpenCode Mobile
 
-Status: **partial**. This document currently covers only the server-profile
-import mechanism (resolving `docs/THREAT-MODEL.md` T8, tracked by OPE-29),
-permission approval confirmation (resolving T2, tracked by OPE-25), local
-cache encryption at rest (resolving T3, tracked by OPE-26), and server
-identity verification (resolving T1, tracked by OPE-24).
-The full system architecture — component structure, data flow, API
-boundaries, deployment model — is the scope of OPE-5 and is not yet written;
-it depends on the tech-stack decisions in OPE-4. This file will be expanded
-in place once OPE-5 lands; do not treat it as complete until that note is
-removed.
+This document is the system architecture of OpenCode Mobile: component
+structure, data flow, API boundaries, and deployment model. It supersedes the
+placeholder that previously deferred this scope to OPE-5.
+
+Status: **complete for the V1 architecture**. The detailed security sections
+under **Detailed security design** record mandatory decisions in full and are
+binding for implementation. Where a component still needs its own deep dive,
+the owning issue is named explicitly instead of silently omitting it.
+
+Scope sources: the *Cahier des charges d'architecture v1.0* (attached to
+OPE-2), `docs/TECH-STACK.md` (OPE-4), `docs/THREAT-MODEL.md` (OPE-7),
+`docs/CI-CD-SECURITY.md`, `ROADMAP.md`, the ADRs in `docs/adr/`, and the
+KMP/CMP scaffold landed by PR #14 on branch
+`OPE-14-add-linter-and-configure-lint-rules`.
+
+---
+
+## 1. System context
+
+OpenCode Mobile is a thin, native client. It talks directly to the user's own
+OpenCode Server v2 over LAN or Tailscale. There is no product backend, no
+relay, and no prompt or code telemetry.
+
+```text
+┌──────────────────────────┐      HTTPS / SSE       ┌───────────────────────────┐
+│  OpenCode Mobile (app)   │  ───────────────────▶  │  OpenCode Server v2       │
+│  Android  ·  iOS         │  ◀───────────────────  │  (self-hosted by user)    │
+│  Compose UI + shared KMP │      /event stream     │  sole source of truth     │
+└──────────────────────────┘                        └───────────────────────────┘
+      │  disposable, encrypted cache (read-only offline)
+      ▼
+  SQLDelight
+```
+
+Seven properties define every choice below:
+
+1. **The server is authoritative.** Sessions, messages, permissions,
+   questions, and file state come from the server. The local cache only
+   serves offline reads and is rebuilt from the next server snapshot.
+2. **Point-to-point connection.** The app connects to the server address the
+   user configured; credentials and traffic never traverse a third party.
+3. **The app is a remote control, not an IDE.** It starts, watches, and
+   steers agent work; it does not edit code, run a model, or reimplement
+   OpenCode.
+4. **Mobile networks are hostile.** Connection loss, backgrounding, network
+   changes, and flaky VPN paths are the normal case, not edge cases.
+5. **Consequential actions require foreground, human confirmation.** Approving
+   a tool call authorizes code execution on the user's machine.
+6. **Platform-native where the platform owns it.** Secure storage,
+   biometrics, notifications, and speech recognition are per-platform behind
+   `expect`/`actual`; everything else is shared Kotlin.
+7. **One maintainer.** Boundaries are enforced by machine-checked rules and
+   CI, not by review capacity.
+
+---
+
+## 2. Component structure
+
+### 2.1 Layers
+
+Clean Architecture, dependency direction pointing inward only:
+
+| Ring | Modules | Responsibility |
+|---|---|---|
+| Domain | `shared/domain` | Entities, value objects, ports. Kotlin stdlib only. |
+| Application | `shared/application` | Use cases orchestrating domain ports and coroutines. |
+| Infrastructure | `shared/data`, `shared/networking`, `shared/realtime`, `shared/persistence`, `shared/security` | Adapters for server protocol, event stream, cache, and platform security. |
+| Presentation | `features/*`, `design-system`, `androidApp`, `iosApp` | Compose UI, ViewModels, navigation, platform host shells. |
+
+### 2.2 Module map
+
+| Module | Kind | Responsibility |
+|---|---|---|
+| `androidApp` | Android app | Host shell, Koin composition root, platform `actual` wiring. |
+| `iosApp` | Swift/Xcode host | Swift entry point; not a Gradle module. See `iosApp/README.md`. |
+| `shared/domain` | KMP library | Entities, value objects, and ports. Kotlin stdlib only. |
+| `shared/application` | KMP library | Use cases that orchestrate domain ports and coroutines. |
+| `shared/data` | KMP library | Repository implementations, coordinating networking, realtime, persistence, and security. |
+| `shared/networking` | KMP library | Ktor client, `OpenCodeV2Adapter`, generated OpenAPI client, log redaction. |
+| `shared/realtime` | KMP library | Event pipeline: SSE, polling fallback, backoff, snapshot reconciliation. |
+| `shared/persistence` | KMP library | SQLDelight cache schema and drivers. |
+| `shared/security` | KMP library | Secure storage, TOFU/TLS identity verification, biometrics. |
+| `shared/test-support` | KMP library | Fakes, fixtures, and the deterministic `MockOpenCodeServer`. |
+| `features/{connection,projects,sessions,transcript,composer,files,permissions,settings}` | KMP libraries | One module per user-facing capability. |
+| `design-system` | KMP library | Design tokens, typography, and reusable Compose components. |
+| `architecture-tests` | JVM test module | Konsist assertions that enforce the dependency rules below. |
+
+The Gradle module list is authoritative in `settings.gradle.kts`; the scaffold
+is recorded in ADR 0001. `iosApp` is intentionally not a Gradle subproject: it
+is an Xcode project linking one static framework per Kotlin module (ADR 0001
+§3, §4).
+
+### 2.3 Ownership and seams
+
+Each layer owns one kind of truth, and the seams between them are the ports
+that cross-layer work goes through:
+
+| Owner | Truth it owns | Seam it exposes |
+|---|---|---|
+| `shared/domain` | Domain model and policy-free ports | `OpenCodeGateway`, `ServerIdentityStore`, `ServerIdentityVerifier`, `EventSource`, `SessionCache` ports |
+| `shared/networking` | Protocol shape: HTTP, SSE framing, generated DTOs, auth header, log redaction | Implements `OpenCodeGateway` (`OpenCodeV2Adapter`) |
+| `shared/realtime` | Ordering, retry, reconciliation | Implements the event stream on top of the gateway |
+| `shared/persistence` | Local cache schema only (disposable) | SQLDelight queries behind a domain port |
+| `shared/security` | Credential storage, identity pins, biometric gate | Implements the domain security ports |
+| `features/*` | Screen state and user intent | ViewModels exposing application-layer flows |
+| `androidApp` / `iosApp` | Composition root only | Koin module assembly, platform `actual`s |
+
+Rules that hold across all of them:
+
+- **Generated OpenAPI types never leave `shared/networking`** (Rule R3,
+  ADR-0002). `shared/networking` is the only module permitted to import
+  `org.opencode.mobile.networking.client.generated.*`.
+- **Features never touch infrastructure directly.** A feature depends on
+  `shared/domain`, `shared/application`, `design-system`, Compose, and Koin —
+  never Ktor, SQLDelight, the generated client, or another feature's
+  internals.
+- **`shared/domain` stays pure.** Not even `kotlinx-coroutines-core`
+  (ADR 0001 §5); streaming ports that need `Flow` are resolved at the
+  application layer.
+
+### 2.4 Enforced dependency rules
+
+The architecture specification fixes the edges below.
+`architecture-tests/ModuleBoundaryTest.kt` (PR #14, ADR 0004) encodes them and
+fails CI on any violation:
+
+1. `shared/domain` depends only on the Kotlin stdlib.
+2. `shared/application` may depend only on `shared/domain` and
+   `kotlinx.coroutines`.
+3. `shared/data` may depend on `shared/domain`, `shared/networking`,
+   `shared/realtime`, `shared/persistence`, and `shared/security`.
+4. `shared/networking` may depend only on `shared/domain` and Ktor. It
+   exclusively owns the generated OpenAPI client.
+5. `shared/realtime` may depend only on `shared/domain` and
+   `shared/networking`.
+6. `shared/persistence` may depend only on `shared/domain` and SQLDelight.
+7. `shared/security` may depend only on `shared/domain`.
+8. Each `features/*` module may depend only on `shared/domain`,
+   `shared/application`, `design-system`, Compose, and Koin. Features must not
+   reach into another feature's internals.
+9. `design-system` may depend only on Compose and the Kotlin stdlib.
+10. Features, `design-system`, and `androidApp` must not import Ktor,
+    SQLDelight, or platform secure-storage APIs directly.
+11. The generated client is never hand-edited.
+12. Koin module declarations are permitted only in `androidApp` and
+    `features/*` (never `shared/*` or `design-system`).
+
+Additional CI gates in the same class:
+
+- `scripts/verify-r3-generated-types.sh` — no generated-type import outside
+  `shared/networking`.
+- `scripts/check-no-secret-logging.sh` plus
+  `.github/workflows/security-logging.yml` — no raw credential or prompt-body
+  logging (T4).
+
+---
+
+## 3. Data flow
+
+### 3.1 Connection, identity, and handshake
+
+```text
+profile (manual | deep link | QR)
+   │
+   ├─▶ import review screen ──persist──▶ secure storage (Keystore/Keychain)
+   │
+   ▼
+OpenCodeGateway.connect(profile, credential)
+   │
+   ├─ 1. ServerIdentityGate.authorize(profile)     ← TOFU pin check, runs first
+   │        first contact → ConfirmationRequired    (show fingerprint, ask user)
+   │        pinned match  → Authorized             (permit released)
+   │        mismatch      → Blocked                (fail closed, no credential)
+   │
+   ├─ 2. credential permit set (only after step 1)
+   ├─ 3. platform TLS engine enforces the pin during handshake (defense in depth)
+   ├─ 4. GET /global/health → version → CompatibilityProfile gate
+   └─ 5. ConnectionHandshake(profileId, health, identity)
+```
+
+Failure modes are typed at the domain boundary (`DomainError`: unreachable,
+incompatible server, untrusted identity, rejected credential) so the
+connection feature can render a specific screen instead of a generic error.
+The T1 design is mandatory and already implemented in `shared/security` and
+`OpenCodeV2Adapter.connect`.
+
+### 3.2 Realtime event pipeline
+
+```text
+GET /event (SSE, text/event-stream)
+   │
+   ▼
+EventProcessor (one per connection; owned by shared/realtime)
+   │  normalize → order → dedupe by server-issued ids
+   ├─▶ in-memory model (source for Compose state)
+   ├─▶ cache writer (shared/persistence, encrypted)
+   └─▶ on stream loss:
+          degrade to polling GET /session/status
+          exponential backoff with a floor on the interval
+          on reconnect: fetch snapshot → reconcile →
+                        drop replayed/duplicate events → resume live
+```
+
+Three invariants:
+
+- **Mutations are never auto-replayed.** A dropped connection must never
+  re-send an approve/deny, prompt, or abort. Replay would double-submit an
+  action with real side effects on the user's machine (T2/T6).
+- **Reconciliation is idempotent.** Server-issued, single-use request ids
+  (`^per`, `^ses`) make duplicate or out-of-order delivery harmless.
+- **Offline is read-only.** While the stream is down the UI shows a persistent
+  stale-data indicator and every mutating action is disabled at the use-case
+  layer, not merely hidden in the UI (T12).
+
+### 3.3 Prompt, permission, and question flows
+
+**Send a prompt.** `POST /session/{sessionID}/prompt_async` is
+fire-and-forget and returns `204` as soon as the server accepts it. The client
+never uses a blocking prompt endpoint: reasoning, tool calls, text chunks,
+permission requests, and questions all arrive on `/event`. Abort is
+`POST /session/{sessionID}/abort`.
+
+**Answer a permission request.**
+
+```text
+server emits permission request ──▶ /event ──▶ EventProcessor
+   ├─▶ in-app pending list
+   └─▶ local notification (informational; deep link only, no inline "Approve")
+            │                        ("Deny" is allowed: safe, reversible)
+            ▼
+   foreground confirmation screen
+      full command/diff disclosure · explicit distinct tap ·
+      biometric gate · bound to request id + content hash
+            ▼
+   POST /permission/{requestID}/reply  { once | always | reject, message }
+```
+
+**Answer an agent question.** `GET /question` lists pending questions;
+`POST /question/{requestID}/reply` takes `{ answers: [[label, ...]] }` and
+`POST /question/{requestID}/reject` takes an empty body. Both accept the
+optional `directory` query parameter, and the adapter always passes the active
+project root so answers cannot cross-contaminate another workspace on the same
+server (ADR-0002 §3.3).
+
+**Read files and diffs.** `GET /file`, `GET /file/content`, `GET /file/status`
+for the tree and read-only viewer; `GET /session/{sessionID}/diff` for unified
+diffs. Responses are bounded with graceful truncation and a "view full file"
+fallback (T7); the 5 MB viewer target is an L5 exit criterion.
+
+### 3.4 Read path and cache
+
+```text
+Compose screen → ViewModel → application use case
+                                 ├─ live: EventProcessor state (SSE-derived)
+                                 └─ offline: SessionCache (SQLDelight, encrypted)
+```
+
+The cache is scoped `ServerId → ProjectId → SessionId`, written only from
+events, and never the source of truth: it can be wiped and rebuilt from the
+next snapshot at any time. Cache encryption, backup exclusion, and key-loss
+handling are mandatory and specified below.
+
+### 3.5 UI and dependency injection
+
+Compose screens and shared ViewModels observe application-layer flows with
+unidirectional data flow (`StateFlow` in, events out). Koin modules are
+declared in `androidApp` (composition root) and `features/*`; the `iosApp`
+Swift shell starts Koin and hosts the Compose UI. Pure Compose Multiplatform
+owns navigation and lifecycle on both platforms — `iosApp` stays a thin host
+(ADR 0003).
+
+---
+
+## 4. API boundaries
+
+The app's entire external contract is the OpenCode Server v2 HTTP + SSE API.
+The app exposes no API of its own. The endpoint tables, pinning metadata, and
+generation procedure live in `docs/API.md`; the verified mapping between the
+specification's assumed endpoints and the real spec is ADR-0002.
+
+### 4.1 The five boundaries
+
+| # | Boundary | Direction | Guarantee |
+|---|---|---|---|
+| 1 | App ↔ OpenCode Server v2 | outbound only | Point-to-point HTTPS + SSE over LAN/Tailscale. No relay, no third party, no telemetry. |
+| 2 | App code ↔ generated OpenAPI client | inward | Generated types are confined to `shared/networking`; only `OpenCodeV2Adapter` may consume them (R3). |
+| 3 | `OpenCodeGateway` port ↔ infrastructure | inward | Domain and application code see only domain types and typed errors. |
+| 4 | App process ↔ platform secure services | platform | Credentials, identity pins, and the cache key live in Keychain/Keystore; no plaintext fallback (B2). |
+| 5 | Repository ↔ release pipeline | supply chain | Fork PRs run without secrets; signing and upload restricted to protected `main` (T10). |
+
+### 4.2 Pinned specification
+
+| Field | Value |
+|---|---|
+| Server | OpenCode Server v2 `1.18.32` |
+| OpenAPI | `3.1.0` |
+| Vendored spec | `shared/networking/openapi/opencode-server-v2.json` |
+| SHA-256 | `46db986090aae41846cd6dbe16225a1d883f0bbcb4c48814008d3f6ce140aa5c` |
+
+The spec is vendored so builds are reproducible and never depend on a running
+server, and it is regenerated only through a reviewed PR (T11). The generated
+client is derived from that file; the pinned toolchain versions are in
+`gradle/libs.versions.toml`.
+
+### 4.3 Surfaces and transport rules
+
+- **Root surface is canonical.** `OpenCodeV2Adapter` standardizes on
+  `/global/health`, `/event`, `/session*`, `/permission`, `/question`,
+  `/project`, `/config`, `/provider`, `/agent`, `/file`, `/find`. The
+  experimental `/api/*` surface is reference material only (ADR-0002 §3.1).
+- **SSE is the only realtime transport.** `/event` (`text/event-stream`),
+  one-directional, plain HTTP, no upgrade handshake; polling
+  `/session/status` is the fallback. WebSocket is not used.
+- **Async prompt only.** No blocking prompt endpoint is ever called from the
+  client.
+- **One credential, one place.** `Authorization: Bearer <token>` (or the
+  Basic form when a server is configured that way) is attached by the
+  adapter's interceptor, and only while the identity gate has authorized the
+  connection. The token is read from Keychain/Keystore, never persisted
+  elsewhere, never logged (T4), and never embedded in a deep link or QR (T8).
+- **Directory scoping.** Requests that can span workspaces carry the active
+  project root as the `directory` parameter.
+- **Error model.** The adapter maps HTTP and transport failures to typed
+  domain errors; raw status codes and generated error types do not escape the
+  adapter.
+
+### 4.4 Compatibility policy
+
+The server is external and versioned independently, so compatibility is
+checked, not assumed: the handshake reads the version from
+`GET /global/health` and gates the connection behind a `CompatibilityProfile`.
+An incompatible server produces an explicit screen with the server's version
+and the supported range. Contract tests against a real instance plus the
+deterministic `MockOpenCodeServer` are the drift detector; the compatibility
+matrix is an L6 deliverable.
+
+---
+
+## 5. Deployment model
+
+### 5.1 What is deployed
+
+OpenCode Mobile ships as two native store applications. There is no server
+side to deploy, no hosted environment to operate, and no infrastructure cost.
+
+| Artifact | Platform | Distribution |
+|---|---|---|
+| Android app (`.aab`) | Android API 31+ | Google Play: internal → closed → public track |
+| iOS app (`.ipa`) | iOS 26+ | TestFlight → App Store |
+
+Two one-off, manual prerequisites sit outside the app itself:
+
+- **Verified link domain.** App Links / Universal Links need an owned domain
+  serving the association files; profile import prefers verified links over a
+  custom scheme (T8). Until that domain exists, import works through the
+  in-app QR scanner path, which shares the same review screen.
+- **Store accounts and signing material.** A Play Console account, an Apple
+  Developer account, an Android upload key, and an App Store Connect API key.
+  These live as CI secrets and are never committed (T10).
+
+### 5.2 Environments
+
+| Environment | Purpose | Trigger | Secrets |
+|---|---|---|---|
+| Local | Development on one machine | manual | none committed |
+| CI (PR) | Lint, architecture tests, unit tests, dual-platform build | every pull request | none (fork PRs run with no secrets) |
+| CI (main) | Same gates on merge; signing and upload jobs are restricted to `main` | push to `main` | none until signing stage |
+| Contract | Behavioral check against a real OpenCode instance | pipeline step | test server credential, scoped |
+| Internal track | TestFlight / Play internal smoke | release workflow | signing + store credentials, environment-gated |
+| Store | Public release | manual approval gate | signing + store credentials |
+
+There is no separate staging or production server tier — the OpenCode Server
+belongs to the user, not to the project.
+
+### 5.3 Release pipeline
+
+```text
+PR ──▶ lint ──▶ architecture tests ──▶ unit tests ──▶ Android build + iOS build
+                                                        │
+                                        required review + branch protection
+                                                        ▼
+                                        merge to main (signed commits)
+                                                        ▼
+                                   release workflow ──▶ signed artifacts
+                                                        ▼
+                                   Play internal ──▶ TestFlight ──▶ public
+                                                        ▲
+                                            manual approval gate (§11)
+```
+
+Controls that are architecture, not process:
+
+- **No direct commits to `main`.** Every change lands through a pull request.
+- **Signed commits only.** The repository enforces `required_signatures`;
+  commits are produced through the signed-commit path so GitHub verifies them.
+- **Fork PRs never see secrets.** First-time contributor workflows require
+  maintainer approval (T10, `docs/CI-CD-SECURITY.md`).
+- **Signing restricted to `main`/tags**, with least-privilege workflow
+  permissions and environment-gated credentials.
+- **Release artifacts are immutable and reproducible** from the pinned spec,
+  pinned toolchain, and signed commit.
+
+### 5.4 Runtime deployment shape
+
+- **Local data:** encrypted SQLDelight cache, credential and identity pins in
+  Keychain/Keystore, both excluded from OS/cloud backups.
+- **No background service:** the app holds one connection while it is
+  running; it does not run a daemon, a sync worker, or a push relay. Local
+  notifications are generated by the app for events it is already receiving.
+- **Failure posture:** when the server is unreachable the app is a read-only
+  cache viewer with an explicit stale indicator; it never queues writes to
+  send later.
+
+---
+
+## 6. Cross-cutting concerns
+
+| Concern | Decision | Where enforced |
+|---|---|---|
+| Concurrency and state | Coroutines + `StateFlow`, unidirectional data flow | `shared/application`, `features/*` |
+| Dependency injection | Koin, runtime resolution, composition root only | `androidApp`, `features/*` |
+| Localization | French + English from V1 | resources in `androidApp` / `iosApp` / `design-system` |
+| Logging | One sanctioned sanitizing entry point | `shared/networking/.../logging/`, CI gate |
+| Error handling | Typed `DomainError` at the domain boundary | `shared/domain`, `shared/networking` |
+| Accessibility | Best-effort V1, full pass in L6 | `design-system`, `features/*` |
+| Deviation control | Anything not literally fixed by the specification needs an ADR | `docs/adr/` |
+
+---
+
+## 7. Component deep-dive status
+
+This document fixes the architecture. The following components still need
+their own implementation-level specification or implementation, each owned by
+a separate issue:
+
+| Component | Status | Owner |
+|---|---|---|
+| Module scaffold | Landed by PR #14 (branch `OPE-14-add-linter-and-configure-lint-rules`) | OPE-14 / OPE-30 |
+| Generated OpenAPI client | Spec pinned; adapter boundary recorded in ADR-0002 | OPE-31 |
+| `MockOpenCodeServer` | Planned; contract-test seam fixed here | OPE-32 |
+| Local cache schema (real tables) | Placeholder `Cache.sq` only | OPE-30 follow-up / L2 |
+| EventProcessor | Architecture fixed in §3.2; implementation is L2 | L2 |
+| Identity verification (T1) | Implemented in `shared/security` + `OpenCodeV2Adapter.connect` | OPE-35 |
+| Permission approval flow (T2) | Design fixed below; implementation is L3 | OPE-25 |
+| Cache encryption (T3) | Design fixed below | OPE-26 |
+| Log redaction (T4) | Implemented; CI-enforced | OPE-56 |
+| Dictation (T5) | Design fixed below | OPE-28 |
+| Profile import (T8) | Design fixed below | OPE-29 |
+| Design system | Skeleton in `design-system/`; visual language in L0 | OPE-6 |
+| iOS POC | Required to validate CMP rendering on iOS 26+ | L0 |
+
+---
+
+## Detailed security design
+
+The sections below record mandatory security decisions. They are binding for
+implementation, not suggestions.
 
 ## Server profile import (deep link / QR)
 
@@ -487,3 +934,46 @@ future `OpenCodeV2Adapter` HTTP client must obtain its `HttpClient` from a
 configuration that calls `installSanitizingLogging`; the CI gate fails the build
 otherwise.
 
+---
+
+## 8. Architecture decision records
+
+| ADR | Decision |
+|---|---|
+| [0001](adr/0001-monorepo-module-scaffold.md) | Monorepo module scaffold: namespace, toolchain versions, one iOS framework per module, `iosApp` as a thin Swift host, `shared/domain` stdlib-only. |
+| [0002](adr/ADR-0002-opencode-v2-api-surface-mapping.md) | OpenCode v2 API surface mapping: root surface is canonical, async prompt only, directory scoping, generated-client isolation (R3). |
+| [0003](adr/0003-liquid-glass-vs-pure-cmp-ios.md) | Pure Compose Multiplatform UI on iOS, no native Liquid Glass chrome; CMP owns navigation and lifecycle. |
+| [0004](adr/0004-architecture-dependency-rules-konsist.md) | Architecture/dependency rules enforced by Konsist in CI. |
+| [on-device-speech-to-text](adr/on-device-speech-to-text.md) | On-device-only dictation in V1, with a fail-closed availability model. |
+
+Anything not literally fixed by the architecture specification goes through an
+ADR, per the specification's own rule.
+
+## 9. Open decisions
+
+| # | Decision | State |
+|---|---|---|
+| OP1 | Liquid Glass vs. pure Compose Multiplatform on iOS | Resolved — ADR 0003. iOS POC still required. |
+| OP2 | Local cache encryption | Resolved — encrypted at rest; see detailed design above. |
+| OP3 | Single vs. multiple server profiles in V1 | Open — affects the connection data model; decide before L1. |
+| OP4 | Approving permissions from a lock-screen notification | Resolved — not offered; see detailed design above. |
+| OP5 | `PROPOSED`-only requirements in the specification | Open — owned by the Product Owner. |
+
+## 10. Known gaps
+
+- **Build verification of the scaffold is static only** so far: the scaffold PR
+  states that no Gradle build was executed in its sandbox. CI on the merge path
+  is the first real confirmation (ADR 0001).
+- **iOS project wiring** (`.xcodeproj`, per-module framework linking, SwiftUI vs.
+  CMP host integration) is not yet generated; ADR 0001 §4 covers the reason and
+  ADR 0003 fixes the target model.
+- **`shared/*` modules are scaffolds**: `shared/domain` exposes the connection
+  ports, `shared/security` implements T1, and log redaction is real, but the
+  application, data, realtime, persistence, and feature modules are placeholder
+  objects. Their internals are specified in §2–§3 and implemented per `ROADMAP.md`
+  lots L1–L5, gated by the commanditaire's sign-off.
+- **Contract testing against a real server** requires a running instance; the
+  deterministic `MockOpenCodeServer` (OPE-32) is the CI-safe half.
+- This document must be revised whenever a component boundary, transport, or
+  deployment path changes; the security sections additionally follow the
+  threat model's review policy.
