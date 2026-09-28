@@ -22,6 +22,8 @@ local.properties
 # Kotlin Multiplatform / Native
 .konan/
 kotlin-js-store/
+.kotlin/
+*.hprof
 
 # Xcode / CocoaPods
 *.xcodeproj/*
@@ -31,6 +33,17 @@ kotlin-js-store/
 DerivedData/
 Pods/
 build/
+iosApp/**/xcuserdata/
+iosApp/**/*.xcworkspace/xcuserdata/
+iosApp/**/DerivedData/
+iosApp/**/*.xcodeproj/project.xcworkspace/
+iosApp/**/*.xcodeproj/xcuserdata/
+*.ipa
+
+# Android
+*.apk
+*.aab
+captures/
 
 # Signing keys & Keystores (Never commit keystores)
 *.jks

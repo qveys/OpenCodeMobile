@@ -7,8 +7,17 @@ name: Logging Redaction (T4)
 # (`actions/setup-java`, `gradle/actions/setup-gradle`, `android-actions/setup-android`,
 # `actions/upload-artifact`) is rejected by the org policy with `startup_failure`
 # before the job starts (same constraint documented in build.yml). This workflow
-# therefore uses ONLY `actions/checkout` and relies on the JDK / Gradle / Android
-# SDK preinstalled on GitHub-hosted runners.
+# therefore uses ONLY `actions/checkout`.
+#
+# Runner policy: jobs run on the company self-hosted runner pool, not on
+# GitHub-hosted runners. The lightweight static scan runs on the Linux hostinger
+# VPS (`[self-hosted, hostinger]` -> vps-dokploy / vps-openclaw). The Gradle /
+# Android redaction tests target the macOS runner (`[self-hosted, mac]` ->
+# macbook-openclaw); its JDK 21 + Android SDK toolchain is provisioned by
+# `.github/workflows/provision-runner-toolchain.yml` (OPE-98) and resolved at
+# job time through `scripts/ci/runner-toolchain-env.sh`. See
+# `docs/CI-RUNNER-STRATEGY.md`. Until that provisioning is green the job stays
+# disabled on pull_request (see the job-level comment).
 #
 # The `pull_request` trigger is intentionally NOT path-filtered. A path-filtered
 # workflow produces no status when a PR touches none of its paths, which would
@@ -32,7 +41,7 @@ permissions:
 jobs:
   static-scan:
     name: T4 static scan
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -41,7 +50,17 @@ jobs:
 
   redaction-tests:
     name: Redaction unit tests
-    runs-on: ubuntu-latest
+    # TEMPORARILY MANUAL ONLY. This job needs a JDK 21 + Android SDK toolchain.
+    # The self-hosted runner pool (hostinger / mac) has no Java runtime yet, and
+    # the repository Actions allowlist permits only `actions/checkout@*`, so the
+    # toolchain cannot be installed by an action. Downloading a JDK/Android SDK
+    # inside a security gate would add an unverified supply-chain step, so the
+    # job is disabled on pull_request/push instead. OPE-98 provisions the
+    # runners; re-enable the pull_request trigger once Java + Android SDK are
+    # present. It stays runnable by hand: Actions -> Logging Redaction (T4) ->
+    # Run workflow.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, mac]
     needs: static-scan
     timeout-minutes: 40
     steps:
@@ -49,7 +68,7 @@ jobs:
       - name: Run networking redaction tests
         run: |
           set -euo pipefail
-          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          . scripts/ci/runner-toolchain-env.sh
           chmod +x gradlew
           java -version
           ./gradlew :shared:networking:testDebugUnitTest --no-daemon --stacktrace
