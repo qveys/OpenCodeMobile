@@ -4,6 +4,9 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import org.opencode.mobile.networking.client.generated.models.ApiHealthResponse
+import org.opencode.mobile.networking.client.generated.models.ApiSession
+import org.opencode.mobile.networking.client.generated.models.ApiSessionTime
 
 /**
  * OPE-16: initial test that verifies the KMP test runner works.
