@@ -20,7 +20,7 @@ Planned components (per `BOOTSTRAP.md`, decisions are fixed unless marked "open 
 - **CI/CD** — GitHub Actions: architecture/dependency-rule tests, unit/integration tests, contract tests against a real OpenCode instance and a deterministic `MockOpenCodeServer`; automated release to TestFlight and Google Play (build signing).
 - **Distribution** — public open-source repo (MIT), solo maintainer, mandatory PR + review workflow, no direct commits to `main`.
 
-Open product decisions that materially affect risk (flagged throughout): Liquid Glass vs. pure Compose on iOS; single vs. multiple stored server profiles. (The server-profile *import* mechanism itself — deep link/QR — is now specified; see `docs/ARCHITECTURE.md` and T8. Local cache encryption is now resolved; see `docs/ARCHITECTURE.md` and T3. Permission approval from a push notification is now resolved — notifications never carry an inline approve action; see `docs/ARCHITECTURE.md` §"Permission approval confirmation (foreground + authenticated)" and T2.)
+Open product decisions that materially affect risk (flagged throughout): single vs. multiple stored server profiles. (The Liquid Glass vs. pure Compose on iOS decision is now resolved — V1 is pure Compose Multiplatform, no Liquid Glass; see `docs/DESIGN-SYSTEM.md` §2.1. The server-profile *import* mechanism itself — deep link/QR — is now specified; see `docs/ARCHITECTURE.md` and T8. Local cache encryption is now resolved; see `docs/ARCHITECTURE.md` and T3. Permission approval from a push notification is now resolved — notifications never carry an inline approve action; see `docs/ARCHITECTURE.md` §"Permission approval confirmation (foreground + authenticated)" and T2.)
 
 ## 2. Trust boundaries
 
@@ -81,7 +81,7 @@ Risk = Likelihood × Impact, rated Low/Medium/High/Critical. Ratings assume the 
 - **Medium (3)**: T6 (reconciliation replay), T12 (stale offline state), T13 (app-switcher snapshot leakage).
 - **Low (2)**: T7 (DoS via oversized/unbounded stream), T9 (repudiation).
 
-Three of the four **open product decisions** called out in `BOOTSTRAP.md` are now resolved (local cache encryption → T3; server-profile import → T8, folded into the still-open single-vs-multiple-profiles decision; notification-based permission approval → T2, notifications may no longer carry an inline approve action). The remaining one — Liquid Glass vs. pure Compose on iOS — is a UI/platform choice without the same security stakes as the other three.
+Four **open product decisions** were called out in `BOOTSTRAP.md`. Three are now resolved (local cache encryption → T3; server-profile import → T8, folded into the still-open single-vs-multiple-profiles decision; notification-based permission approval → T2, notifications may no longer carry an inline approve action), and the fourth — Liquid Glass vs. pure Compose on iOS — is now resolved as a UI/platform decision: V1 is pure Compose Multiplatform with no Liquid Glass (`docs/DESIGN-SYSTEM.md` §2.1).
 
 ## 7. Limitations of this initial pass
 
