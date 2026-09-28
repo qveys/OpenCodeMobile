@@ -1,0 +1,15 @@
+<!-- @dsCard group="Session" height=210 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>CodeBlock — preview</title>
+<style>html,body{margin:0}</style></head>
+<body>
+<div class="oc" data-theme="session">
+<div class="oc-code"><div class="oc-code__bar"><span>src/router.ts</span><span>copy · open</span></div><pre><span class="ln">41</span><span class="tk-kw">export async function</span> <span class="tk-p">route(req:</span> <span class="tk-type">Request</span><span class="tk-p">) {</span>
+<span class="ln">42</span>  <span class="tk-cmt">// retry once before falling back</span>
+<span class="ln">43</span>  <span class="tk-kw">const</span> <span class="tk-p">res =</span> <span class="tk-kw">await</span> <span class="tk-p">provider.</span><span class="tk-prop">send</span><span class="tk-p">(req, {</span> <span class="tk-prop">retries</span><span class="tk-p">:</span> <span class="tk-const">1</span> <span class="tk-p">})</span>
+<span class="ln">44</span>  <span class="tk-kw">if</span> <span class="tk-p">(res.</span><span class="tk-prop">status</span> <span class="tk-p">===</span> <span class="tk-const">429</span><span class="tk-p">)</span> <span class="tk-kw">return</span> <span class="tk-p">fallback(</span><span class="tk-str">"openrouter"</span><span class="tk-p">)</span></pre></div>
+</div>
+<script>/* static preview */</script>
+</body>
+</html>

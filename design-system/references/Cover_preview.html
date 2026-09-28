@@ -1,0 +1,83 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OpenCode Mobile</title>
+<style>
+  html, body { margin:0; height:100%; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font-mono); overflow:hidden; }
+  .cover { position:relative; height:288px; overflow:hidden; }
+  .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
+  .art svg { display:block; width:480px; height:288px; }
+  .ink { fill:var(--text); }
+  .gold { fill:var(--brand-gold); }
+  .grey { fill:var(--line-strong); }
+  .ok { fill:var(--success); }
+  .err { fill:var(--danger); }
+  .cut { fill:var(--bg); }
+  .sq { rx:var(--radius-0); }
+  .words { position:absolute; left:var(--space-6); bottom:var(--space-6); max-width:440px; }
+  .name { margin:0; font-size:88px; line-height:.95; font-weight:700; letter-spacing:-.02em; color:var(--text); }
+  .tag { margin:var(--space-2) 0 0 4px; font-size:14px; line-height:20px; color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      text (ink / terminal white) 224×248 slab bled off the top · brand-gold 112×176 · line-strong 112×128 bleeding off the right · success 32×16 and danger 16×16 as small signals — ≈40% of 960×288
+  arrangement one tall slab with satellites, bottoms on one line at y=240, space-4 gutters; signals on the space-6 bottom inset
+  pattern     terminal character cells, from "a man page in your pocket" and the mono 4pt grid: 8×16 cells (space-2 × space-4) at a space-3 pitch cut out of the slab in bg, three prompt lines ending in a gold caret cell
+  scales      sides in space-2 multiples; gutters space-4; pitch space-3; every corner radius-0 (the system is square)
+-->
+<rect class="ink sq" x="16" y="-8" width="224" height="248"/>
+<rect class="gold sq" x="256" y="64" width="112" height="176"/>
+<rect class="grey sq" x="384" y="112" width="112" height="128"/>
+<rect class="ok sq" x="256" y="248" width="32" height="16"/>
+<rect class="err sq" x="296" y="248" width="16" height="16"/>
+<rect class="cut sq" x="40" y="120" width="8" height="16"/>
+<rect class="cut sq" x="52" y="120" width="8" height="16"/>
+<rect class="cut sq" x="64" y="120" width="8" height="16"/>
+<rect class="cut sq" x="76" y="120" width="8" height="16"/>
+<rect class="cut sq" x="100" y="120" width="8" height="16"/>
+<rect class="cut sq" x="112" y="120" width="8" height="16"/>
+<rect class="cut sq" x="136" y="120" width="8" height="16"/>
+<rect class="cut sq" x="148" y="120" width="8" height="16"/>
+<rect class="cut sq" x="160" y="120" width="8" height="16"/>
+<rect class="cut sq" x="172" y="120" width="8" height="16"/>
+<rect class="cut sq" x="184" y="120" width="8" height="16"/>
+<rect class="cut sq" x="208" y="120" width="8" height="16"/>
+<rect class="cut sq" x="220" y="120" width="8" height="16"/>
+<rect class="cut sq" x="40" y="152" width="8" height="16"/>
+<rect class="cut sq" x="52" y="152" width="8" height="16"/>
+<rect class="cut sq" x="76" y="152" width="8" height="16"/>
+<rect class="cut sq" x="88" y="152" width="8" height="16"/>
+<rect class="cut sq" x="100" y="152" width="8" height="16"/>
+<rect class="cut sq" x="112" y="152" width="8" height="16"/>
+<rect class="cut sq" x="124" y="152" width="8" height="16"/>
+<rect class="cut sq" x="136" y="152" width="8" height="16"/>
+<rect class="cut sq" x="160" y="152" width="8" height="16"/>
+<rect class="cut sq" x="184" y="152" width="8" height="16"/>
+<rect class="cut sq" x="196" y="152" width="8" height="16"/>
+<rect class="cut sq" x="208" y="152" width="8" height="16"/>
+<rect class="cut sq" x="220" y="152" width="8" height="16"/>
+<rect class="cut sq" x="40" y="184" width="8" height="16"/>
+<rect class="cut sq" x="52" y="184" width="8" height="16"/>
+<rect class="cut sq" x="64" y="184" width="8" height="16"/>
+<rect class="cut sq" x="88" y="184" width="8" height="16"/>
+<rect class="cut sq" x="100" y="184" width="8" height="16"/>
+<rect class="cut sq" x="112" y="184" width="8" height="16"/>
+<rect class="cut sq" x="124" y="184" width="8" height="16"/>
+<rect class="cut sq" x="136" y="184" width="8" height="16"/>
+<rect class="gold sq" x="148" y="184" width="8" height="16"/>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">OpenCode<br>Mobile</h1>
+<p class="tag">A man page in your pocket.</p>
+</div>
+</div>
+</body>
+</html>

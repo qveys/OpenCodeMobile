@@ -56,7 +56,7 @@ Every PR requires review before merge. Review requirements depend on change scop
 ### Tier 1: Standard Review
 - **Applies to:** UI, design system, localization/translations, public documentation (excluding security/privacy).
 - **Required Reviewers:** Code Reviewer + passing CI.
-- **Merge Gate:** Solo maintainer merges upon approval.
+- **Merge Gate:** Maintainer approves on GitHub; an agent then merges via `scripts/merge-agent-pr.sh` (see `docs/MERGE-PATH.md`).
 
 ### Tier 2: Enhanced Review (Security & Core Infrastructure)
 - **Applies to:**
@@ -76,4 +76,4 @@ Every PR requires review before merge. Review requirements depend on change scop
 - Direct pushes to `main` are disabled and forbidden.
 - Approvals from required review roles must be recorded.
 - CI pipeline (`lint`, `test`, `build`) must pass and be strictly up to date.
-- Maintainer is the sole merge owner.
+- Maintainer is the sole approval owner. No agent merges alone: after the owner approves (and only then), an agent may merge with `scripts/merge-agent-pr.sh`, which fails closed unless `reviewDecision=APPROVED` and `mergeStateStatus=CLEAN` (see `docs/MERGE-PATH.md`).
