@@ -3,7 +3,7 @@
 ## Core Principles
 
 - **No direct commits to `main`:** All changes, including documentation and minor fixes, must be submitted via a Pull Request from a dedicated branch.
-- **Merge Authority:** The project owner/maintainer is the sole merge authority. No automated agent merges directly to `main`.
+- **Merge Authority:** The project owner/maintainer is the sole approval authority. No agent merges alone: an agent may perform the mechanical merge only after the owner approves, using `scripts/merge-agent-pr.sh` (see `docs/MERGE-PATH.md`).
 - **Verified CI:** All commits must pass continuous integration (lint, unit tests, architecture tests, build) before merge.
 
 ---
@@ -49,4 +49,4 @@ Use Conventional Commits format for all commit messages:
    ```
 6. **Open PR:** Submit pull request on GitHub referencing the issue (`Closes OPE-XX`).
 7. **Review & Approval:** Follow the graduated review workflow (see `docs/pr-conventions.md` and `docs/BRANCH-PROTECTION.md`).
-8. **Merge:** Merged by maintainer once all required reviews are approved and CI checks pass.
+8. **Merge:** The owner approves the PR on GitHub (`gh pr review <n> --approve`). Once `reviewDecision=APPROVED` and `mergeStateStatus=CLEAN`, an agent merges with `scripts/merge-agent-pr.sh <n>` (fails closed otherwise; see `docs/MERGE-PATH.md`).

@@ -1,0 +1,92 @@
+{
+  "v": 3,
+  "assetGroups": {
+    "Logos": {
+      "name": "Logos",
+      "tile": "l",
+      "order": [
+        "opencode-logo-light.svg",
+        "opencode-logo-dark.svg",
+        "opencode-logo-light-square.svg",
+        "opencode-logo-dark-square.svg",
+        "opencode-wordmark-light.svg",
+        "opencode-wordmark-dark.svg",
+        "opencode-wordmark-simple-light.svg",
+        "opencode-wordmark-simple-dark.svg"
+      ],
+      "files": {
+        "opencode-logo-light.svg": {
+          "name": "opencode-logo-light.svg",
+          "blob": "1b73188ea40c49119f12f4db461b9518",
+          "size": 601,
+          "type": "image/svg+xml"
+        },
+        "opencode-logo-dark.svg": {
+          "name": "opencode-logo-dark.svg",
+          "blob": "048b0fbc2059d66f94d3920ff1c9304d",
+          "size": 601,
+          "type": "image/svg+xml"
+        },
+        "opencode-logo-light-square.svg": {
+          "name": "opencode-logo-light-square.svg",
+          "blob": "6617ddba005a18e39bcd1ec44bc424af",
+          "size": 637,
+          "type": "image/svg+xml"
+        },
+        "opencode-logo-dark-square.svg": {
+          "name": "opencode-logo-dark-square.svg",
+          "blob": "ba62f05b8dd3c0f16ac62fe3522a39e2",
+          "size": 637,
+          "type": "image/svg+xml"
+        },
+        "opencode-wordmark-light.svg": {
+          "name": "opencode-wordmark-light.svg",
+          "blob": "4e98fbe783807586d4a0b2ec60d3055e",
+          "size": 2226,
+          "type": "image/svg+xml"
+        },
+        "opencode-wordmark-dark.svg": {
+          "name": "opencode-wordmark-dark.svg",
+          "blob": "f8d276fb617a7004c777137cd71d3659",
+          "size": 2244,
+          "type": "image/svg+xml"
+        },
+        "opencode-wordmark-simple-light.svg": {
+          "name": "opencode-wordmark-simple-light.svg",
+          "blob": "bd6aaf3b56c5939392ef84dd4792e0bd",
+          "size": 1554,
+          "type": "image/svg+xml"
+        },
+        "opencode-wordmark-simple-dark.svg": {
+          "name": "opencode-wordmark-simple-dark.svg",
+          "blob": "003dbe8b2cf36fc21fc76db122792a71",
+          "size": 1577,
+          "type": "image/svg+xml"
+        }
+      }
+    }
+  },
+  "blobs": {},
+  "createdOnFiles": {
+    "at": "2026-09-23T13:13:00Z",
+    "v": 1
+  },
+  "docs": {
+    "readme": "project/README.md",
+    "sections": []
+  },
+  "groups": [
+    "Logos"
+  ],
+  "lastChange": {
+    "by": "Quentin",
+    "at": "2026-09-23T13:21:15Z",
+    "via": "Claude (Cowork)",
+    "note": "Validated against opencode.ai and anomalyco/opencode desktop; added chrome-dark theme, official logos, validation section"
+  },
+  "layout": "files",
+  "libraries": [],
+  "namespace": "OpenCodeMobile",
+  "sections": {},
+  "title": "OpenCode Mobile"
+}
