@@ -10,9 +10,14 @@
 # It never fails the calling step: if the toolchain is missing it leaves the
 # environment untouched so the step's own `java -version` / Gradle invocation
 # produces the clear error.
+#
+# The Linux self-hosted runner executes jobs as `root` with HOME possibly
+# unset, so every HOME reference uses a ${HOME:-/root} default here.
+
+if [ -z "${HOME:-}" ]; then export HOME=/root; fi
 
 # 1. Precomputed locations written by the provisioning script (preferred).
-for _om_env in "$HOME/.opencode-mobile-runner.env" /etc/opencode-mobile-runner.env; do
+for _om_env in "${HOME:-/root}/.opencode-mobile-runner.env" /etc/opencode-mobile-runner.env; do
   if [ -f "$_om_env" ]; then
     # shellcheck disable=SC1090
     . "$_om_env"

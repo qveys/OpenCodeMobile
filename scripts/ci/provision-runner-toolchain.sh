@@ -32,6 +32,15 @@
 
 set -uo pipefail
 
+# The GitHub runner executes Linux self-hosted jobs as `root` (via the runner's
+# systemd unit), where HOME can be unset. Everything below relies on HOME, so
+# establish a sane default before anything else.
+if [ -z "${HOME:-}" ] || [ ! -d "${HOME:-}" ]; then
+  if [ "$(id -u)" -eq 0 ]; then HOME=/root; else HOME="$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f6)"; fi
+  [ -n "${HOME:-}" ] && [ -d "$HOME" ] || HOME=/tmp
+  export HOME
+fi
+
 log()  { printf '\n=== %s ===\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
 warn() { printf '::warning::%s\n' "$*"; }
