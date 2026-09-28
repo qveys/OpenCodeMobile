@@ -29,6 +29,7 @@ include(":shared:realtime")
 include(":shared:persistence")
 include(":shared:security")
 include(":shared:test-support")
+include(":shared:tls-test-support")
 
 // features/* — one module per feature (§5.1)
 include(":features:connection")
