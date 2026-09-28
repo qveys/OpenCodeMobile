@@ -11,9 +11,10 @@ name: Logging Redaction (T4)
 #
 # Runner policy: jobs run on the company self-hosted runner pool, not on
 # GitHub-hosted runners. The lightweight static scan runs on the Linux hostinger
-# VPS (`[self-hosted, hostinger]` -> vps-dokploy / vps-openclaw); the Gradle /
-# Android redaction tests run on the macOS runner (`[self-hosted, mac]` ->
-# macbook-openclaw), which carries the JVM / Android toolchain.
+# VPS (`[self-hosted, hostinger]` -> vps-dokploy / vps-openclaw). The Gradle /
+# Android redaction tests target the macOS runner (`[self-hosted, mac]` ->
+# macbook-openclaw) but are disabled on PRs until that runner has a JDK/Android
+# toolchain (see the job-level comment and OPE-98).
 #
 # The `pull_request` trigger is intentionally NOT path-filtered. A path-filtered
 # workflow produces no status when a PR touches none of its paths, which would
@@ -46,6 +47,16 @@ jobs:
 
   redaction-tests:
     name: Redaction unit tests
+    # TEMPORARILY MANUAL ONLY. This job needs a JDK 21 + Android SDK toolchain.
+    # The self-hosted runner pool (hostinger / mac) has no Java runtime yet, and
+    # the repository Actions allowlist permits only `actions/checkout@*`, so the
+    # toolchain cannot be installed by an action. Downloading a JDK/Android SDK
+    # inside a security gate would add an unverified supply-chain step, so the
+    # job is disabled on pull_request/push instead. OPE-98 provisions the
+    # runners; re-enable the pull_request trigger once Java + Android SDK are
+    # present. It stays runnable by hand: Actions -> Logging Redaction (T4) ->
+    # Run workflow.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, mac]
     needs: static-scan
     timeout-minutes: 40
