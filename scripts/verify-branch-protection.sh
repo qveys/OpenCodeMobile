@@ -19,7 +19,10 @@ if [ -z "$REPO" ]; then
 fi
 
 # Required status-check contexts declared by scripts/setup-branch-protection.sh.
-REQUIRED_CONTEXTS=(lint test build)
+# "T4 static scan" is the OPE-56 / threat T4 redaction gate job in
+# `.github/workflows/security-logging.yml`. Add lint/test/build here once those
+# workflows exist on `main` (OPE-14/OPE-15/OPE-16/OPE-17).
+REQUIRED_CONTEXTS=("T4 static scan")
 
 echo "=========================================================="
 echo "Verifying Branch Protection for: $REPO (branch: main)"
