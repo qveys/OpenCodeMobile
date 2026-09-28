@@ -7,8 +7,12 @@ name: Logging Redaction (T4)
 # (`actions/setup-java`, `gradle/actions/setup-gradle`, `android-actions/setup-android`,
 # `actions/upload-artifact`) is rejected by the org policy with `startup_failure`
 # before the job starts (same constraint documented in build.yml). This workflow
-# therefore uses ONLY `actions/checkout` and relies on the JDK / Gradle / Android
-# SDK preinstalled on GitHub-hosted runners.
+# therefore uses ONLY `actions/checkout`.
+#
+# Runner policy: jobs run on the company self-hosted runner pool
+# (`[self-hosted, hostinger]` -> vps-dokploy / vps-openclaw), not on
+# GitHub-hosted runners. The static scan is plain bash; the redaction tests use
+# the JDK / Gradle / Android SDK provisioned on those runners.
 #
 # The `pull_request` trigger is intentionally NOT path-filtered. A path-filtered
 # workflow produces no status when a PR touches none of its paths, which would
@@ -32,7 +36,7 @@ permissions:
 jobs:
   static-scan:
     name: T4 static scan
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -41,7 +45,7 @@ jobs:
 
   redaction-tests:
     name: Redaction unit tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hostinger]
     needs: static-scan
     timeout-minutes: 40
     steps:
@@ -49,7 +53,12 @@ jobs:
       - name: Run networking redaction tests
         run: |
           set -euo pipefail
-          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          if [ -z "${JAVA_HOME:-}" ] && [ -n "${JAVA_HOME_21_X64:-}" ]; then
+            export JAVA_HOME="$JAVA_HOME_21_X64"
+          fi
+          if [ -n "${JAVA_HOME:-}" ]; then
+            export PATH="$JAVA_HOME/bin:$PATH"
+          fi
           chmod +x gradlew
           java -version
           ./gradlew :shared:networking:testDebugUnitTest --no-daemon --stacktrace
