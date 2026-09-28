@@ -13,8 +13,11 @@ name: Logging Redaction (T4)
 # GitHub-hosted runners. The lightweight static scan runs on the Linux hostinger
 # VPS (`[self-hosted, hostinger]` -> vps-dokploy / vps-openclaw). The Gradle /
 # Android redaction tests target the macOS runner (`[self-hosted, mac]` ->
-# macbook-openclaw) but are disabled on PRs until that runner has a JDK/Android
-# toolchain (see the job-level comment and OPE-98).
+# macbook-openclaw); its JDK 21 + Android SDK toolchain is provisioned by
+# `.github/workflows/provision-runner-toolchain.yml` (OPE-98) and resolved at
+# job time through `scripts/ci/runner-toolchain-env.sh`. See
+# `docs/CI-RUNNER-STRATEGY.md`. Until that provisioning is green the job stays
+# disabled on pull_request (see the job-level comment).
 #
 # The `pull_request` trigger is intentionally NOT path-filtered. A path-filtered
 # workflow produces no status when a PR touches none of its paths, which would
@@ -65,15 +68,7 @@ jobs:
       - name: Run networking redaction tests
         run: |
           set -euo pipefail
-          if [ -z "${JAVA_HOME:-}" ] && [ -n "${JAVA_HOME_21_X64:-}" ]; then
-            export JAVA_HOME="$JAVA_HOME_21_X64"
-          fi
-          if [ -z "${JAVA_HOME:-}" ] && [ -x /usr/libexec/java_home ]; then
-            export JAVA_HOME="$(/usr/libexec/java_home 2>/dev/null || true)"
-          fi
-          if [ -n "${JAVA_HOME:-}" ]; then
-            export PATH="$JAVA_HOME/bin:$PATH"
-          fi
+          . scripts/ci/runner-toolchain-env.sh
           chmod +x gradlew
           java -version
           ./gradlew :shared:networking:testDebugUnitTest --no-daemon --stacktrace

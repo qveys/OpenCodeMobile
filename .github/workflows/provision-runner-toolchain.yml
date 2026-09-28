@@ -1,0 +1,71 @@
+name: Provision runner toolchain
+
+# OPE-98 — install JDK 21 + Android SDK on the company self-hosted runners.
+#
+# The repo Actions allowlist permits only `actions/checkout@*`, so
+# `actions/setup-java` / `gradle/actions/setup-gradle` /
+# `android-actions/setup-android` cannot provision the runners. This workflow
+# runs a plain shell script *on the runner* (the only channel we have to the
+# persistent runner machines) and then proves the toolchain works with the
+# acceptance command from OPE-98:
+#
+#   ./gradlew :shared:networking:testDebugUnitTest --no-daemon
+#
+# It is idempotent and safe to re-run at any time. `workflow_dispatch` forces a
+# refresh; the `push` trigger is path-filtered to the provisioning files so
+# ordinary pushes do not re-run it.
+#
+# After this workflow is green, ordinary CI jobs only need to source
+# `scripts/ci/runner-toolchain-env.sh` (see .github/workflows/security-logging.yml).
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/provision-runner-toolchain.yml'
+      - 'scripts/ci/**'
+
+concurrency:
+  group: provision-runner-toolchain-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  provision-linux:
+    name: Provision Linux runner (hostinger)
+    runs-on: [self-hosted, hostinger]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Provision JDK 21 + Android SDK
+        run: bash scripts/ci/provision-runner-toolchain.sh
+      - name: Acceptance — toolchain paths resolve
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          echo "JAVA_HOME=${JAVA_HOME:-<unset>}"
+          echo "ANDROID_HOME=${ANDROID_HOME:-<unset>}"
+          java -version
+      - name: Acceptance — gradle unit tests
+        run: bash scripts/ci/run-toolchain-acceptance.sh
+
+  provision-mac:
+    name: Provision macOS runner
+    runs-on: [self-hosted, mac]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Provision JDK 21 + Android SDK
+        run: bash scripts/ci/provision-runner-toolchain.sh
+      - name: Acceptance — toolchain paths resolve
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          echo "JAVA_HOME=${JAVA_HOME:-<unset>}"
+          echo "ANDROID_HOME=${ANDROID_HOME:-<unset>}"
+          java -version
+          if [ -x /usr/libexec/java_home ]; then /usr/libexec/java_home -v 21; fi
+      - name: Acceptance — gradle unit tests
+        run: bash scripts/ci/run-toolchain-acceptance.sh
