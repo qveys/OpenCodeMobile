@@ -53,7 +53,12 @@ jobs:
       - name: Run networking redaction tests
         run: |
           set -euo pipefail
-          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          if [ -z "${JAVA_HOME:-}" ] && [ -n "${JAVA_HOME_21_X64:-}" ]; then
+            export JAVA_HOME="$JAVA_HOME_21_X64"
+          fi
+          if [ -n "${JAVA_HOME:-}" ]; then
+            export PATH="$JAVA_HOME/bin:$PATH"
+          fi
           chmod +x gradlew
           java -version
           ./gradlew :shared:networking:testDebugUnitTest --no-daemon --stacktrace
