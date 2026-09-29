@@ -65,12 +65,15 @@ jobs:
       # Android backup-exclusion rules, and the offline read-only gate are all
       # JVM unit tests, so they need an explicit test step to run in the build
       # gate (assemble alone does not execute tests).
-      - name: Cache + application unit tests
+      # OPE-110: the permissions coordinator, the strict notification policy and
+      # the pending-permission store are JVM unit tests too; add the data module
+      # (the encrypted-cache store) so the kill-survival path is covered.
+      - name: Cache + application + data unit tests
         run: |
           set -euo pipefail
           export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
           chmod +x gradlew
-          ./gradlew :shared:persistence:testDebugUnitTest :shared:application:testDebugUnitTest --no-daemon --stacktrace
+          ./gradlew :shared:persistence:testDebugUnitTest :shared:application:testDebugUnitTest :shared:data:testDebugUnitTest --no-daemon --stacktrace
       # Compile (not run) the on-device T3 proof; running it needs an emulator
       # (see .github/workflows/t1-device-validation.yml) but a compile failure
       # must fail the build gate.
