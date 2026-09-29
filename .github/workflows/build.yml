@@ -91,9 +91,9 @@ jobs:
   # OPE-17 — Test step. Runs the full KMP test suite from the SAME revision as
   # the build jobs above (one workflow run => one github.sha):
   #   - test-android: Android/JVM unit tests (`testDebugUnitTest`) on Linux.
-  #   - test-ios: Apple Kotlin/Native simulator tests on macOS, matching the
-  #     host architecture (`iosSimulatorArm64Test` on Apple Silicon,
-  #     `iosX64Test` on the Intel self-hosted Mac).
+  #   - test-ios: Apple Kotlin/Native simulator tests on macOS. Runs both
+  #     `iosX64Test` and `iosSimulatorArm64Test`; Kotlin/Native skips the target
+  #     that cannot run on the host, and the job fails if neither produced tests.
   #
   # Both jobs delegate the Gradle task list to scripts/test.sh (OPE-16), the
   # single test entry point. `--continue` makes every module report its failures

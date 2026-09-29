@@ -4,8 +4,9 @@
 # Runs the shared/module test suites from a single revision so one commit is
 # verified on both target families:
 #   - Android (JVM-hosted) unit tests: Gradle `testDebugUnitTest`
-#   - Apple (Kotlin/Native iOS simulator): `iosSimulatorArm64Test` on an
-#     Apple Silicon host, `iosX64Test` on an Intel host (see `apple` below)
+#   - Apple (Kotlin/Native iOS simulator): runs both `iosX64Test` and
+#     `iosSimulatorArm64Test`; Kotlin/Native skips the one that cannot execute
+#     on the host (see the `apple` case below)
 #   - JVM + all-native aggregate: Gradle `allTests`
 #
 # Every KMP module declares `commonTest.dependencies { implementation(kotlin-test) }`,
@@ -100,22 +101,18 @@ case "$MODE" in
         run_gradle testDebugUnitTest "$@"
         ;;
     apple)
-        # The runnable iOS simulator target must match the host architecture.
-        # Kotlin/Native silently SKIPS the simulator test task whose
-        # architecture cannot run on the host, which would make this job pass
-        # with zero tests. The company self-hosted Mac (`macbook-openclaw`) is
-        # Intel (x86_64), so it runs `iosX64Test`; an Apple Silicon host runs
-        # `iosSimulatorArm64Test`.
-        case "$(uname -m)" in
-            arm64) SIM_TASK=iosSimulatorArm64Test ;;
-            *) SIM_TASK=iosX64Test ;;
-        esac
-        run_gradle "$SIM_TASK" "$@"
-        # Fail loudly if Kotlin/Native skipped the task: without this the job
-        # would be a false green (BUILD SUCCESSFUL with zero tests executed).
-        if [ -z "$(find . -path "*/build/test-results/$SIM_TASK/*.xml" -print -quit)" ]; then
-            echo "error: '$SIM_TASK' produced no JUnit reports on $(uname -m);" >&2
-            echo "the iOS simulator tests were skipped, so the suite did not run." >&2
+        # Run both iOS simulator test targets and let Kotlin/Native skip the one
+        # that cannot execute on this host. The host arch must come from the JVM,
+        # not `uname`: the Actions runner can report x86_64 under Rosetta while
+        # the JDK (and thus KGP's host, which is `os.arch`) is arm64, and Xcode 26
+        # ships no x86_64 simulator runtime. Running both keeps the job correct
+        # for either JDK arch.
+        run_gradle iosX64Test iosSimulatorArm64Test "$@"
+        # Fail loudly if both targets were skipped: without this the job would be
+        # a false green (BUILD SUCCESSFUL with zero tests executed).
+        if [ -z "$(find . \( -path '*/build/test-results/iosX64Test/*.xml' -o -path '*/build/test-results/iosSimulatorArm64Test/*.xml' \) -print -quit)" ]; then
+            echo "error: neither iosX64Test nor iosSimulatorArm64Test produced JUnit reports;" >&2
+            echo "the iOS simulator suite was skipped, so the job would be a false green." >&2
             exit 1
         fi
         ;;
