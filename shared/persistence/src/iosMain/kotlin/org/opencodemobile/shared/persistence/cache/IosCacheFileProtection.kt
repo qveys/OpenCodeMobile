@@ -1,6 +1,12 @@
 package org.opencodemobile.shared.persistence.cache
 
+import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.ObjCObjectVar
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.ptr
+import kotlinx.cinterop.value
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileProtectionCompleteUnlessOpen
@@ -22,7 +28,9 @@ import platform.Foundation.NSUserDomainMask
  * ADR 0005 OP2).
  *
  * The DB and its `-wal`/`-shm` companions are also flagged
- * `NSURLIsExcludedFromBackupKey` so they never enter an iCloud/iTunes backup.
+ * `NSURLIsExcludedFromBackupKey`. The **directory itself** is excluded too, so
+ * the files created lazily on first launch (the DB, then `-wal`/`-shm` on the
+ * first write) are covered even before they exist.
  *
  * **Residual risk (accepted for V1):** file-class protection does not cover
  * malware with app-sandbox access (the class key lives in the OS) nor an
@@ -31,7 +39,7 @@ import platform.Foundation.NSUserDomainMask
  *
  * This is a floor, not a ceiling.
  */
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 public object IosCacheFileProtection {
 
     private const val DIRECTORY_NAME = "OpenCodeMobileCache"
@@ -50,7 +58,8 @@ public object IosCacheFileProtection {
 
     /**
      * Creates the cache directory (if needed) with
-     * [NSFileProtectionCompleteUnlessOpen] and returns its path.
+     * [NSFileProtectionCompleteUnlessOpen] and excludes it — and therefore its
+     * contents — from backup, then returns its path.
      */
     public fun ensureProtectedCacheDirectory(): String {
         val directory = cacheDirectoryPath()
@@ -61,16 +70,18 @@ public object IosCacheFileProtection {
             error = null,
         )
         applyProtection(directory)
+        excludeFromBackup(directory)
         return directory
     }
 
     /**
      * Applies [NSFileProtectionCompleteUnlessOpen] to the DB and its companions
-     * and excludes them from backup. Safe to call after each open because
+     * and excludes them from backup. Safe to call after every open because
      * SQLite may recreate `-wal`/`-shm`.
      */
     public fun protectCacheFiles(directory: String = cacheDirectoryPath()) {
         applyProtection(directory)
+        excludeFromBackup(directory)
         cacheFilePaths(directory).forEach { path ->
             if (NSFileManager.defaultManager.fileExistsAtPath(path)) {
                 applyProtection(path)
@@ -84,6 +95,25 @@ public object IosCacheFileProtection {
         val database = "$directory/$CACHE_DATABASE_NAME"
         return listOf(database) + companionSuffixes.map { database + it }
     }
+
+    /** Whether [path] carries `NSURLIsExcludedFromBackupKey`. */
+    public fun isExcludedFromBackup(path: String): Boolean {
+        val url = NSURL.fileURLWithPath(path)
+        return memScoped {
+            val value = alloc<ObjCObjectVar<Any?>>()
+            val ok = url.getResourceValue(
+                value.ptr,
+                forKey = NSURLIsExcludedFromBackupKey,
+                error = null,
+            )
+            ok && (value.value as? Boolean) == true
+        }
+    }
+
+    /** The `NSFileProtectionKey` class of [path], or null when unset. */
+    public fun protectionClass(path: String): String? =
+        NSFileManager.defaultManager.attributesOfItemAtPath(path, null)
+            ?.get(NSFileProtectionKey) as? String
 
     private fun applyProtection(path: String) {
         NSFileManager.defaultManager.setAttributes(

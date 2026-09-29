@@ -1,10 +1,12 @@
 package org.opencodemobile.shared.persistence.cache
 
 import app.cash.sqldelight.db.SqlDriver
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.opencodemobile.shared.domain.cache.CacheUnavailableException
 
 /**
  * Name of the local cache database file (no path). The Android backup-exclusion
@@ -21,6 +23,15 @@ public const val CACHE_DATABASE_NAME: String = "opencodemobile_cache.db"
  * not be opened — a missing or invalidated Keystore key, or a file encrypted
  * under a different key — the disposable cache is wiped and reopened empty, then
  * rebuilt from the next server snapshot. It never asks the user for anything.
+ *
+ * Two failure modes are deliberately distinguished:
+ *
+ * - **Cancellation** is never treated as key loss: a coroutine cancelled while
+ *   opening the cache must not destroy the local data ([CancellationException]
+ *   is rethrown before the destructive branch).
+ * - A **second** failure, or a wipe that did not actually remove the files, is
+ *   surfaced as [CacheUnavailableException] so the application can render an
+ *   empty, read-only state instead of recreating over an undecryptable file.
  */
 public class CacheDatabase(
     private val provider: CacheDriverProvider,
@@ -41,7 +52,7 @@ public class CacheDatabase(
      */
     public suspend fun wipeAndRebuild(): SqlSessionCache = openLock.withLock {
         closeLocked()
-        provider.deleteLocalCache()
+        deleteLocalCacheOrThrow(cause = null)
         openLocked()
     }
 
@@ -53,15 +64,44 @@ public class CacheDatabase(
     private suspend fun openLocked(): SqlSessionCache {
         val opened = try {
             provider.createDriver()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (first: Throwable) {
             // The stored key no longer matches the file (invalidated Keystore
             // entry, restored app data, …). The cache is disposable: wipe and
             // rebuild instead of surfacing an error to the user.
-            provider.deleteLocalCache()
-            provider.createDriver()
+            deleteLocalCacheOrThrow(cause = first)
+            try {
+                provider.createDriver()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (second: Throwable) {
+                second.addSuppressed(first)
+                throw CacheUnavailableException(
+                    "The local cache could not be rebuilt after a wipe",
+                    second,
+                )
+            }
         }
         driver = opened
         return SqlSessionCache(opened, ioDispatcher).also { cache = it }
+    }
+
+    private suspend fun deleteLocalCacheOrThrow(cause: Throwable?) {
+        val deleted = try {
+            provider.deleteLocalCache()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            cause?.let(failure::addSuppressed)
+            throw CacheUnavailableException("Could not delete the local cache", failure)
+        }
+        if (!deleted) {
+            throw CacheUnavailableException(
+                "Could not fully delete the local cache; refusing to reopen over it",
+                cause,
+            )
+        }
     }
 
     private fun closeLocked() {

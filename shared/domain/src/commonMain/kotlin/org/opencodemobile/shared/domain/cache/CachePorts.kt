@@ -35,8 +35,8 @@ public interface SessionCache {
     /** The cached draft for a session, if any. */
     public suspend fun draft(serverId: String, projectId: String, sessionId: String): CachedDraft?
 
-    /** A non-secret preference value, if present. */
-    public suspend fun preference(key: String): String?
+    /** A non-secret preference value for [serverId], if present. */
+    public suspend fun preference(serverId: String, key: String): String?
 
     /** Sync bookkeeping for a scope (empty [CachedSyncMetadata.sessionId] = project-level). */
     public suspend fun syncMetadata(
@@ -77,14 +77,16 @@ public interface SessionCacheWriter {
 /**
  * Port for the cache's at-rest encryption key (B2; T3 / OP2).
  *
- * Android stores a randomly-generated passphrase in the Keystore, exactly like
- * the server credential and the identity pin. A missing or invalidated key
- * (for example after a biometric re-enrollment) is a **cache miss**, not a
- * fatal error: callers wipe and rebuild from the next snapshot
- * (`docs/ARCHITECTURE.md` §"Local cache encryption at rest").
+ * Android generates a random passphrase, wraps it with a non-exportable
+ * Keystore key (AES/GCM), and stores only the ciphertext — the passphrase is
+ * never persisted in cleartext. A missing or invalidated key (for example after
+ * a biometric re-enrollment) is a **cache miss**, not a fatal error: callers wipe
+ * and rebuild from the next snapshot (`docs/ARCHITECTURE.md` §"Local cache
+ * encryption at rest").
  *
- * Implementations must never read the passphrase from a plain preferences
- * file. iOS relies on OS Data Protection instead and does not use this port.
+ * Implementations must never store the passphrase in cleartext, and must not
+ * treat a plain preferences file as the source of truth for key material. iOS
+ * relies on OS Data Protection instead and does not use this port.
  */
 public interface CacheKeyStore {
     /** Returns the stored passphrase, or null when absent or invalidated. */
@@ -113,3 +115,43 @@ public enum class ConnectionState {
 public interface MutationGate {
     public fun mutationsAllowed(): Boolean
 }
+
+/**
+ * Value-level guard for the cache's key/value preference table.
+ *
+ * The schema has no secret column, but a generic KV table would still accept a
+ * token under an arbitrary key. Every [SessionCacheWriter.putPreference] must
+ * pass [requireNonSecretKey]; the cache never holds a secret (§7.3).
+ */
+public object CachePreferencePolicy {
+    private val SECRET_BEARING_KEY = Regex(
+        "(?i)(token|secret|password|passphrase|credential|apikey|api_key|authorization|bearer|auth|pin|private_?key)",
+    )
+
+    /** Whether [key] looks like it could name a credential. */
+    public fun isSecretBearingKey(key: String): Boolean = SECRET_BEARING_KEY.containsMatchIn(key)
+
+    /** Throws [IllegalArgumentException] when [key] looks secret-bearing. */
+    public fun requireNonSecretKey(key: String) {
+        require(!isSecretBearingKey(key)) {
+            "Refusing to cache a preference whose key looks like a secret " +
+                "(no secrets in the cache, §7.3): $key"
+        }
+    }
+}
+
+/** Thrown when a mutation is attempted while the cache is offline read-only (D8). */
+public class CacheMutationNotAllowedException(
+    message: String = "Mutations are disabled while offline (D8); the cache is read-only",
+) : IllegalStateException(message)
+
+/**
+ * Thrown when the cache cannot be opened even after a wipe-and-rebuild attempt.
+ *
+ * This is a platform/storage failure, not key loss: the application should
+ * render an empty, read-only state rather than crash.
+ */
+public class CacheUnavailableException(
+    message: String,
+    cause: Throwable? = null,
+) : Exception(message, cause)

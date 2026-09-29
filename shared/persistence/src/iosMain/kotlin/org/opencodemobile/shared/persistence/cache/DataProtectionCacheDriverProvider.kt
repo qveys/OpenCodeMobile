@@ -17,6 +17,12 @@ import platform.Foundation.NSFileManager
  * backup. No app-managed passphrase is used on iOS — SQLCipher-for-iOS is
  * deferred — so no [org.opencodemobile.shared.domain.cache.CacheKeyStore] is
  * involved.
+ *
+ * The driver's connections are created lazily, so the DB file does not exist
+ * right after construction. This provider therefore **forces the first open**
+ * (which also runs the schema `CREATE`), then applies the file protections —
+ * otherwise the first-launch DB (and its `-wal`/`-shm`) would be backed up
+ * before the exclusion is set.
  */
 @OptIn(ExperimentalForeignApi::class)
 public class DataProtectionCacheDriverProvider(
@@ -34,15 +40,18 @@ public class DataProtectionCacheDriverProvider(
                 )
             },
         )
-        // SQLite creates -wal/-shm lazily, so re-apply protection after the open.
+        // Force a real open (and the schema CREATE) so the DB and its
+        // companions exist before we mark them; SQLite creates -wal/-shm lazily.
+        driver.execute(null, "SELECT 1", 0) {}
         IosCacheFileProtection.protectCacheFiles(directory)
         driver
     }
 
-    override suspend fun deleteLocalCache(): Unit = withContext(ioDispatcher) {
+    override suspend fun deleteLocalCache(): Boolean = withContext(ioDispatcher) {
         val directory = IosCacheFileProtection.cacheDirectoryPath()
-        IosCacheFileProtection.cacheFilePaths(directory).forEach { path ->
-            NSFileManager.defaultManager.removeItemAtPath(path, null)
-        }
+        val paths = IosCacheFileProtection.cacheFilePaths(directory)
+        val fileManager = NSFileManager.defaultManager
+        paths.forEach { fileManager.removeItemAtPath(it, null) }
+        paths.none { fileManager.fileExistsAtPath(it) }
     }
 }

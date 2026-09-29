@@ -2,28 +2,30 @@ package org.opencodemobile.shared.persistence.cache
 
 import android.content.Context
 import androidx.test.platform.app.InstrumentationRegistry
-import app.cash.sqldelight.db.SqlDriver
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import org.opencodemobile.shared.domain.cache.CacheKeyStore
 import org.opencodemobile.shared.domain.cache.CachedTranscriptMessage
+import org.opencodemobile.shared.security.cache.AndroidKeystoreCacheKeyStore
 
 /**
- * On-device T3 proof (OP2): the SQLCipher cache is not readable in cleartext.
+ * On-device T3 proof (OP2): the SQLCipher cache is not readable in cleartext,
+ * with the **real** Keystore-backed passphrase store.
  *
  * Writes a transcript containing a unique marker, closes the DB, then reads the
  * raw DB file (and its `-wal`/`-shm` companions) off disk and asserts the marker
  * is absent and that the file does not start with the plaintext SQLite header.
- * Also exercises key loss: after the key changes, reopening wipes and rebuilds
- * the disposable cache without crashing.
  *
- * The passphrase here comes from a test [CacheKeyStore]; the Keystore-backed
- * implementation is covered by `AndroidKeystoreCacheKeyStoreTest` in
- * `shared/security`.
+ * A second test simulates an invalidated Keystore entry (a biometric
+ * re-enrollment) by deleting the stored passphrase: reopening must wipe and
+ * rebuild an empty cache, without crashing and without asking the user for
+ * anything.
+ *
+ * This is the composition proof the security review asked for (C2): SQLCipher +
+ * passphrase read from the Keystore.
  */
 class SqlCipherCacheEncryptionInstrumentedTest {
 
@@ -32,7 +34,8 @@ class SqlCipherCacheEncryptionInstrumentedTest {
 
     @Test
     fun transcriptIsNotReadableInTheRawDatabaseFile() = runBlocking {
-        val keyStore = MutablePassphraseKeyStore()
+        val keyStore = AndroidKeystoreCacheKeyStore(context)
+        keyStore.deletePassphrase()
         val provider = SqlCipherCacheDriverProvider(context, keyStore)
         provider.deleteLocalCache()
 
@@ -62,12 +65,15 @@ class SqlCipherCacheEncryptionInstrumentedTest {
             "an encrypted cache DB must not start with the plaintext SQLite header",
         )
 
+        database.close()
         provider.deleteLocalCache()
+        keyStore.deletePassphrase()
     }
 
     @Test
-    fun keyLossWipesAndRebuildsWithoutCrashing() = runBlocking {
-        val keyStore = MutablePassphraseKeyStore()
+    fun keystoreKeyLossWipesAndRebuildsWithoutCrashing() = runBlocking {
+        val keyStore = AndroidKeystoreCacheKeyStore(context)
+        keyStore.deletePassphrase()
         val firstProvider = SqlCipherCacheDriverProvider(context, keyStore)
         firstProvider.deleteLocalCache()
 
@@ -78,9 +84,10 @@ class SqlCipherCacheEncryptionInstrumentedTest {
         )
         firstDatabase.close()
 
-        // Simulate an invalidated Keystore entry: the next passphrase differs, so
-        // the on-disk file can no longer be decrypted.
-        keyStore.rotatePassphrase()
+        // An invalidated Keystore entry reads back as "no passphrase": the next
+        // open generates a new key, cannot decrypt the old file, and must wipe
+        // and rebuild instead of crashing.
+        keyStore.deletePassphrase()
 
         val secondDatabase = CacheDatabase(
             SqlCipherCacheDriverProvider(context, keyStore),
@@ -94,6 +101,7 @@ class SqlCipherCacheEncryptionInstrumentedTest {
         secondDatabase.close()
 
         firstProvider.deleteLocalCache()
+        keyStore.deletePassphrase()
     }
 
     private fun rawDatabaseBytes(databaseFile: File): ByteArray {
@@ -103,26 +111,5 @@ class SqlCipherCacheEncryptionInstrumentedTest {
             if (file.isFile) bytes.addAll(file.readBytes().toList())
         }
         return bytes.toByteArray()
-    }
-
-    private class MutablePassphraseKeyStore : CacheKeyStore {
-        private var passphrase: ByteArray? = null
-
-        override suspend fun existingPassphrase(): ByteArray? = passphrase
-
-        override suspend fun createPassphrase(): ByteArray {
-            val created = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
-            passphrase = created
-            return created
-        }
-
-        override suspend fun deletePassphrase() {
-            passphrase = null
-        }
-
-        fun rotatePassphrase() {
-            val rotated = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
-            passphrase = rotated
-        }
     }
 }

@@ -4,6 +4,7 @@ import app.cash.sqldelight.db.SqlDriver
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.opencodemobile.shared.domain.cache.CachePreferencePolicy
 import org.opencodemobile.shared.domain.cache.CachedDraft
 import org.opencodemobile.shared.domain.cache.CachedPreference
 import org.opencodemobile.shared.domain.cache.CachedProject
@@ -84,9 +85,10 @@ public class SqlSessionCache(
         queries.selectDraft(serverId, projectId, sessionId).executeAsOneOrNull()?.toDomain()
     }
 
-    override suspend fun preference(key: String): String? = withContext(ioDispatcher) {
-        queries.selectPreference(key).executeAsOneOrNull()
-    }
+    override suspend fun preference(serverId: String, key: String): String? =
+        withContext(ioDispatcher) {
+            queries.selectPreference(serverId, key).executeAsOneOrNull()
+        }
 
     override suspend fun syncMetadata(
         serverId: String,
@@ -169,7 +171,12 @@ public class SqlSessionCache(
 
     override suspend fun putPreference(preference: CachedPreference): Unit =
         withContext(ioDispatcher) {
-            queries.upsertPreference(key = preference.key, value_ = preference.value)
+            CachePreferencePolicy.requireNonSecretKey(preference.key)
+            queries.upsertPreference(
+                server_id = preference.serverId,
+                key = preference.key,
+                value_ = preference.value,
+            )
         }
 
     override suspend fun putSyncMetadata(metadata: CachedSyncMetadata): Unit =
@@ -186,6 +193,7 @@ public class SqlSessionCache(
 
     override suspend fun wipeServer(serverId: String): Unit = withContext(ioDispatcher) {
         database.transaction {
+            queries.deletePreferencesForServer(serverId)
             queries.deleteTranscriptForServer(serverId)
             queries.deleteDraftsForServer(serverId)
             queries.deleteSessionsForServer(serverId)

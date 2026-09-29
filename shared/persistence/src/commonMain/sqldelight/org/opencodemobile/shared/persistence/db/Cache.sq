@@ -61,8 +61,10 @@ CREATE TABLE draft (
 );
 
 CREATE TABLE preference (
-    key TEXT NOT NULL PRIMARY KEY,
-    value TEXT NOT NULL
+    server_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (server_id, key)
 );
 
 -- session_id is '' for a project-level sync cursor.
@@ -148,10 +150,13 @@ deleteDraftsForServer:
 DELETE FROM draft WHERE server_id = ?;
 
 selectPreference:
-SELECT value FROM preference WHERE key = ?;
+SELECT value FROM preference WHERE server_id = ? AND key = ?;
 
 upsertPreference:
-INSERT OR REPLACE INTO preference(key, value) VALUES (?, ?);
+INSERT OR REPLACE INTO preference(server_id, key, value) VALUES (?, ?, ?);
+
+deletePreferencesForServer:
+DELETE FROM preference WHERE server_id = ?;
 
 selectSyncMetadata:
 SELECT * FROM syncMetadata WHERE server_id = ? AND project_id = ? AND session_id = ?;
