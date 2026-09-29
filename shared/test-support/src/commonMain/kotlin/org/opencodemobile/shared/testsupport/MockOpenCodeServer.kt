@@ -3,6 +3,7 @@ package org.opencodemobile.shared.testsupport
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngineBase
 import io.ktor.client.engine.HttpClientEngineConfig
+import io.ktor.client.engine.callContext
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
@@ -14,16 +15,15 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
-import io.ktor.util.InternalAPI
 import io.ktor.util.date.GMTDate
 import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.InternalAPI
 import io.ktor.utils.io.toByteArray
 import io.ktor.utils.io.writeStringUtf8
 import io.ktor.utils.io.writer
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -160,7 +160,7 @@ public class MockOpenCodeServer(
 
         @OptIn(InternalAPI::class)
         override suspend fun execute(data: HttpRequestData): HttpResponseData =
-            handle(data, currentCoroutineContext())
+            handle(data, callContext())
     }
 
     private suspend fun handle(request: HttpRequestData, callContext: CoroutineContext): HttpResponseData {

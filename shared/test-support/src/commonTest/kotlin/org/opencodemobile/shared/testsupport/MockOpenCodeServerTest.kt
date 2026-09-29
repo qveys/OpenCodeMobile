@@ -1,14 +1,15 @@
 package org.opencodemobile.shared.testsupport
 
 import io.ktor.client.plugins.skipSavingBody
-import io.ktor.client.request.contentType
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.request.prepareGet
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.content.TextContent
+import io.ktor.http.contentType
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readUTF8Line
 import kotlin.test.AfterTest
@@ -105,20 +106,25 @@ class MockOpenCodeServerTest {
         val streaming = MockOpenCodeServer(MockOpenCodeScenario.Streaming).start()
         try {
             val expected = OpenCodeFixtures.streamingSseEvents()
-            val channel = streaming.client
-                .get("${streaming.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
-                .bodyAsChannel()
 
-            val first = readEvent(channel)
-            assertEquals(expected[0].id, first?.id)
+            // `client.get` downloads the whole body before returning, so this scenario uses the
+            // streaming syntax: the block reads the body while it is still being produced.
+            streaming.client
+                .prepareGet("${streaming.baseUrl}${MockOpenCodeServer.EVENT_PATH}")
+                .execute { response ->
+                    val channel = response.bodyAsChannel()
 
-            // The second event is held back by the inter-event delay, so consuming the body is
-            // genuinely progressive rather than one concatenated block.
-            assertNull(withTimeoutOrNull(30) { readEvent(channel) })
+                    val first = readEvent(channel)
+                    assertEquals(expected[0].id, first?.id)
 
-            assertEquals(expected[1].id, readEvent(channel)?.id)
-            assertEquals(expected[2].id, readEvent(channel)?.id)
-            assertNull(readEvent(channel))
+                    // The second event is held back by the inter-event delay, so consuming the
+                    // body is genuinely progressive rather than one concatenated block.
+                    assertNull(withTimeoutOrNull(30) { readEvent(channel) })
+
+                    assertEquals(expected[1].id, readEvent(channel)?.id)
+                    assertEquals(expected[2].id, readEvent(channel)?.id)
+                    assertNull(readEvent(channel))
+                }
         } finally {
             streaming.stop()
         }
