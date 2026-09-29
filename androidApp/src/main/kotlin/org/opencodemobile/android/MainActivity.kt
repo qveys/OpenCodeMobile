@@ -41,12 +41,16 @@ import org.opencodemobile.design.system.OpenCodeMetrics
 import org.opencodemobile.design.system.OpenCodeSpacing
 import org.opencodemobile.design.system.OpenCodeTheme
 import org.opencodemobile.design.system.OpenCodeType
+import org.opencodemobile.features.catalog.CatalogPresenter
+import org.opencodemobile.features.catalog.ServerCatalogScreen
 import org.opencodemobile.features.composer.ComposerBar
 import org.opencodemobile.features.composer.ComposerPresenter
 import org.opencodemobile.features.permissions.PermissionBanner
 import org.opencodemobile.features.permissions.PermissionConfirmationScreen
 import org.opencodemobile.features.permissions.PermissionDeepLink
 import org.opencodemobile.features.permissions.PermissionsPresenter
+import org.opencodemobile.features.questions.PendingQuestionsScreen
+import org.opencodemobile.features.questions.QuestionsPresenter
 import org.opencodemobile.features.sessions.SessionsPresenter
 import org.opencodemobile.features.sessions.SessionsScreen
 import org.opencodemobile.features.transcript.TranscriptPresenter
@@ -88,6 +92,8 @@ class MainActivity : FragmentActivity() {
         val sessionsPresenter = sessionsPresenterOrNull()
         val transcriptPresenter = transcriptPresenterOrNull()
         val composerPresenter = composerPresenterOrNull()
+        val questionsPresenter = questionsPresenterOrNull()
+        val catalogPresenter = catalogPresenterOrNull()
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -96,6 +102,8 @@ class MainActivity : FragmentActivity() {
                         sessionsPresenter = sessionsPresenter,
                         transcriptPresenter = transcriptPresenter,
                         composerPresenter = composerPresenter,
+                        questionsPresenter = questionsPresenter,
+                        catalogPresenter = catalogPresenter,
                         requestedConfirmationId = requestedConfirmation,
                         onConfirmationRequestHandled = { requestedConfirmation = null },
                     )
@@ -170,6 +178,24 @@ class MainActivity : FragmentActivity() {
 
     private fun composerPresenterOrNull(): ComposerPresenter? =
         runCatching { GlobalContext.getOrNull()?.get<ComposerPresenter>() }.getOrNull()
+
+    /**
+     * The V1-07 question graph is only present once the connection composition
+     * root is wired; until then the host renders the sessions list with no
+     * question surface. Resolution is defensive so a missing dependency cannot
+     * crash the app at launch.
+     */
+    private fun questionsPresenterOrNull(): QuestionsPresenter? =
+        runCatching { GlobalContext.getOrNull()?.get<QuestionsPresenter>() }.getOrNull()
+
+    /**
+     * The V1-09 model/agent graph is only present once the connection
+     * composition root binds the interaction gateway; until then the host
+     * renders the sessions list with no catalog entry point. Resolution is
+     * defensive so a missing dependency cannot crash the app at launch.
+     */
+    private fun catalogPresenterOrNull(): CatalogPresenter? =
+        runCatching { GlobalContext.getOrNull()?.get<CatalogPresenter>() }.getOrNull()
 }
 
 @Composable
@@ -178,11 +204,13 @@ private fun PermissionHost(
     sessionsPresenter: SessionsPresenter?,
     transcriptPresenter: TranscriptPresenter?,
     composerPresenter: ComposerPresenter?,
+    questionsPresenter: QuestionsPresenter?,
+    catalogPresenter: CatalogPresenter?,
     requestedConfirmationId: String?,
     onConfirmationRequestHandled: () -> Unit,
 ) {
     if (presenter == null) {
-        AppContent(sessionsPresenter, transcriptPresenter, composerPresenter)
+        AppContent(sessionsPresenter, transcriptPresenter, composerPresenter, questionsPresenter, catalogPresenter)
         return
     }
     val state = presenter.state.collectAsState().value
@@ -209,7 +237,7 @@ private fun PermissionHost(
                 },
             )
         } else {
-            AppContent(sessionsPresenter, transcriptPresenter, composerPresenter)
+            AppContent(sessionsPresenter, transcriptPresenter, composerPresenter, questionsPresenter, catalogPresenter)
             if (banner != null) {
                 PermissionBanner(
                     model = banner,
@@ -234,16 +262,27 @@ private fun AppContent(
     sessionsPresenter: SessionsPresenter?,
     transcriptPresenter: TranscriptPresenter?,
     composerPresenter: ComposerPresenter?,
+    questionsPresenter: QuestionsPresenter?,
+    catalogPresenter: CatalogPresenter?,
 ) {
     var openSession by remember { mutableStateOf<SessionSummary?>(null) }
+    var catalogOpen by remember { mutableStateOf(false) }
     val session = openSession
     if (session != null && transcriptPresenter != null && composerPresenter != null) {
         SessionContent(
             session = session,
             transcriptPresenter = transcriptPresenter,
             composerPresenter = composerPresenter,
+            questionsPresenter = questionsPresenter,
             onBack = { openSession = null },
         )
+        return
+    }
+
+    // V1-09: the models/agents the server exposes. Read-only, so it is reachable
+    // whenever the catalog graph is wired, independently of a session.
+    if (catalogOpen && catalogPresenter != null) {
+        CatalogContent(presenter = catalogPresenter, onBack = { catalogOpen = false })
         return
     }
 
@@ -253,9 +292,61 @@ private fun AppContent(
         }
         return
     }
-    SessionsScreen(
-        presenter = sessionsPresenter,
-        onOpenSession = { opened -> openSession = opened },
+
+    // V1-07: a question raised while no session is open must still be visible and
+    // answerable. The banner is not dismissable; only reply/reject clear it.
+    val questions = questionsPresenter?.state?.collectAsState()?.value
+    Box(modifier = Modifier.fillMaxSize()) {
+        SessionsScreen(
+            presenter = sessionsPresenter,
+            onOpenSession = { opened -> openSession = opened },
+            onOpenCatalog = catalogPresenter?.let { { catalogOpen = true } },
+        )
+        if (questions != null && questions.hasPending && questionsPresenter != null) {
+            QuestionBanner(
+                questionsPresenter = questionsPresenter,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+        }
+    }
+}
+
+/**
+ * The V1-09 model/agent screen: it refreshes on entry and forwards the retry
+ * intent. Every rule (server-is-source-of-truth, empty vs unsupported, transient
+ * error) lives in the catalog controller/presenter; this only renders.
+ */
+@Composable
+private fun CatalogContent(
+    presenter: CatalogPresenter,
+    onBack: () -> Unit,
+) {
+    val state by presenter.state.collectAsState()
+    LaunchedEffect(Unit) { presenter.refresh() }
+    Column(modifier = Modifier.fillMaxSize()) {
+        TextButton(onClick = onBack) {
+            Text("Back", style = OpenCodeType.control)
+        }
+        ServerCatalogScreen(
+            state = state,
+            onRetry = { presenter.refresh() },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/** Renders the non-dismissable question banner and forwards reply/reject intents. */
+@Composable
+private fun QuestionBanner(
+    questionsPresenter: QuestionsPresenter,
+    modifier: Modifier = Modifier,
+) {
+    val state = questionsPresenter.state.collectAsState().value
+    PendingQuestionsScreen(
+        state = state,
+        onReply = { requestId, answers -> questionsPresenter.answer(requestId, answers) },
+        onReject = { requestId -> questionsPresenter.reject(requestId) },
+        modifier = modifier,
     )
 }
 
@@ -271,10 +362,13 @@ private fun SessionContent(
     session: SessionSummary,
     transcriptPresenter: TranscriptPresenter,
     composerPresenter: ComposerPresenter,
+    questionsPresenter: QuestionsPresenter?,
     onBack: () -> Unit,
 ) {
     val transcript by transcriptPresenter.state.collectAsState()
     val composer by composerPresenter.state.collectAsState()
+    val abortState by transcriptPresenter.abortState.collectAsState()
+    val questions = questionsPresenter?.state?.collectAsState()?.value
 
     LaunchedEffect(session.id) {
         transcriptPresenter.open(session.id)
@@ -312,14 +406,30 @@ private fun SessionContent(
                 TranscriptScreen(
                     state = transcript,
                     modifier = Modifier.weight(1f),
+                    abortState = abortState,
+                    // V1-08: one explicit user action. The directory is bound
+                    // once the connection composition root exposes the active
+                    // project root; until then the server query stays unscoped.
+                    onAbort = { transcriptPresenter.abort() },
                 )
+                // V1-07: a pending question is shown above the composer and is not
+                // dismissable; only reply/reject clears it.
+                if (questions != null && questions.hasPending && questionsPresenter != null) {
+                    HorizontalDivider(color = colors.line, thickness = OpenCodeMetrics.hairline)
+                    PendingQuestionsScreen(
+                        state = questions,
+                        onReply = { requestId, answers -> questionsPresenter.answer(requestId, answers) },
+                        onReject = { requestId -> questionsPresenter.reject(requestId) },
+                    )
+                }
                 HorizontalDivider(color = colors.line, thickness = OpenCodeMetrics.hairline)
                 ComposerBar(
                     state = composer,
                     onDraftChange = composerPresenter::updateDraft,
                     onSend = composerPresenter::send,
                     // D8: the composer is disabled offline, not merely refused at send.
-                    enabled = !composer.offline,
+                    // V1-07: it is also disabled while a question blocks the turn.
+                    enabled = !composer.offline && questions?.blocksTurn != true,
                 )
             }
         }

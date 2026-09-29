@@ -65,4 +65,12 @@ public data class MockOpenCodeStreamConfig(
 
     /** Number of `message.part.updated` events in the [MockOpenCodeScenario.LongTranscript] fixture. */
     public val longTranscriptPartCount: Int = 600,
+
+    /**
+     * [MockOpenCodeScenario.Abort]: number of events written before the stream
+     * suspends for the abort signal. The event at this index is the one already
+     * in flight when the abort lands; it is delivered (the client must drop it)
+     * and then the stream stops. `0` holds before the first event.
+     */
+    public val abortHoldAfterEvents: Int = 2,
 )

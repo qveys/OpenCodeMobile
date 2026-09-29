@@ -61,6 +61,7 @@ public fun SessionsScreen(
     presenter: SessionsPresenter,
     onOpenSession: (SessionSummary) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenCatalog: (() -> Unit)? = null,
 ) {
     OpenCodeTheme(context = OpenCodeContext.Chrome) {
         val state by presenter.state.collectAsState()
@@ -81,6 +82,7 @@ public fun SessionsScreen(
                 SessionsTopBar(
                     offline = state.offline,
                     onNewSession = { presenter.createSession() },
+                    onOpenCatalog = onOpenCatalog,
                 )
                 TechnicalStatus(state = state, onRetry = { presenter.refresh() })
                 HorizontalDivider(color = colors.line, thickness = OpenCodeMetrics.hairline)
@@ -122,7 +124,11 @@ public fun SessionsScreen(
 }
 
 @Composable
-private fun SessionsTopBar(offline: Boolean, onNewSession: () -> Unit) {
+private fun SessionsTopBar(
+    offline: Boolean,
+    onNewSession: () -> Unit,
+    onOpenCatalog: (() -> Unit)?,
+) {
     val colors = LocalOpenCodeColors.current
     Row(
         modifier = Modifier
@@ -135,6 +141,13 @@ private fun SessionsTopBar(offline: Boolean, onNewSession: () -> Unit) {
             style = OpenCodeType.title,
             modifier = Modifier.weight(1f),
         )
+        // V1-09: the models/agents the server exposes, reachable from the home
+        // surface. Read-only, so it stays available offline.
+        if (onOpenCatalog != null) {
+            TextButton(onClick = onOpenCatalog) {
+                Text("Models & agents", style = OpenCodeType.control)
+            }
+        }
         // D8: the mutation affordance is disabled offline, not merely refused.
         Button(
             onClick = onNewSession,

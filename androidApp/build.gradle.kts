@@ -38,6 +38,8 @@ dependencies {
     implementation(project(":features:composer"))
     implementation(project(":features:files"))
     implementation(project(":features:permissions"))
+    implementation(project(":features:questions"))
+    implementation(project(":features:catalog"))
     implementation(project(":features:settings"))
 
     implementation(project(":shared:domain"))

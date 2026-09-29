@@ -10,6 +10,7 @@ import org.opencodemobile.shared.domain.cache.MutationGate
 import org.opencodemobile.shared.domain.chat.ChatPrompt
 import org.opencodemobile.shared.domain.chat.ComposerDraftStore
 import org.opencodemobile.shared.domain.chat.OpenCodeChatGateway
+import org.opencodemobile.shared.domain.interaction.TurnBlockedByPendingQuestionException
 
 /** The composer state observed by the Compose layer (V1-05). */
 public data class ComposerState(
@@ -36,11 +37,16 @@ public data class ComposerState(
  *   reconnect cannot re-send it. On success the draft is cleared.
  * - **Offline is read-only (D8).** A send is refused before touching the wire
  *   when [MutationGate.mutationsAllowed] is false.
+ * - **A pending question blocks the turn (V1-07).** While [turnBlocked] reports
+ *   true (the server is waiting on a question), a send is refused before touching
+ *   the wire. The composer affordance is disabled as well, so this is the
+ *   fail-closed backstop, never the only gate.
  */
 public class ComposerController(
     private val gateway: OpenCodeChatGateway,
     private val drafts: ComposerDraftStore,
     private val mutationGate: MutationGate,
+    private val turnBlocked: () -> Boolean = { false },
 ) {
     private val mutableState = MutableStateFlow(ComposerState())
 
@@ -88,6 +94,14 @@ public class ComposerController(
         if (!mutationGate.mutationsAllowed()) {
             mutableState.value = current.copy(offline = true)
             return Result.failure(CacheMutationNotAllowedException())
+        }
+        if (turnBlocked()) {
+            // V1-07: a pending question blocks the turn. Refuse before the wire and
+            // keep the draft so the user can send it once the question is decided.
+            mutableState.value = current.copy(
+                error = "A pending question must be answered before you can send a prompt",
+            )
+            return Result.failure(TurnBlockedByPendingQuestionException())
         }
 
         mutableState.value = current.copy(sending = true, error = null)

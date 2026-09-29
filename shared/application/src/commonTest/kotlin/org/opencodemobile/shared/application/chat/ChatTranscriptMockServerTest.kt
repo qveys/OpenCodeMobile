@@ -3,6 +3,7 @@ package org.opencodemobile.shared.application.chat
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +20,7 @@ import org.opencodemobile.shared.domain.connection.ServerCredential
 import org.opencodemobile.shared.domain.connection.ServerFingerprint
 import org.opencodemobile.shared.domain.connection.ServerIdentityStore
 import org.opencodemobile.shared.domain.connection.ServerIdentityVerifier
+import org.opencodemobile.shared.application.interaction.TurnAbortController
 import org.opencodemobile.shared.domain.connection.ServerProfile
 import org.opencodemobile.shared.networking.adapter.OpenCodeV2Adapter
 import org.opencodemobile.shared.networking.realtime.NetworkingRealtimeTransport
@@ -228,6 +230,72 @@ class ChatTranscriptMockServerTest {
 
             assertEquals(1, server.prompts.size, "a reconnect must not replay the prompt (D9)")
             assertEquals(1, server.prompts.count { it.sessionId == sessionId })
+        }
+        processor.stop()
+    }
+
+    @Test
+    fun abortStopsTheTurnAndNoOrphanEventSurvivesTheNextSnapshot() = runTest {
+        val server = startServer(MockOpenCodeScenario.Abort)
+        val scope = newScope()
+        val adapter = connectedAdapter(server)
+        val transcripts = TranscriptController(adapter)
+        val composers = ComposerController(adapter, InMemoryDraftStore(), OnlineMutations)
+        val turnAbort = TurnAbortController(adapter, OnlineMutations)
+        val processor = EventProcessor(transportFor(server))
+
+        withContext(Dispatchers.Default) {
+            composers.open(sessionId)
+            composers.updateDraft("run the long job")
+            assertTrue(composers.send().isSuccess)
+
+            transcripts.open(sessionId)
+            val bridge = ChatRealtimeBridge(processor, adapter, transcripts, turnAbort)
+            bridge.start(scope)
+            processor.start(scope)
+
+            // The turn streamed its first chunk to the wire. (The transcript is
+            // server-derived and may still be reconciling, so the proof the turn
+            // started is the server's delivered-parts set.)
+            awaitUntil { server.deliveredParts.contains("prt_mock_0001") }
+            assertTrue(turnAbort.acceptsEventDerivedState(sessionId))
+
+            // The user aborts explicitly; from now on no event-derived state may
+            // be painted until the next authoritative snapshot wins (V1-08).
+            assertTrue(turnAbort.abort(sessionId, OpenCodeFixtures.DIRECTORY).isSuccess)
+            assertFalse(
+                turnAbort.acceptsEventDerivedState(sessionId),
+                "a successful abort must gate event-derived state until the next snapshot",
+            )
+
+            // The server delivers the in-flight event and stops the turn; the
+            // client reconnects and rebuilds from the authoritative snapshot.
+            awaitUntil(timeoutMillis = 8_000L) {
+                server.eventStreamConnections >= 2 && turnAbort.acceptsEventDerivedState(sessionId)
+            }
+            val authoritative = adapter.transcript(sessionId)
+            awaitUntil {
+                transcripts.state.value.messages.map { it.id } == authoritative.map { it.id }
+            }
+
+            // No orphan from the aborted turn is ever rendered, and the state is
+            // the server snapshot: the delivered part is authoritative, the
+            // in-flight one never was.
+            val rendered = transcripts.state.value.messages.joinToString(separator = "") { it.text }
+            val diagnostics = "rendered=$rendered aborts=${server.aborts} " +
+                "aborted=${server.abortedSessions} streams=${server.eventStreamConnections} " +
+                "requests=${server.requests}"
+            assertFalse(rendered.contains("streamed chunk 2"), "orphan event rendered: $diagnostics")
+            assertFalse(rendered.contains("streamed chunk 3"), "orphan event rendered: $diagnostics")
+            assertTrue(authoritative.any { it.text.contains("streamed chunk 1") })
+            assertFalse(authoritative.any { it.text.contains("streamed chunk 2") })
+
+            // The abort carried the active directory (ADR-0002 §3.3).
+            val recorded = server.aborts.single()
+            assertEquals(sessionId, recorded.sessionId)
+            assertEquals(OpenCodeFixtures.DIRECTORY, recorded.directory)
+            // And the turn is never replayed on reconnect.
+            assertTrue(server.abortedSessions.contains(sessionId))
         }
         processor.stop()
     }

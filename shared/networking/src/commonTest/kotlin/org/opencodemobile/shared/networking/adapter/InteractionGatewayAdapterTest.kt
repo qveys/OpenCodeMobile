@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import io.ktor.client.plugins.ServerResponseException
 import kotlinx.coroutines.test.runTest
 import org.opencodemobile.shared.domain.connection.ServerCredential
 import org.opencodemobile.shared.domain.connection.ServerFingerprint
@@ -96,17 +97,24 @@ class InteractionGatewayAdapterTest {
     }
 
     @Test
-    fun abortHitsTheSessionAbortRoute() = runTest {
+    fun abortHitsTheSessionAbortRouteAndCarriesTheDirectory() = runTest {
         val server = MockOpenCodeServer().start()
         try {
             val adapter = adapterFor(server)
             adapter.connect(profile, ServerCredential("s3cr3t"))
 
-            adapter.abortTurn("ses_mock_0001")
+            adapter.abortTurn("ses_mock_0001", OpenCodeFixtures.DIRECTORY)
 
             assertTrue(
                 server.requests.contains("POST /session/ses_mock_0001/abort"),
                 "abort must call POST /session/{id}/abort: ${server.requests}",
+            )
+            val recorded = server.aborts.single()
+            assertEquals("ses_mock_0001", recorded.sessionId)
+            assertEquals(
+                OpenCodeFixtures.DIRECTORY,
+                recorded.directory,
+                "abort must pass the active directory as a query parameter (ADR-0002 §3.3)",
             )
         } finally {
             server.stop()
@@ -151,6 +159,39 @@ class InteractionGatewayAdapterTest {
             assertTrue(catalog.isEmpty)
             assertTrue(catalog.providersAvailable, "the route answered; it is just empty")
             assertTrue(catalog.agentsAvailable)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun aServerWithoutCatalogRoutesReportsThemUnavailable() = runTest {
+        val server = MockOpenCodeServer(MockOpenCodeScenario.NoCatalogRoutes, expectSuccess = true).start()
+        try {
+            val adapter = adapterFor(server)
+            adapter.connect(profile, ServerCredential("s3cr3t"))
+
+            val catalog = adapter.serverCatalog()
+
+            assertTrue(catalog.providers.isEmpty() && catalog.agents.isEmpty())
+            assertTrue(catalog.isEmpty)
+            assertTrue(!catalog.providersAvailable, "a 404 on GET /provider means the route is absent")
+            assertTrue(!catalog.agentsAvailable, "a 404 on GET /agent means the route is absent")
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun aTransientCatalogFailurePropagatesInsteadOfLookingUnsupported() = runTest {
+        val server = MockOpenCodeServer(MockOpenCodeScenario.CatalogUnavailable, expectSuccess = true).start()
+        try {
+            val adapter = adapterFor(server)
+            adapter.connect(profile, ServerCredential("s3cr3t"))
+
+            // A 503 is not a missing route: it must not be swallowed into
+            // providersAvailable=false / agentsAvailable=false (OPE-194).
+            assertFailsWith<ServerResponseException> { adapter.serverCatalog() }
         } finally {
             server.stop()
         }

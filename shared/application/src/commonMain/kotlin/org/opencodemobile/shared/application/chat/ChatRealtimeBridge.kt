@@ -5,6 +5,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import org.opencodemobile.shared.application.interaction.TurnAbortController
 import org.opencodemobile.shared.domain.chat.ChatEventDecoder
 import org.opencodemobile.shared.domain.event.ConnectionPhase
 import org.opencodemobile.shared.domain.event.EventSource
@@ -18,12 +19,25 @@ import org.opencodemobile.shared.domain.event.EventSource
  *   transcript, so a reconnect (or an app restart) reconstitutes the transcript
  *   from the server with no duplicate and no lost text (D2).
  *
+ * **V1-08 resynchronisation (abort).** After a successful abort the client holds
+ * no event-derived turn state until the next authoritative snapshot wins
+ * (`docs/ARCHITECTURE.md` §3.2, "the next snapshot wins"):
+ *
+ * - a `Live` transition is the pipeline's guarantee that a fresh server snapshot
+ *   was just applied, so it is treated as authoritative:
+ *   [TurnAbortController.onAuthoritativeSnapshot] clears the session's
+ *   "awaiting resync" flag and the transcript is rebuilt from the server, and
+ * - while a session is awaiting resync, an event-derived state for it is **not**
+ *   painted ([TurnAbortController.acceptsEventDerivedState] is false), so a late
+ *   event from the aborted turn can never become an orphan.
+ *
  * It never sends a prompt; that is [ComposerController]'s single-shot job (D9).
  */
 public class ChatRealtimeBridge(
     private val source: EventSource,
     private val decoder: ChatEventDecoder,
     private val transcripts: TranscriptController,
+    private val turnAbort: TurnAbortController? = null,
 ) {
     /** Starts both collectors in [scope] and returns their job. */
     public fun start(scope: CoroutineScope): Job = scope.launch {
@@ -33,7 +47,10 @@ public class ChatRealtimeBridge(
                 // seam: enforce it at the boundary so one bad payload cannot
                 // permanently cancel this collector.
                 val decoded = runCatching { decoder.decode(event.type, event.payload) }.getOrNull()
-                decoded?.let(transcripts::onEvent)
+                    ?: return@collect
+                // V1-08: never paint an event-derived state while the session is
+                // awaiting the snapshot that wins after an abort.
+                if (acceptsEventDerivedState()) transcripts.onEvent(decoded)
             }
         }
         launch {
@@ -41,8 +58,29 @@ public class ChatRealtimeBridge(
                 .map { it.phase }
                 .distinctUntilChanged()
                 .collect { phase ->
-                    if (phase == ConnectionPhase.Live) transcripts.refresh()
+                    if (phase == ConnectionPhase.Live) resyncFromTheAuthoritativeSnapshot()
                 }
         }
+    }
+
+    /**
+     * Whether an event-derived state for the open session may be painted. Returns
+     * true when there is no abort surface, no open session, or no abort awaiting.
+     */
+    private fun acceptsEventDerivedState(): Boolean {
+        val abort = turnAbort ?: return true
+        val sessionId = transcripts.state.value.sessionId ?: return true
+        return abort.acceptsEventDerivedState(sessionId)
+    }
+
+    /**
+     * A `Live` transition always follows the pipeline applying a server snapshot
+     * (`EventProcessor.runPipeline`), so it is the authoritative snapshot: tell
+     * the abort surface the session may be trusted again, then rebuild the
+     * transcript from the server.
+     */
+    private suspend fun resyncFromTheAuthoritativeSnapshot() {
+        turnAbort?.onAuthoritativeSnapshot(transcripts.state.value.sessionId)
+        transcripts.refresh()
     }
 }

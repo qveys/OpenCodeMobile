@@ -206,6 +206,63 @@ class MockOpenCodeServerTest {
     }
 
     @Test
+    fun abortScenarioStopsTheTurnAndNeverReplaysIt() = runTest {
+        val abort = MockOpenCodeServer(MockOpenCodeScenario.Abort).start()
+        try {
+            val script = OpenCodeFixtures.abortSseEvents()
+            val sessionID = OpenCodeFixtures.sessions.first().id
+
+            abort.client
+                .prepareGet("${abort.baseUrl}${MockOpenCodeServer.EVENT_PATH}")
+                .execute { response ->
+                    val channel = response.bodyAsChannel()
+                    // Pre-abort prefix: the session update and the first chunk.
+                    assertEquals(script[0].id, readEvent(channel)?.id)
+                    assertEquals(script[1].id, readEvent(channel)?.id)
+
+                    // Abort the turn while the stream holds it open, with the
+                    // active directory (ADR-0002 §3.3).
+                    val aborted = abort.client.post(
+                        "${abort.baseUrl}${MockOpenCodeServer.SESSION_PATH}/$sessionID/abort" +
+                            "?directory=${OpenCodeFixtures.DIRECTORY}",
+                    )
+                    assertEquals(200, aborted.status.value)
+
+                    // The event in flight at the abort is still delivered...
+                    assertEquals(script[2].id, readEvent(channel)?.id)
+                    // ...and the turn stops: nothing after it.
+                    assertNull(readEvent(channel), "no event may follow the aborted turn's in-flight event")
+                }
+
+            val recorded = abort.aborts.single()
+            assertEquals(sessionID, recorded.sessionId)
+            assertEquals(OpenCodeFixtures.DIRECTORY, recorded.directory, "the abort must carry the directory")
+            assertEquals(setOf(sessionID), abort.abortedSessions)
+
+            // A reconnect never replays the aborted turn.
+            val replayed = readEvents(
+                abort.client
+                    .get("${abort.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
+                    .bodyAsChannel(),
+            )
+            assertTrue(
+                replayed.none { it.type == "message.part.updated" },
+                "the aborted turn must not be replayed: $replayed",
+            )
+
+            // The authoritative transcript only commits the part written before
+            // the abort; the in-flight orphan never becomes server state.
+            val transcript = abort.client
+                .get("${abort.baseUrl}${MockOpenCodeServer.SESSION_PATH}/$sessionID/message")
+                .bodyAsText()
+            assertTrue(transcript.contains("streamed chunk 1"), transcript)
+            assertFalse(transcript.contains("streamed chunk 2"), transcript)
+        } finally {
+            abort.stop()
+        }
+    }
+
+    @Test
     fun permissionRequestScenarioProvidesEventAndDecisionEndpoint() = runTest {
         val permission = MockOpenCodeServer(MockOpenCodeScenario.PermissionRequest).start()
         try {

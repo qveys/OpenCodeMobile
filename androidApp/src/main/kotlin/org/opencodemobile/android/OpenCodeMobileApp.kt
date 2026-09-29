@@ -10,11 +10,15 @@ import org.opencodemobile.android.cache.CacheWriteRuntime
 import org.opencodemobile.android.chat.ChatRuntime
 import org.opencodemobile.android.di.CHAT_SCOPE_QUALIFIER
 import org.opencodemobile.android.di.PERMISSION_SCOPE_QUALIFIER
+import org.opencodemobile.android.di.QUESTIONS_SCOPE_QUALIFIER
 import org.opencodemobile.android.di.cacheModule
+import org.opencodemobile.android.di.catalogModule
 import org.opencodemobile.android.di.chatModule
 import org.opencodemobile.android.di.permissionModule
+import org.opencodemobile.android.di.questionsModule
 import org.opencodemobile.android.di.sessionsModule
 import org.opencodemobile.android.permission.PermissionRuntime
+import org.opencodemobile.android.questions.PendingQuestionsRuntime
 
 class OpenCodeMobileApp : Application() {
     override fun onCreate() {
@@ -23,11 +27,12 @@ class OpenCodeMobileApp : Application() {
             androidContext(this@OpenCodeMobileApp)
             // Per-module Koin modules (shared/*, features/*) are added here as each
             // layer is implemented; D12 keeps shared/domain free of Koin entirely.
-            modules(cacheModule, permissionModule, sessionsModule, chatModule)
+            modules(cacheModule, permissionModule, sessionsModule, chatModule, questionsModule, catalogModule)
         }
         startPermissionSurface()
         startCacheWritePath()
         startChatSurface()
+        startQuestionsSurface()
     }
 
     /**
@@ -74,5 +79,23 @@ class OpenCodeMobileApp : Application() {
         val koin = GlobalContext.getOrNull() ?: return
         val runtime = runCatching { koin.get<CacheWriteRuntime>() }.getOrNull() ?: return
         runtime.start()
+    }
+
+    /**
+     * Starts the V1-07 pending-question surface: the bridge refreshes
+     * `GET /question` at start and on every return to `Live`, so a killed app
+     * comes back with the question still displayed. It answers nothing: replies
+     * and rejects stay explicit user actions.
+     *
+     * Like the other surfaces, it is inert until a connection composition root
+     * binds a `QuestionConnection`; that root calls `start` again once it has.
+     */
+    private fun startQuestionsSurface() {
+        val koin = GlobalContext.getOrNull() ?: return
+        val runtime = runCatching { koin.get<PendingQuestionsRuntime>() }.getOrNull() ?: return
+        val scope = runCatching {
+            koin.get<CoroutineScope>(named(QUESTIONS_SCOPE_QUALIFIER))
+        }.getOrNull() ?: return
+        runtime.start(scope)
     }
 }

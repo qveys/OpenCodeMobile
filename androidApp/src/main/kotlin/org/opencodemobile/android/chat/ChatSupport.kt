@@ -7,6 +7,10 @@ import org.opencodemobile.shared.domain.chat.ChatPrompt
 import org.opencodemobile.shared.domain.chat.OpenCodeChatGateway
 import org.opencodemobile.shared.domain.chat.TranscriptMessage
 import org.opencodemobile.shared.domain.event.EventSource
+import org.opencodemobile.shared.domain.interaction.InteractionNotConnectedException
+import org.opencodemobile.shared.domain.interaction.OpenCodeInteractionGateway
+import org.opencodemobile.shared.domain.interaction.PendingQuestion
+import org.opencodemobile.shared.domain.interaction.ServerCatalog
 
 /**
  * The active server connection the V1-05 chat surface is scoped to.
@@ -24,6 +28,9 @@ import org.opencodemobile.shared.domain.event.EventSource
 public interface ChatConnection {
     /** The real `OpenCodeV2Adapter` chat surface. */
     public val gateway: OpenCodeChatGateway
+
+    /** The real `OpenCodeV2Adapter` V1-07/V1-08/V1-09 interaction surface. */
+    public val interactions: OpenCodeInteractionGateway
 
     /** The decoder for `message.*` realtime events. */
     public val decoder: ChatEventDecoder
@@ -80,4 +87,54 @@ internal class DeferredChatEventDecoder(
 ) : ChatEventDecoder {
     override fun decode(type: String, payload: String): ChatEvent? =
         (resolveConnection()?.decoder ?: UnavailableChatEventDecoder).decode(type, payload)
+}
+
+/**
+ * Fail-closed [OpenCodeInteractionGateway] used while no connection is wired: an
+ * abort or a question call fails instead of silently succeeding without a server.
+ */
+internal object UnavailableChatInteractionGateway : OpenCodeInteractionGateway {
+    override suspend fun pendingQuestions(directory: String?): List<PendingQuestion> =
+        throw InteractionNotConnectedException()
+
+    override suspend fun answerQuestion(
+        requestId: String,
+        answers: List<List<String>>,
+        directory: String?,
+    ): Unit = throw InteractionNotConnectedException()
+
+    override suspend fun rejectQuestion(requestId: String, directory: String?): Unit =
+        throw InteractionNotConnectedException()
+
+    override suspend fun abortTurn(sessionId: String, directory: String?): Unit =
+        throw InteractionNotConnectedException()
+
+    override suspend fun serverCatalog(directory: String?): ServerCatalog =
+        throw InteractionNotConnectedException()
+}
+
+/** An [OpenCodeInteractionGateway] that resolves the active connection at call time. */
+internal class DeferredChatInteractionGateway(
+    private val resolveConnection: () -> ChatConnection?,
+) : OpenCodeInteractionGateway {
+    private fun gateway(): OpenCodeInteractionGateway =
+        resolveConnection()?.interactions ?: UnavailableChatInteractionGateway
+
+    override suspend fun pendingQuestions(directory: String?): List<PendingQuestion> =
+        gateway().pendingQuestions(directory)
+
+    override suspend fun answerQuestion(
+        requestId: String,
+        answers: List<List<String>>,
+        directory: String?,
+    ): Unit = gateway().answerQuestion(requestId, answers, directory)
+
+    override suspend fun rejectQuestion(requestId: String, directory: String?): Unit =
+        gateway().rejectQuestion(requestId, directory)
+
+    override suspend fun abortTurn(sessionId: String, directory: String?): Unit =
+        gateway().abortTurn(sessionId, directory)
+
+    override suspend fun serverCatalog(directory: String?): ServerCatalog =
+        gateway().serverCatalog(directory)
 }

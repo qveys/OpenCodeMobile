@@ -31,6 +31,8 @@ class ModuleBoundaryTest : StringSpec() {
             projectRoot.resolve("features/composer/src/commonMain/kotlin"),
             projectRoot.resolve("features/files/src/commonMain/kotlin"),
             projectRoot.resolve("features/permissions/src/commonMain/kotlin"),
+            projectRoot.resolve("features/questions/src/commonMain/kotlin"),
+            projectRoot.resolve("features/catalog/src/commonMain/kotlin"),
             projectRoot.resolve("features/settings/src/commonMain/kotlin"),
             projectRoot.resolve("design-system/src/commonMain/kotlin"),
             projectRoot.resolve("androidApp/src/main/kotlin"),
@@ -189,7 +191,7 @@ class ModuleBoundaryTest : StringSpec() {
         "Each feature must only depend on Domain, Application, DesignSystem, Compose, Koin, and stdlib" {
             val features = listOf(
                 "connection", "projects", "sessions", "transcript", "composer",
-                "files", "permissions", "settings"
+                "files", "permissions", "questions", "catalog", "settings"
             )
 
             for (featureName in features) {
@@ -223,7 +225,7 @@ class ModuleBoundaryTest : StringSpec() {
         "Features must not reach into another feature's internals (no cross-feature imports)" {
             val features = listOf(
                 "connection", "projects", "sessions", "transcript", "composer",
-                "files", "permissions", "settings"
+                "files", "permissions", "questions", "catalog", "settings"
             )
 
             for (featureName in features) {

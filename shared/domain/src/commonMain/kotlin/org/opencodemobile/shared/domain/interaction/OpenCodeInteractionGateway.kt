@@ -43,8 +43,12 @@ public interface OpenCodeInteractionGateway {
      * Abort is an explicit user action and is never automatic (V1-08). It is
      * sent exactly once; the client does not patch any local turn state and
      * waits for the next authoritative server snapshot.
+     *
+     * [directory] scopes the request to the active project root so the abort
+     * cannot hit another workspace's turn on the same server (ADR-0002 §3.3);
+     * the pinned spec exposes it as an optional query parameter.
      */
-    public suspend fun abortTurn(sessionId: String)
+    public suspend fun abortTurn(sessionId: String, directory: String? = null)
 
     /**
      * Reads what the server exposes: providers/models (`GET /provider`) and

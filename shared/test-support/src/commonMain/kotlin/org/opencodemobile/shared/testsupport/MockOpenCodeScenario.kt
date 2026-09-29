@@ -57,6 +57,15 @@ public enum class MockOpenCodeScenario {
     SlowNetwork,
 
     /**
+     * The active turn is aborted mid-stream (V1-08). `/event` delivers the
+     * pre-abort events, holds the turn open until `POST /session/{id}/abort`
+     * lands, delivers the event already in flight (the client must drop it) and
+     * stops. `GET /session/{id}/message` never commits the in-flight event, and
+     * a reconnect never replays the aborted turn.
+     */
+    Abort,
+
+    /**
      * `/event` streams a large fixture (hundreds of `message.part.updated` events).
      */
     LongTranscript,
@@ -68,6 +77,23 @@ public enum class MockOpenCodeScenario {
      * falling back to a hard-coded catalog.
      */
     NoCatalog,
+
+    /**
+     * An older server that does not expose the catalog routes at all: `GET /provider`
+     * and `GET /agent` answer `404 Not Found`. Used by V1-09 to prove a missing
+     * route is shown as *unsupported* and is never confused with a transient
+     * failure (OPE-194).
+     */
+    NoCatalogRoutes,
+
+    /**
+     * A server that exposes the catalog routes but fails them transiently:
+     * `GET /provider` and `GET /agent` answer `503 Service Unavailable` while
+     * every other route (including `GET /global/health`) succeeds. Used by V1-09
+     * to prove a transient outage surfaces as an **error** message rather than
+     * "this server does not expose model or agent listings" (OPE-194).
+     */
+    CatalogUnavailable,
 
     /**
      * A server whose published surface (`GET /doc`) does not include

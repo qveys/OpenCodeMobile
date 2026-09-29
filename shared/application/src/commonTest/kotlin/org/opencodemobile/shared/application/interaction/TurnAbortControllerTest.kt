@@ -41,6 +41,21 @@ class TurnAbortControllerTest {
     }
 
     @Test
+    fun abortCarriesTheActiveDirectory() = runTest {
+        val gateway = FakeInteractionGateway()
+        val controller = TurnAbortController(gateway, onlineGate())
+
+        controller.abort("ses_1", directory = "/home/dev/workspace")
+
+        assertEquals(listOf("ses_1"), gateway.aborted)
+        assertEquals(
+            "/home/dev/workspace",
+            gateway.lastDirectory,
+            "the abort must pass the active directory (ADR-0002 §3.3)",
+        )
+    }
+
+    @Test
     fun abortIsRefusedOfflineAndNothingIsSent() = runTest {
         val gateway = FakeInteractionGateway()
         val controller = TurnAbortController(gateway, offlineGate())

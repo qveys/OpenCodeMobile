@@ -3,11 +3,15 @@ package org.opencodemobile.features.transcript
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,6 +23,7 @@ import org.opencodemobile.design.system.OpenCodeMetrics
 import org.opencodemobile.design.system.OpenCodeSpacing
 import org.opencodemobile.design.system.OpenCodeType
 import org.opencodemobile.shared.application.chat.TranscriptState
+import org.opencodemobile.shared.application.interaction.TurnAbortState
 import org.opencodemobile.shared.domain.chat.TranscriptMessage
 import org.opencodemobile.shared.domain.chat.TranscriptRole
 
@@ -29,6 +34,10 @@ import org.opencodemobile.shared.domain.chat.TranscriptRole
  * every message by its server id and only composes visible rows, so a long
  * transcript (the `long-transcript` scenario) stays smooth.
  *
+ * When [onAbort] is provided it also renders the V1-08 abort action: the single
+ * explicit user affordance that stops the active turn. [abortState] drives its
+ * enabled state and label; the "next snapshot wins" rule lives downstream.
+ *
  * `docs/DESIGN-SYSTEM.md`: monospace, no social bubbles. The user prompt is a
  * monospace block; assistant text is Markdown with highlighted code fences.
  */
@@ -36,8 +45,26 @@ import org.opencodemobile.shared.domain.chat.TranscriptRole
 public fun TranscriptScreen(
     state: TranscriptState,
     modifier: Modifier = Modifier,
+    abortState: TurnAbortState = TurnAbortState(),
+    onAbort: (() -> Unit)? = null,
 ) {
-    val colors = LocalOpenCodeColors.current
+    Column(modifier = modifier.fillMaxSize()) {
+        if (onAbort != null) {
+            TurnAbortBar(abortState = abortState, onAbort = onAbort)
+            HorizontalDivider(
+                color = LocalOpenCodeColors.current.line,
+                thickness = OpenCodeMetrics.hairline,
+            )
+        }
+        TranscriptBody(state = state, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun TranscriptBody(
+    state: TranscriptState,
+    modifier: Modifier = Modifier,
+) {
     when {
         state.isEmpty && state.loading -> TranscriptNotice("Loading transcript…", modifier)
 
@@ -52,8 +79,56 @@ public fun TranscriptScreen(
         ) {
             items(state.messages, key = { it.id }) { message ->
                 TranscriptMessageItem(message)
-                HorizontalDivider(color = colors.line, thickness = OpenCodeMetrics.hairline)
+                HorizontalDivider(color = LocalOpenCodeColors.current.line, thickness = OpenCodeMetrics.hairline)
             }
+        }
+    }
+}
+
+/**
+ * The V1-08 abort affordance: one explicit action, disabled while an abort is in
+ * flight or while the session is awaiting the snapshot that wins.
+ */
+@Composable
+private fun TurnAbortBar(
+    abortState: TurnAbortState,
+    onAbort: () -> Unit,
+) {
+    val colors = LocalOpenCodeColors.current
+    val aborting = abortState.abortingSessionId != null
+    val awaitingResync = abortState.awaitingAuthoritativeSnapshotFor != null
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = OpenCodeSpacing.x3, vertical = OpenCodeSpacing.x1),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val status = when {
+            aborting -> "Aborting…"
+            awaitingResync -> "Aborted — waiting for the server snapshot…"
+            abortState.error != null -> abortState.error
+            else -> null
+        }
+        if (status != null) {
+            Text(
+                text = status,
+                style = OpenCodeType.meta,
+                color = if (abortState.error != null) colors.danger else colors.textMuted,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            Spacer(modifier = Modifier.weight(1f))
+        }
+        Button(
+            onClick = onAbort,
+            enabled = !aborting && !awaitingResync,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = colors.danger,
+                contentColor = colors.onPrimary,
+            ),
+        ) {
+            Text("Abort", style = OpenCodeType.control)
         }
     }
 }

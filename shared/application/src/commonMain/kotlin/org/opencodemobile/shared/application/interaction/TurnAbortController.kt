@@ -50,13 +50,18 @@ public class TurnAbortController(
 
     public val state: StateFlow<TurnAbortState> = _state.asStateFlow()
 
-    /** Aborts [sessionId]; on success the session waits for a new snapshot. */
-    public suspend fun abort(sessionId: String): Result<Unit> {
+    /**
+     * Aborts [sessionId]; on success the session waits for a new snapshot.
+     *
+     * [directory] is the active project root; it is forwarded to the server so
+     * the abort is scoped to this workspace (ADR-0002 §3.3).
+     */
+    public suspend fun abort(sessionId: String, directory: String? = null): Result<Unit> {
         if (!mutationGate.mutationsAllowed()) {
             return Result.failure(CacheMutationNotAllowedException())
         }
         _state.value = TurnAbortState(abortingSessionId = sessionId)
-        return runCatchingNonCancellable { gateway.abortTurn(sessionId) }.fold(
+        return runCatchingNonCancellable { gateway.abortTurn(sessionId, directory) }.fold(
             onSuccess = {
                 _state.value = TurnAbortState(awaitingAuthoritativeSnapshotFor = sessionId)
                 Result.success(Unit)

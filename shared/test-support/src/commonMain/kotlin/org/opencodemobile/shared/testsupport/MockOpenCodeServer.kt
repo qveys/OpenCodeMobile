@@ -18,6 +18,7 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.util.date.GMTDate
 import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.InternalAPI
 import io.ktor.utils.io.toByteArray
 import io.ktor.utils.io.writeStringUtf8
@@ -25,6 +26,8 @@ import io.ktor.utils.io.writer
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -59,6 +62,17 @@ public data class MockQuestionReply(
 public data class MockPrompt(
     public val sessionId: String,
     public val text: String,
+)
+
+/**
+ * An abort received on `POST /session/{sessionID}/abort`, captured for assertions.
+ *
+ * [directory] is the optional `directory` query parameter (ADR-0002 §3.3); a
+ * test asserts the adapter forwards the active project root.
+ */
+public data class MockAbort(
+    public val sessionId: String,
+    public val directory: String? = null,
 )
 
 /**
@@ -114,6 +128,24 @@ public class MockOpenCodeServer(
     private val permissionReplyLog: MutableList<MockPermissionReply> = mutableListOf()
     private val questionReplyLog: MutableList<MockQuestionReply> = mutableListOf()
     private val promptLog: MutableList<MockPrompt> = mutableListOf()
+    private val abortLog: MutableList<MockAbort> = mutableListOf()
+
+    /**
+     * Sessions whose active turn was aborted; their turn is never replayed.
+     *
+     * A `StateFlow` (not a plain set) because the abort is recorded on the abort
+     * request's thread while the `/event` writer polls it on another, so the
+     * update must cross threads with a visibility guarantee.
+     */
+    private val abortedSessionIds: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
+
+    /**
+     * Part ids whose `message.part.updated` was written **before** an abort, i.e.
+     * the server committed them to the authoritative transcript. A part written
+     * after the abort (the in-flight orphan) is deliberately not committed.
+     * A `StateFlow` for the same cross-thread visibility reason.
+     */
+    private val committedPartIds: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
     private var sessionSequence: Int = 0
     private var eventCursor: Int = 0
     private var eventStreamConnectionCount: Int = 0
@@ -142,6 +174,22 @@ public class MockOpenCodeServer(
      */
     public val prompts: List<MockPrompt>
         get() = promptLog.toList()
+
+    /** Aborts received on `POST /session/{id}/abort`, in arrival order, with their `directory`. */
+    public val aborts: List<MockAbort>
+        get() = abortLog.toList()
+
+    /** Sessions whose turn was aborted; the mock never replays their aborted turn. */
+    public val abortedSessions: Set<String>
+        get() = abortedSessionIds.value
+
+    /**
+     * Part ids the mock has actually emitted on `/event` (`message.part.updated`)
+     * and that are therefore part of the authoritative transcript. A part written
+     * after an abort (the in-flight orphan) is never added.
+     */
+    public val deliveredParts: Set<String>
+        get() = committedPartIds.value
 
     /** Number of `GET /event` connections served since the last [start]. */
     public val eventStreamConnections: Int
@@ -172,6 +220,9 @@ public class MockOpenCodeServer(
         permissionReplyLog.clear()
         questionReplyLog.clear()
         promptLog.clear()
+        abortLog.clear()
+        abortedSessionIds.value = emptySet()
+        committedPartIds.value = emptySet()
         sessionSequence = 0
         eventCursor = 0
         eventStreamConnectionCount = 0
@@ -323,8 +374,15 @@ public class MockOpenCodeServer(
                 }
             }
 
-            method == HttpMethod.Post && path.endsWith("/abort") ->
+            // Abort the active turn (V1-08). The mock records the exact request,
+            // including the optional `directory` query parameter (ADR-0002 §3.3),
+            // and marks the session so its aborted turn is never replayed.
+            method == HttpMethod.Post && path.startsWith("$SESSION_PATH/") && path.endsWith("/abort") -> {
+                val id = path.removePrefix("$SESSION_PATH/").removeSuffix("/abort")
+                abortLog += MockAbort(sessionId = id, directory = request.url.parameters["directory"])
+                abortedSessionIds.value = abortedSessionIds.value + id
                 jsonResponse("""{"aborted":true}""", HttpStatusCode.OK, callContext)
+            }
 
             method == HttpMethod.Get && path == EVENT_PATH -> eventStreamResponse(callContext)
 
@@ -364,10 +422,10 @@ public class MockOpenCodeServer(
             // --- V1-09: server-exposed models and agents ---
 
             method == HttpMethod.Get && path == PROVIDER_PATH ->
-                jsonResponse(catalogProvidersJson(), HttpStatusCode.OK, callContext)
+                catalogProvidersResponse(callContext)
 
             method == HttpMethod.Get && path == AGENT_PATH ->
-                jsonResponse(catalogAgentsJson(), HttpStatusCode.OK, callContext)
+                catalogAgentsResponse(callContext)
 
             else -> notFoundJson(callContext)
         }
@@ -396,18 +454,31 @@ public class MockOpenCodeServer(
             "[]"
         }
 
-    private fun catalogProvidersJson(): String =
-        if (scenario == MockOpenCodeScenario.NoCatalog) {
-            OpenCodeFixtures.emptyProvidersJson()
-        } else {
-            OpenCodeFixtures.providersJson()
+    /**
+     * `GET /provider` for the V1-09 scenarios. [MockOpenCodeScenario.NoCatalog]
+     * answers an empty list; [MockOpenCodeScenario.NoCatalogRoutes] answers `404`
+     * (the route does not exist); [MockOpenCodeScenario.CatalogUnavailable]
+     * answers `503` (a transient failure). Everything else answers the pinned
+     * fixture, so the catalog is always the server's, never a built-in list.
+     */
+    private fun catalogProvidersResponse(callContext: CoroutineContext): HttpResponseData =
+        when (scenario) {
+            MockOpenCodeScenario.NoCatalogRoutes -> notFoundJson(callContext)
+            MockOpenCodeScenario.CatalogUnavailable ->
+                jsonResponse(ERROR_JSON, HttpStatusCode.ServiceUnavailable, callContext)
+            MockOpenCodeScenario.NoCatalog ->
+                jsonResponse(OpenCodeFixtures.emptyProvidersJson(), HttpStatusCode.OK, callContext)
+            else -> jsonResponse(OpenCodeFixtures.providersJson(), HttpStatusCode.OK, callContext)
         }
 
-    private fun catalogAgentsJson(): String =
-        if (scenario == MockOpenCodeScenario.NoCatalog) {
-            "[]"
-        } else {
-            OpenCodeFixtures.agentsJson()
+    /** `GET /agent`; same scenario matrix as [catalogProvidersResponse]. */
+    private fun catalogAgentsResponse(callContext: CoroutineContext): HttpResponseData =
+        when (scenario) {
+            MockOpenCodeScenario.NoCatalogRoutes -> notFoundJson(callContext)
+            MockOpenCodeScenario.CatalogUnavailable ->
+                jsonResponse(ERROR_JSON, HttpStatusCode.ServiceUnavailable, callContext)
+            MockOpenCodeScenario.NoCatalog -> jsonResponse("[]", HttpStatusCode.OK, callContext)
+            else -> jsonResponse(OpenCodeFixtures.agentsJson(), HttpStatusCode.OK, callContext)
         }
 
     private fun nextSession(
@@ -483,7 +554,9 @@ public class MockOpenCodeServer(
         }
         val fresh = remaining.take(take)
         val replayed = replayPrefix(script, start)
-        val slice = replayed + fresh
+        // V1-08: an aborted turn is never replayed. The cursor still advances past
+        // its events (they were consumed), and any replay of them is suppressed.
+        val slice = (replayed + fresh).filterNot { isAbortedTurnEvent(it) }
         eventCursor = start + fresh.size
         eventStreamConnectionCount += 1
 
@@ -495,14 +568,20 @@ public class MockOpenCodeServer(
         val delayMillis = when (scenario) {
             MockOpenCodeScenario.Streaming -> streamConfig.streamingDelayMillis
             MockOpenCodeScenario.SlowNetwork -> streamConfig.slowNetworkDelayMillis
+            // Abort is synchronized by the abort signal itself, not by a delay.
+            MockOpenCodeScenario.Abort -> 0L
             else -> 0L
         }
 
         val writerJob = CoroutineScope(callContext).writer(autoFlush = true) {
-            slice.forEachIndexed { index, event ->
-                if (index > 0 && delayMillis > 0L) delay(delayMillis)
-                channel.writeStringUtf8(event.encode())
-                channel.flush()
+            if (scenario == MockOpenCodeScenario.Abort) {
+                writeAbortAware(channel, slice, abortedSessionId, delayMillis)
+            } else {
+                slice.forEachIndexed { index, event ->
+                    if (index > 0 && delayMillis > 0L) delay(delayMillis)
+                    channel.writeStringUtf8(event.encode())
+                    channel.flush()
+                }
             }
             if (tails.isNotEmpty()) {
                 if (streamConfig.tailDelayMillis > 0L) delay(streamConfig.tailDelayMillis)
@@ -527,6 +606,69 @@ public class MockOpenCodeServer(
     private fun MockOpenCodeScenario.isDisconnecting(): Boolean =
         this == MockOpenCodeScenario.Disconnect || this == MockOpenCodeScenario.Reconnect
 
+    /** The session whose turn the [MockOpenCodeScenario.Abort] fixture aborts. */
+    private val abortedSessionId: String
+        get() = OpenCodeFixtures.sessions.first().id
+
+    /**
+     * Writes the [MockOpenCodeScenario.Abort] stream.
+     *
+     * The turn is held open at [MockOpenCodeStreamConfig.abortHoldAfterEvents]
+     * until `POST /session/{id}/abort` lands; the event already in flight is then
+     * written (it crossed the abort and is deliberately **not** committed to the
+     * authoritative transcript), and the stream stops. Nothing after it is
+     * delivered, so a reconnecting client never replays the aborted turn.
+     */
+    private suspend fun writeAbortAware(
+        channel: ByteWriteChannel,
+        slice: List<MockSseEvent>,
+        sessionID: String,
+        delayMillis: Long,
+    ) {
+        slice.forEachIndexed { index, event ->
+            if (index > 0 && delayMillis > 0L) delay(delayMillis)
+            if (index == streamConfig.abortHoldAfterEvents) {
+                // Suspend until the abort lands instead of polling a timer: this
+                // is timing-independent (no virtual-clock race) and every caller
+                // of this scenario aborts.
+                abortedSessionIds.first { sessionID in it }
+            }
+            channel.writeStringUtf8(event.encode())
+            channel.flush()
+            if (sessionID in abortedSessionIds.value) {
+                // The turn stopped: the event just written was in flight at the
+                // abort, so it is not committed and no further event is emitted.
+                return
+            }
+            commitPartEvent(event)
+        }
+    }
+
+    /** True when [event] belongs to a session whose turn was aborted. */
+    private fun isAbortedTurnEvent(event: MockSseEvent): Boolean {
+        val sessionID = eventSessionId(event) ?: return false
+        return sessionID in abortedSessionIds.value
+    }
+
+    /** The `properties.sessionID` of [event], or null when the payload has none. */
+    private fun eventSessionId(event: MockSseEvent): String? {
+        val root = runCatching { json.parseToJsonElement(event.data) }.getOrNull() as? JsonObject
+            ?: return null
+        val properties = root["properties"] as? JsonObject ?: return null
+        return (properties["sessionID"] as? JsonPrimitive)?.contentOrNull
+    }
+
+    /** Records a written `message.part.updated` as committed to the server transcript. */
+    private fun commitPartEvent(event: MockSseEvent) {
+        if (event.type != "message.part.updated") return
+        val root = runCatching { json.parseToJsonElement(event.data) }.getOrNull() as? JsonObject
+            ?: return
+        val properties = root["properties"] as? JsonObject ?: return
+        val part = properties["part"] as? JsonObject ?: return
+        val partId = (part["id"] as? JsonPrimitive)?.contentOrNull ?: return
+        committedPartIds.value = committedPartIds.value + partId
+    }
+
     /**
      * The already-consumed tail of the script that
      * [MockOpenCodeStreamConfig.replayFromEventId] asks the server to replay on resubscribe.
@@ -546,6 +688,7 @@ public class MockOpenCodeServer(
         MockOpenCodeScenario.Disconnect -> OpenCodeFixtures.disconnectSseEvents()
         MockOpenCodeScenario.Reconnect -> OpenCodeFixtures.disconnectSseEvents()
         MockOpenCodeScenario.SlowNetwork -> OpenCodeFixtures.slowNetworkSseEvents()
+        MockOpenCodeScenario.Abort -> OpenCodeFixtures.abortSseEvents()
         MockOpenCodeScenario.LongTranscript ->
             OpenCodeFixtures.longTranscriptSseEvents(streamConfig.longTranscriptPartCount)
         MockOpenCodeScenario.PermissionRequest -> OpenCodeFixtures.permissionSseEvents()
@@ -579,6 +722,12 @@ public class MockOpenCodeServer(
                 val properties = root["properties"] as? JsonObject ?: return@forEach
                 if ((properties["sessionID"] as? JsonPrimitive)?.contentOrNull != sessionId) return@forEach
                 val part = properties["part"] as? JsonObject ?: return@forEach
+                // V1-08: after an abort only the parts the server committed
+                // before the abort are authoritative; the in-flight orphan is not.
+                if (scenario == MockOpenCodeScenario.Abort) {
+                    val partId = (part["id"] as? JsonPrimitive)?.contentOrNull
+                    if (partId == null || partId !in committedPartIds.value) return@forEach
+                }
                 // The spec carries the messageID on the part, not on `properties`.
                 val messageId = (part["messageID"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
                 partsByMessage.getOrPut(messageId) { mutableListOf() }.add(part)

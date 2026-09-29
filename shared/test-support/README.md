@@ -60,7 +60,10 @@ timings, stream shapes and fixture sizes are injectable via `MockOpenCodeStreamC
 | `UnsupportedVersion` | normal stream | `GET /global/health` reports an old version |
 | `SlowNetwork` | streams `slowNetworkSseEvents()` with `slowNetworkDelayMillis` between events | all nominal routes |
 | `LongTranscript` | streams `longTranscriptSseEvents(longTranscriptPartCount)` | all nominal routes |
+| `Abort` | streams `abortSseEvents()`, suspends after `abortHoldAfterEvents` events until `POST /session/{id}/abort`, then delivers the in-flight event and stops | `POST /session/{id}/abort` is recorded (with `directory`); the aborted turn is never replayed and is not committed to `GET /session/{id}/message` |
 | `NoCatalog` | normal stream | `GET /provider`, `GET /agent` and `GET /question` answer with empty payloads (V1-09 empty-state) |
+| `NoCatalogRoutes` | normal stream | `GET /provider` and `GET /agent` answer `404` — the routes do not exist (V1-09 unsupported-state) |
+| `CatalogUnavailable` | normal stream | `GET /provider` and `GET /agent` answer `503`; every other route succeeds (V1-09 transient-error-state) |
 | `NoFork` | normal stream | `GET /doc` omits `POST /session/{sessionID}/fork`, and that route answers `404` (V1-04 capability detection) |
 | `AuthenticationFailure` | – | every route returns `401` |
 | `ServerError` | – | every route returns `500` with a typed body |
@@ -132,6 +135,20 @@ keeps the body open afterwards.
 `reconnectingClientReceivesTailEventsOnANonClosingConnection` proves a reconnect drains the
 remaining backlog and then receives an event emitted later on the still-open channel;
 `keepOpenMillisKeepsTheEventBodyOpenAfterTheScript` proves the body does not end early.
+
+### Abort: the turn stops and is never replayed (V1-08)
+
+`Abort` models a user abort mid-turn. `/event` delivers the prefix (`session.updated` plus
+the first `abortHoldAfterEvents - 1` parts), then **suspends** until `POST /session/{id}/abort`
+lands. It resumes by delivering the single event already in flight (the client must drop it),
+and stops: nothing after it is emitted and the aborted turn is filtered out of any later
+connection, so a reconnecting client never replays it.
+
+`POST /session/{id}/abort` records the request (with its optional `directory` query
+parameter, ADR-0002 §3.3) and marks the session. `GET /session/{id}/message` only ever
+contains the parts actually delivered before the abort, so the client can rebuild the
+authoritative transcript from the next snapshot. `server.aborts`, `server.abortedSessions`
+and `server.deliveredParts` expose the state for assertions.
 
 ### Session status fixture
 

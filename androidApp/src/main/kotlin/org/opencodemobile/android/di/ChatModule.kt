@@ -10,11 +10,14 @@ import org.opencodemobile.android.chat.ChatConnection
 import org.opencodemobile.android.chat.ChatRuntime
 import org.opencodemobile.android.chat.DeferredChatEventDecoder
 import org.opencodemobile.android.chat.DeferredChatGateway
+import org.opencodemobile.android.chat.DeferredChatInteractionGateway
 import org.opencodemobile.features.composer.ComposerPresenter
 import org.opencodemobile.features.transcript.TranscriptPresenter
 import org.opencodemobile.shared.application.chat.ComposerController
 import org.opencodemobile.shared.application.chat.InMemoryComposerDraftStore
 import org.opencodemobile.shared.application.chat.TranscriptController
+import org.opencodemobile.shared.application.interaction.PendingQuestionsController
+import org.opencodemobile.shared.application.interaction.TurnAbortController
 import org.opencodemobile.shared.data.cache.CacheStack
 import org.opencodemobile.shared.data.chat.CacheComposerDraftStore
 import org.opencodemobile.shared.domain.cache.MutationGate
@@ -53,6 +56,17 @@ public val chatModule: Module = module {
         DeferredChatEventDecoder { getOrNull<ChatConnection>() }
     }
 
+    // V1-08: the abort controller is scoped to the chat/transcript surface. Its
+    // gateway is resolved per call through the same optional `ChatConnection`
+    // seam, so registering it here does not collide with the question surface's
+    // own interaction gateway.
+    single {
+        TurnAbortController(
+            gateway = DeferredChatInteractionGateway { getOrNull<ChatConnection>() },
+            mutationGate = get<MutationGate>(),
+        )
+    }
+
     single<ComposerDraftStore> {
         val connection = getOrNull<ChatConnection>()
         val cache = getOrNull<SessionCache>()
@@ -76,11 +90,17 @@ public val chatModule: Module = module {
             gateway = get<OpenCodeChatGateway>(),
             drafts = get<ComposerDraftStore>(),
             mutationGate = get<MutationGate>(),
+            // V1-07: while the server waits on a pending question the turn is
+            // blocked, so a send is refused before the wire. The composer
+            // affordance is disabled on the same flag; this is the backstop.
+            turnBlocked = {
+                getOrNull<PendingQuestionsController>()?.state?.value?.blocksTurn == true
+            },
         )
     }
 
-    single { TranscriptPresenter(get(), get(named(CHAT_SCOPE_QUALIFIER))) }
+    single { TranscriptPresenter(get(), get(named(CHAT_SCOPE_QUALIFIER)), get<TurnAbortController>()) }
     single { ComposerPresenter(get(), get(named(CHAT_SCOPE_QUALIFIER))) }
 
-    single { ChatRuntime(get(), { getOrNull<ChatConnection>() }) }
+    single { ChatRuntime(get(), get<TurnAbortController>(), { getOrNull<ChatConnection>() }) }
 }

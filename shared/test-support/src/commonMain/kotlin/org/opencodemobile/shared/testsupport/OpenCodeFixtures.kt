@@ -268,6 +268,14 @@ public object OpenCodeFixtures {
         sessionID: String = sessions.first().id,
     ): List<MockSseEvent> = listOf(partUpdatedEvent(index, sessionID))
 
+    /**
+     * `GET /event` script for [MockOpenCodeScenario.Abort]: a session update plus
+     * three parts. The third part is never delivered once the turn is aborted
+     * (`MockOpenCodeStreamConfig.abortHoldAfterEvents` holds after the first part).
+     */
+    public fun abortSseEvents(): List<MockSseEvent> =
+        listOf(sessionUpdatedEvent()) + (1..3).map { partUpdatedEvent(it) }
+
     /** `GET /event` script for [MockOpenCodeScenario.SlowNetwork]: a session update plus two parts. */
     public fun slowNetworkSseEvents(): List<MockSseEvent> =
         listOf(sessionUpdatedEvent()) + (1..2).map { partUpdatedEvent(it) }

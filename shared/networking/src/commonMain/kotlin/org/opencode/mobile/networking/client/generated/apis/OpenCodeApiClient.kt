@@ -124,10 +124,15 @@ class OpenCodeApiClient(
 
     /**
      * Abort the active turn in a session (POST /session/{sessionID}/abort).
+     *
+     * The pinned spec exposes an optional `directory` query parameter; the
+     * adapter passes the active project root so an abort cannot cross into
+     * another workspace on the same server (ADR-0002 §3.3).
      */
-    suspend fun abortSession(sessionID: String): Boolean {
+    suspend fun abortSession(sessionID: String, directory: String? = null): Boolean {
         httpClient.post("$baseUrl/session/$sessionID/abort") {
             applyAuth()
+            if (directory != null) parameter("directory", directory)
         }
         return true
     }

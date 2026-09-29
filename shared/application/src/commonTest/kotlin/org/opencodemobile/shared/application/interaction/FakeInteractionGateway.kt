@@ -21,6 +21,10 @@ internal class FakeInteractionGateway(
     val rejected: MutableList<String> = mutableListOf()
     val aborted: MutableList<String> = mutableListOf()
 
+    /** Number of `GET /question` reads, so a test can prove refresh cadence. */
+    var pendingQuestionsReads: Int = 0
+        private set
+
     var pendingQuestionsError: Throwable? = null
     var answerError: Throwable? = null
     var rejectError: Throwable? = null
@@ -32,6 +36,7 @@ internal class FakeInteractionGateway(
 
     override suspend fun pendingQuestions(directory: String?): List<PendingQuestion> {
         lastDirectory = directory
+        pendingQuestionsReads += 1
         pendingQuestionsError?.let { throw it }
         return questions
     }
@@ -51,7 +56,8 @@ internal class FakeInteractionGateway(
         questions = questions.filterNot { it.id == requestId }
     }
 
-    override suspend fun abortTurn(sessionId: String) {
+    override suspend fun abortTurn(sessionId: String, directory: String?) {
+        lastDirectory = directory
         abortError?.let { throw it }
         aborted += sessionId
     }

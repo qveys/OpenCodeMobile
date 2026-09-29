@@ -201,8 +201,8 @@ public class OpenCodeV2Adapter(
 
     // --- V1-08: abort ---
 
-    override suspend fun abortTurn(sessionId: String) {
-        requireActiveClient().abortSession(sessionID = sessionId)
+    override suspend fun abortTurn(sessionId: String, directory: String?) {
+        requireActiveClient().abortSession(sessionID = sessionId, directory = directory)
     }
 
     // --- V1-09: server-exposed models and agents ---
@@ -212,8 +212,8 @@ public class OpenCodeV2Adapter(
         // Each surface is read independently: an older server that does not
         // expose one of them must not hide the other, and neither may ever be
         // replaced by a built-in catalog (V1-09).
-        val providers = bestEffort { client.listProviders(directory) }
-        val agents = bestEffort { client.listAgents(directory) }
+        val providers = optionalSurface { client.listProviders(directory) }
+        val agents = optionalSurface { client.listAgents(directory) }
         return ServerCatalog(
             providers = providers?.all.orEmpty().map { it.toDomain() },
             defaultModelByProvider = providers?.default.orEmpty(),
@@ -395,14 +395,23 @@ public class OpenCodeV2Adapter(
     private fun requireActiveClient(): OpenCodeApiClient =
         activeClient ?: throw InteractionNotConnectedException()
 
-    /** Runs [block], turning a failure into null but letting cancellation propagate. */
-    private suspend fun <T> bestEffort(block: suspend () -> T): T? =
+    /**
+     * Reads one optional catalog surface (`GET /provider` or `GET /agent`).
+     *
+     * A route the server does not expose (`404 Not Found`) yields null: the
+     * surface is legitimately absent and the screen explains it as unsupported.
+     * Every other failure — transport/connection errors, timeouts, `5xx` — is
+     * rethrown, so a **transient** outage surfaces as an error instead of being
+     * mislabelled "this server does not expose model or agent listings"
+     * (V1-09 / OPE-194). Cancellation always propagates.
+     */
+    private suspend fun <T> optionalSurface(block: suspend () -> T): T? =
         try {
             block()
         } catch (cancellation: CancellationException) {
             throw cancellation
-        } catch (_: Throwable) {
-            null
+        } catch (notFound: ClientRequestException) {
+            if (notFound.response.status == HttpStatusCode.NotFound) null else throw notFound
         }
 
     /** Test/diagnostic hook: whether an active connection currently permits the credential. */
