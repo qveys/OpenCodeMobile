@@ -27,10 +27,10 @@ import org.opencodemobile.shared.security.store.SecureServerProfileStore
  * Android composition root for the connection feature
  * (`docs/ARCHITECTURE.md` §"Server profile import").
  *
- * It is the only place allowed to see every layer (§5.2 constrains
- * `features/*` and the shared layers, not the app shell), so it assembles the
- * real [OpenCodeGateway] from `shared/networking` + `shared/security` and hands
- * the resulting [ConnectionSetupController] to the UI.
+ * It is the only place allowed to see every layer (§5.2 constrains the
+ * `features` modules and the shared layers, not the app shell), so it assembles
+ * the real [OpenCodeGateway] from `shared/networking` + `shared/security` and
+ * hands the resulting [ConnectionSetupController] to the UI.
  *
  * The camera port is deliberately *not* bound here: it is activity-scoped
  * (`AndroidQrCodeScanner` registers an `ActivityResultLauncher`), so

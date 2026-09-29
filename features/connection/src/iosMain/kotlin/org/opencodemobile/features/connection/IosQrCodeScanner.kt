@@ -20,6 +20,8 @@ import platform.AVFoundation.AVLayerVideoGravityResizeAspectFill
 import platform.AVFoundation.AVMediaTypeVideo
 import platform.AVFoundation.AVMetadataMachineReadableCodeObject
 import platform.AVFoundation.AVMetadataObjectTypeQRCode
+import platform.AVFoundation.authorizationStatusForMediaType
+import platform.AVFoundation.requestAccessForMediaType
 import platform.CoreGraphics.CGRectMake
 import platform.Foundation.NSSelectorFromString
 import platform.UIKit.UIButton
@@ -151,7 +153,7 @@ private class QrScannerViewController(
         val button = UIButton.buttonWithType(UIButtonTypeSystem)
         button.setTitle("Cancel", forState = UIControlStateNormal)
         button.setTitleColor(UIColor.whiteColor, forState = UIControlStateNormal)
-        button.frame = CGRectMake(16.0, 48.0, 120.0, 44.0)
+        button.setFrame(CGRectMake(16.0, 48.0, 120.0, 44.0))
         button.addTarget(
             target = this,
             action = NSSelectorFromString("cancelTapped"),

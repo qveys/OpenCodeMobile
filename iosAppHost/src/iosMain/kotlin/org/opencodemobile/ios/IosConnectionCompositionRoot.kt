@@ -42,8 +42,8 @@ import platform.UIKit.UIViewController
  * `androidApp`'s `ConnectionCompositionRoot`.
  *
  * It is the only place on the iOS side allowed to see every layer
- * (§5.2 constrains `features/*` and the shared layers, not the app shell), so
- * it assembles the real [OpenCodeGateway] from `shared/networking` +
+ * (§5.2 constrains the `features` modules and the shared layers, not the app
+ * shell), so it assembles the real [OpenCodeGateway] from `shared/networking` +
  * `shared/security` and hands the resulting [ConnectionSetupController] to the
  * UI. The Koin graph behind the controller lives in
  * [iosConnectionCompositionModule]; the Swift shell only calls [startIosKoin]
