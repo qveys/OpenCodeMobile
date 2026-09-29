@@ -7,8 +7,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.opencodemobile.shared.domain.cache.MutationGate
+import org.opencodemobile.shared.domain.permission.BiometricAuthenticator
+import org.opencodemobile.shared.domain.permission.BiometricResult
+import org.opencodemobile.shared.domain.permission.FailClosedBiometricAuthenticator
+import org.opencodemobile.shared.domain.permission.NoOpPermissionNotifier
 import org.opencodemobile.shared.domain.permission.PermissionDecision
 import org.opencodemobile.shared.domain.permission.PermissionEvent
+import org.opencodemobile.shared.domain.permission.PermissionNotifier
 import org.opencodemobile.shared.domain.permission.PermissionPolicy
 import org.opencodemobile.shared.domain.permission.PermissionPort
 import org.opencodemobile.shared.domain.permission.PermissionReplyOutcome
@@ -39,14 +44,6 @@ public data class PermissionState(
     public fun request(id: String): PermissionRequest? = pending.firstOrNull { it.id == id }
 }
 
-/** The evidence the confirmation screen presents when the user submits. */
-public data class PermissionConfirmation(
-    /** The app was the foreground, focused surface at the moment of the tap. */
-    public val foregrounded: Boolean,
-    /** The biometric / device-credential gate passed immediately before the tap. */
-    public val authenticated: Boolean,
-)
-
 /** Outcome of a decision submit. */
 public sealed interface PermissionSubmitResult {
     /** The server accepted the decision; the request is no longer pending. */
@@ -67,8 +64,8 @@ public sealed interface PermissionSubmitResult {
     /** The app is not in the foreground; the pending confirmation is discarded. */
     public data object NotForegrounded : PermissionSubmitResult
 
-    /** The approval requires the authentication gate and it did not pass. */
-    public data object NotAuthenticated : PermissionSubmitResult
+    /** The biometric / device-credential gate did not succeed. [reason] is safe to show. */
+    public data class NotAuthenticated(public val reason: String) : PermissionSubmitResult
 
     /** The confirmation screen was not armed (for example it was backgrounded). */
     public data object NotArmed : PermissionSubmitResult
@@ -87,17 +84,20 @@ public sealed interface PermissionSubmitResult {
  * - ingest `permission.asked` / `permission.replied` events,
  * - restore persisted pending requests across an app kill, then reconcile with
  *   the server (the server is authoritative),
- * - refuse to approve from anywhere but a foreground, authenticated confirmation
- *   screen, bound to the exact content that was rendered,
- * - relay exactly one decision for exactly one request (D9).
+ * - refuse to approve from anywhere but a foreground confirmed screen, after the
+ *   platform biometric gate, bound to the exact content that was rendered,
+ * - relay exactly one decision for exactly one request (D9),
+ * - signal each pending change to [PermissionNotifier] (informational only, OP4).
  *
  * It never approves on its own: [start], [reconcile] and [onEvent] only move the
- * pending set; the only path to [PermissionPort.reply] is [submit].
+ * pending set; the only paths to [PermissionPort.reply] are [approve] and [deny].
  */
 public class PermissionCoordinator(
     private val port: PermissionPort,
     private val store: PendingPermissionStore,
     private val mutationGate: MutationGate,
+    private val biometricAuthenticator: BiometricAuthenticator = FailClosedBiometricAuthenticator,
+    private val notifier: PermissionNotifier = NoOpPermissionNotifier,
 ) {
 
     private val mutableState = MutableStateFlow(PermissionState())
@@ -106,9 +106,10 @@ public class PermissionCoordinator(
     private val lock = Mutex()
 
     /**
-     * Ids already answered in this process. A replayed or out-of-order
-     * `permission.asked` for one of them is dropped instead of resurrecting a
-     * decided request (T6). The window is bounded; reconciliation is the backstop.
+     * Ids already answered (locally or reported by the server). A replayed or
+     * out-of-order `permission.asked` for one of them is dropped instead of
+     * resurrecting a decided request (T6). The window is bounded; reconciliation
+     * is the backstop.
      */
     private val decidedIds = LinkedHashSet<String>()
 
@@ -139,15 +140,21 @@ public class PermissionCoordinator(
         } catch (failure: Throwable) {
             return
         }
+        // Server-issued ids that are no longer pending are recorded as decided so
+        // an out-of-order `permission.asked` cannot resurrect them.
+        val serverIds = serverPending.map { it.id }.toSet()
+        for (existing in mutableState.value.pending) {
+            if (existing.id !in serverIds) rememberDecided(existing.id)
+        }
         replacePending(serverPending)
     }
 
     /**
      * Applies one decoded realtime event to the pending set.
      *
-     * When [PermissionEvent.Asked] is a replay of a request already answered in
-     * this process it is ignored; a duplicate of a still-pending request is
-     * collapsed onto the existing entry.
+     * [PermissionEvent.Replied] for an unknown id is still recorded as decided:
+     * a reordered pair (`replied` before `asked`) must not let the already-decided
+     * request be re-surfaced as pending (T6).
      */
     public suspend fun onEvent(event: PermissionEvent) {
         when (event) {
@@ -160,6 +167,7 @@ public class PermissionCoordinator(
             }
 
             is PermissionEvent.Replied -> {
+                rememberDecided(event.requestId)
                 if (mutableState.value.request(event.requestId) == null) return
                 replacePending(mutableState.value.pending.filterNot { it.id == event.requestId })
             }
@@ -203,29 +211,93 @@ public class PermissionCoordinator(
     }
 
     /**
-     * Submits one decision, enforcing every T2 gate in order. At most one
-     * [PermissionPort.reply] call happens per accepted submit; nothing is retried.
+     * Convenience dispatcher: [PermissionDecision.Deny] takes the safe [deny]
+     * path, every other decision takes the authenticated [approve] path.
      */
     public suspend fun submit(
         requestId: String,
         decision: PermissionDecision,
-        confirmation: PermissionConfirmation,
+        displayedFingerprint: String,
+    ): PermissionSubmitResult = if (decision == PermissionDecision.Deny) {
+        deny(requestId)
+    } else {
+        approve(requestId, decision, displayedFingerprint)
+    }
+
+    /**
+     * Denies [requestId]. Denying grants no capability, so it needs neither the
+     * foreground confirmation nor the biometric gate (T2): it is the safe,
+     * reversible direction, and is the only decision a notification may offer.
+     */
+    public suspend fun deny(requestId: String): PermissionSubmitResult {
+        if (!mutationGate.mutationsAllowed()) return PermissionSubmitResult.Offline
+        val request = mutableState.value.request(requestId) ?: return PermissionSubmitResult.NotFound
+        if (!request.capabilities.allows(PermissionDecision.Deny)) {
+            return PermissionSubmitResult.Unavailable(PermissionDecision.Deny)
+        }
+        return send(requestId, PermissionDecision.Deny)
+    }
+
+    /**
+     * Approves [requestId] with an approving [decision], enforcing every T2 gate:
+     * online, server-exposed decision, coordinator foreground state, an armed
+     * confirmation bound to the current content, and the platform biometric /
+     * device-credential gate immediately before the send.
+     *
+     * [displayedFingerprint] is the fingerprint of the content the confirmation
+     * screen rendered; it must still match the live request, and the request is
+     * re-checked again after the biometric prompt (the content can change while
+     * the user authenticates).
+     */
+    public suspend fun approve(
+        requestId: String,
+        decision: PermissionDecision,
+        displayedFingerprint: String,
     ): PermissionSubmitResult {
+        if (decision == PermissionDecision.Deny) {
+            return PermissionSubmitResult.Unavailable(PermissionDecision.Deny)
+        }
         val current = mutableState.value
         val request = current.request(requestId) ?: return PermissionSubmitResult.NotFound
         if (!mutationGate.mutationsAllowed()) return PermissionSubmitResult.Offline
         if (!request.capabilities.allows(decision)) {
             return PermissionSubmitResult.Unavailable(decision)
         }
-        if (!confirmation.foregrounded) return PermissionSubmitResult.NotForegrounded
-        if (PermissionPolicy.requiresAuthentication(decision) && !confirmation.authenticated) {
-            return PermissionSubmitResult.NotAuthenticated
-        }
+        if (!current.foregrounded) return PermissionSubmitResult.NotForegrounded
         if (current.armedRequestId != requestId) return PermissionSubmitResult.NotArmed
         if (current.armedFingerprint != request.contentFingerprint) {
             return PermissionSubmitResult.ContentChanged
         }
+        if (displayedFingerprint != request.contentFingerprint) {
+            return PermissionSubmitResult.ContentChanged
+        }
 
+        // Biometric / device-credential gate, once per approval, immediately
+        // before the decision is sent.
+        val biometric = biometricAuthenticator.authenticate(
+            reason = "Approve permission for ${request.tool}",
+        )
+        if (biometric !is BiometricResult.Succeeded) {
+            return PermissionSubmitResult.NotAuthenticated(biometric.describe())
+        }
+
+        // The content can change while the user authenticates: re-read the live
+        // request and refuse a stale approval.
+        val live = mutableState.value.request(requestId)
+            ?: return PermissionSubmitResult.NotFound
+        if (live.contentFingerprint != request.contentFingerprint) {
+            return PermissionSubmitResult.ContentChanged
+        }
+
+        return send(requestId, decision).also {
+            if (it == PermissionSubmitResult.Accepted) disarm()
+        }
+    }
+
+    private suspend fun send(
+        requestId: String,
+        decision: PermissionDecision,
+    ): PermissionSubmitResult {
         val outcome = try {
             port.reply(requestId, decision)
         } catch (cancellation: CancellationException) {
@@ -237,8 +309,10 @@ public class PermissionCoordinator(
         return when (outcome) {
             PermissionReplyOutcome.Accepted -> {
                 rememberDecided(requestId)
-                replacePending(current.pending.filterNot { it.id == requestId })
-                disarm()
+                // Remove from the *live* set, not a pre-call snapshot: a
+                // permission.asked that arrived during the round trip must not be
+                // dropped from the banner.
+                replacePending(mutableState.value.pending.filterNot { it.id == requestId })
                 PermissionSubmitResult.Accepted
             }
 
@@ -260,6 +334,14 @@ public class PermissionCoordinator(
     private suspend fun replacePending(pending: List<PermissionRequest>) = lock.withLock {
         mutableState.value = mutableState.value.copy(pending = pending)
         runCatching { store.save(pending) }
+        runCatching { notifier.onPendingChanged(pending) }
+    }
+
+    private fun BiometricResult.describe(): String = when (this) {
+        BiometricResult.Succeeded -> "authenticated"
+        BiometricResult.Cancelled -> "authentication cancelled"
+        is BiometricResult.Failed -> reason
+        BiometricResult.Unavailable -> "no biometric or device credential is available"
     }
 
     private companion object {

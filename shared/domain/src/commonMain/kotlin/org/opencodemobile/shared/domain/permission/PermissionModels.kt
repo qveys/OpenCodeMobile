@@ -36,6 +36,9 @@ public data class PermissionCapabilities(
     /** True when [decision] is one of the decisions the server exposed. */
     public fun allows(decision: PermissionDecision): Boolean = decision in decisions
 
+    /** Stable, order-independent names for hashing and persistence. */
+    public fun decisionNames(): List<String> = decisions.map { it.name }.sorted()
+
     public companion object {
         /**
          * A request whose server only answers `once`: the app must show a single
@@ -45,22 +48,28 @@ public data class PermissionCapabilities(
             PermissionCapabilities(setOf(PermissionDecision.Once))
 
         /**
-         * The default derivation for the pinned OpenCode Server v2 spec: `once`
-         * and `reject` are always available, while `always` is only meaningful
-         * when the server offered at least one persistable scope.
+         * Derives the decision set from a pinned OpenCode Server v2 root-surface
+         * request.
+         *
+         * The root surface exposes the reply enum `once` / `reject` / `always`:
+         * `once` is always available, `reject` (Deny) is always expressible, and
+         * `always` (Remember) is only meaningful when the server offered at least
+         * one persistable scope. [supportsDeny] lets a restricted server variant
+         * advertise that it does not accept `reject`; the pinned default is true.
+         *
+         * Because the pinned spec has no per-request capability flag, this is the
+         * best available derivation. The [PermissionCapabilities.OnceOnly] value
+         * is what a request whose server reports [supportsDeny] = false maps to.
          */
-        public fun fromServer(rememberScopes: List<String>): PermissionCapabilities =
-            if (rememberScopes.isEmpty()) {
-                PermissionCapabilities(setOf(PermissionDecision.Once, PermissionDecision.Deny))
-            } else {
-                PermissionCapabilities(
-                    setOf(
-                        PermissionDecision.Once,
-                        PermissionDecision.Deny,
-                        PermissionDecision.Remember,
-                    ),
-                )
-            }
+        public fun fromServer(
+            rememberScopes: List<String>,
+            supportsDeny: Boolean = true,
+        ): PermissionCapabilities {
+            val decisions = mutableSetOf(PermissionDecision.Once)
+            if (supportsDeny) decisions += PermissionDecision.Deny
+            if (rememberScopes.isNotEmpty()) decisions += PermissionDecision.Remember
+            return PermissionCapabilities(decisions)
+        }
     }
 }
 
@@ -70,7 +79,7 @@ public data class PermissionCapabilities(
  * Faithfulness is a security property here (T2): every field the user is shown
  * comes straight from [tool], [patterns] and [rawArguments]. Nothing is
  * summarized, reformatted or elided, and [contentFingerprint] binds a confirmation
- * screen to the exact bytes it rendered.
+ * screen to the exact content it rendered.
  */
 public data class PermissionRequest(
     /** Server-issued, single-use request id (`^per`). */
@@ -94,20 +103,52 @@ public data class PermissionRequest(
     }
 
     /**
-     * A stable, platform-independent digest of exactly what the server asked.
+     * A stable, platform-independent digest of exactly what the server asked,
+     * **including the decision surface**.
      *
      * The confirmation screen arms itself with this value and the coordinator
      * refuses a submit whose request no longer matches: a request superseded or
      * changed between render and tap cannot be approved from a stale screen.
+     * [capabilities] is part of the digest so that a change to the exposed
+     * decisions (for example a restored request that gains `Remember`) also
+     * invalidates a stale confirmation.
      */
     public val contentFingerprint: String
         get() = permissionContentFingerprint(
             id = id,
+            sessionId = sessionId,
             tool = tool,
             patterns = patterns,
             rawArguments = rawArguments,
             rememberScopes = rememberScopes,
+            decisions = capabilities.decisionNames(),
         )
+}
+
+/**
+ * Display hardening for server-controlled text (T2).
+ *
+ * Compose does not interpret markup, so this is not injection protection. It
+ * removes C0/C1 control characters and bidi/invisible formatting characters that
+ * could visually reorder the one surface where the user must tell "Allow" from
+ * "Deny". It is applied to the tool and target lines only; [PermissionRequest.rawArguments]
+ * is shown byte-exact and is never passed through here.
+ */
+public object PermissionDisplay {
+    private val BIDI_AND_INVISIBLE: Set<Char> = setOf(
+        '\u202A', '\u202B', '\u202C', '\u202D', '\u202E',
+        '\u2066', '\u2067', '\u2068', '\u2069',
+        '\u200B', '\u200C', '\u200D', '\u200E', '\u200F',
+        '\u061C', '\u00AD', '\uFEFF',
+    )
+
+    /** Returns [text] without control or bidi/invisible formatting characters. */
+    public fun sanitizeForDisplay(text: String): String = buildString(text.length) {
+        for (character in text) {
+            if (character.isISOControl() || character in BIDI_AND_INVISIBLE) continue
+            append(character)
+        }
+    }
 }
 
 /**
@@ -131,7 +172,9 @@ public enum class PermissionNotificationAction {
  *
  * [tapRoute] is the in-app route the notification opens. It names the
  * confirmation screen and the request id only; it never embeds a decision, so a
- * deep link cannot approve anything.
+ * deep link cannot approve anything. [body] deliberately does **not** carry the
+ * command or file paths: a notification is visible on a locked screen, and the
+ * exact content must only be shown on the authenticated in-app surface (T13).
  */
 public data class PermissionNotification(
     public val requestId: String,
@@ -175,6 +218,9 @@ public object PermissionPolicy {
      * The notification plan for [request]: informational only, plus the safe
      * "Deny" action when the server exposed it. Never an approval, and the tap
      * target is the foreground confirmation screen.
+     *
+     * The body names the tool only; it never includes the command or the target
+     * paths, which are shown exclusively on the authenticated in-app screen.
      */
     public fun notificationFor(request: PermissionRequest): PermissionNotification {
         val actions = buildList {
@@ -185,8 +231,8 @@ public object PermissionPolicy {
         }
         return PermissionNotification(
             requestId = request.id,
-            title = "Permission required · ${request.tool}",
-            body = request.patterns.joinToString("\n").ifBlank { request.rawArguments },
+            title = "Permission required · ${PermissionDisplay.sanitizeForDisplay(request.tool)}",
+            body = "Open the app to review the exact request.",
             actions = actions,
             tapRoute = CONFIRMATION_ROUTE_PREFIX + request.id,
         )
@@ -205,24 +251,33 @@ public object PermissionPolicy {
  * Deliberately hand-rolled instead of a platform digest so the value is
  * identical on Android and iOS and the domain stays free of platform APIs. It is
  * a change detector for the confirmation screen, not a cryptographic hash.
+ *
+ * The digest is computed over the **UTF-16 code units** of a length-prefixed
+ * encoding; no byte masking is applied. Masking to the low byte would make any
+ * two code points that share a low byte collide, which would let changed content
+ * evade the confirmation screen's content binding.
  */
 public fun permissionContentFingerprint(
     id: String,
+    sessionId: String?,
     tool: String,
     patterns: List<String>,
     rawArguments: String,
     rememberScopes: List<String>,
+    decisions: List<String>,
 ): String {
     val payload = buildString {
         appendField(id)
+        appendField(sessionId.orEmpty())
         appendField(tool)
         appendField(patterns.joinToString("\u0000"))
         appendField(rawArguments)
         appendField(rememberScopes.joinToString("\u0000"))
+        appendField(decisions.joinToString("\u0000"))
     }
     var hash = -3750763034362895579L // 14695981039346656037 as a signed 64-bit value
     for (character in payload) {
-        hash = hash xor (character.code.toLong() and 0xFFL)
+        hash = hash xor character.code.toLong()
         hash *= 1099511628211L
     }
     return hash.toULong().toString(16).padStart(16, '0')

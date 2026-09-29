@@ -5,11 +5,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import org.opencodemobile.shared.application.permission.PermissionConfirmation
 import org.opencodemobile.shared.application.permission.PermissionCoordinator
 import org.opencodemobile.shared.application.permission.PermissionState
 import org.opencodemobile.shared.application.permission.PermissionSubmitResult
 import org.opencodemobile.shared.domain.permission.PermissionDecision
+import org.opencodemobile.shared.domain.permission.PermissionDisplay
 import org.opencodemobile.shared.domain.permission.PermissionEvent
 import org.opencodemobile.shared.domain.permission.PermissionPolicy
 import org.opencodemobile.shared.domain.permission.PermissionRequest
@@ -30,13 +30,17 @@ public data class PermissionDecisionUi(
     public val decision: PermissionDecision,
     public val label: String,
     public val emphasis: PermissionEmphasis,
-    /** True when submitting this decision must pass the authentication gate. */
+    /** True when submitting this decision must pass the biometric gate. */
     public val requiresAuthentication: Boolean,
 )
 
 /**
  * What the sticky permission banner renders. Every value comes straight from the
  * server request; nothing is summarized or reworded (V1-06 "affichage fidele").
+ *
+ * [tool] and [targets] are stripped of control/bidi characters so a hostile
+ * server cannot visually reorder the decision controls; [argumentsText] is the
+ * exact server JSON and is shown byte-for-byte.
  */
 public data class PermissionBannerModel(
     public val requestId: String,
@@ -67,8 +71,8 @@ public data class PermissionUiState(
 
 private fun PermissionRequest.toBannerModel(): PermissionBannerModel = PermissionBannerModel(
     requestId = id,
-    tool = tool,
-    targets = patterns,
+    tool = PermissionDisplay.sanitizeForDisplay(tool),
+    targets = patterns.map { PermissionDisplay.sanitizeForDisplay(it) },
     argumentsText = rawArguments,
     decisions = PermissionPolicy.availableDecisions(this).map { it.toDecisionUi() },
 )
@@ -91,7 +95,7 @@ private fun PermissionDecision.toDecisionUi(): PermissionDecisionUi = Permission
 /**
  * State holder the Compose layer observes.
  *
- * It is intentionally thin: every gate (offline, foreground, authentication,
+ * It is intentionally thin: every gate (offline, foreground, biometric,
  * content binding) lives in [PermissionCoordinator]; the presenter only forwards
  * user intents and maps state to the view model.
  */
@@ -122,19 +126,26 @@ public class PermissionsPresenter(
     public suspend fun reconcile(): Unit = coordinator.reconcile()
 
     /**
-     * Submits a decision taken on the confirmation screen. [authenticated] is
-     * the result of the biometric / device-credential gate.
+     * Denies [requestId] directly (safe, reversible): this is the only decision
+     * the banner and a notification may submit without the confirmation screen.
      */
-    public suspend fun submit(
+    public suspend fun deny(requestId: String): PermissionSubmitResult =
+        coordinator.deny(requestId)
+
+    /**
+     * Submits an approving decision taken on the confirmation screen. The
+     * coordinator runs the biometric gate, checks the foreground, and re-checks
+     * the content binding against what the screen rendered.
+     */
+    public suspend fun approve(
         requestId: String,
         decision: PermissionDecision,
-        authenticated: Boolean,
-    ): PermissionSubmitResult = coordinator.submit(
-        requestId = requestId,
-        decision = decision,
-        confirmation = PermissionConfirmation(
-            foregrounded = coordinator.state.value.foregrounded,
-            authenticated = authenticated,
-        ),
-    )
+    ): PermissionSubmitResult {
+        val displayedFingerprint = coordinator.state.value.request(requestId)?.contentFingerprint
+        return if (displayedFingerprint == null) {
+            coordinator.approve(requestId, decision, displayedFingerprint = "")
+        } else {
+            coordinator.approve(requestId, decision, displayedFingerprint)
+        }
+    }
 }

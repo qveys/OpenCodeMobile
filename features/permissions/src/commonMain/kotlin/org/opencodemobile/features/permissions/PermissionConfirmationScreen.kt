@@ -31,14 +31,14 @@ import org.opencodemobile.shared.domain.permission.PermissionDecision
  * It has no dismiss affordance: leaving it returns to the still-pending banner,
  * it never decides on the user's behalf.
  *
- * The biometric / device-credential check is platform code (`expect`/`actual`
- * biometrics API); the caller runs it once per approval and passes the result in
- * [authenticated] so the screen can explain why an approval is not yet available.
+ * The biometric / device-credential check is owned by the coordinator, which
+ * consumes the platform `BiometricAuthenticator` port immediately before the
+ * decision is sent, once per approval. This screen only forwards the tapped
+ * decision to the presenter; it never asserts authentication itself.
  */
 @Composable
 public fun PermissionConfirmationScreen(
     model: PermissionBannerModel,
-    authenticated: Boolean,
     onDecision: (PermissionDecision) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -76,13 +76,6 @@ public fun PermissionConfirmationScreen(
                     text = model.argumentsText,
                     style = MaterialTheme.typography.bodyMedium,
                     fontFamily = FontFamily.Monospace,
-                )
-            }
-            if (!authenticated) {
-                Text(
-                    text = "Confirming an approval needs your device authentication.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Row(

@@ -5,11 +5,16 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.opencodemobile.shared.domain.cache.MutationGate
+import org.opencodemobile.shared.domain.permission.BiometricAuthenticator
+import org.opencodemobile.shared.domain.permission.BiometricResult
 import org.opencodemobile.shared.domain.permission.PermissionCapabilities
 import org.opencodemobile.shared.domain.permission.PermissionDecision
 import org.opencodemobile.shared.domain.permission.PermissionEvent
+import org.opencodemobile.shared.domain.permission.PermissionNotifier
 import org.opencodemobile.shared.domain.permission.PermissionPort
 import org.opencodemobile.shared.domain.permission.PermissionReplyOutcome
 import org.opencodemobile.shared.domain.permission.PermissionRequest
@@ -33,7 +38,7 @@ private class InMemoryPendingPermissionStore(
     }
 }
 
-private class RecordingPermissionPort(
+private open class RecordingPermissionPort(
     var serverPending: List<PermissionRequest> = emptyList(),
     var outcome: PermissionReplyOutcome = PermissionReplyOutcome.Accepted,
 ) : PermissionPort {
@@ -50,6 +55,36 @@ private class RecordingPermissionPort(
     }
 }
 
+/** A port whose reply can be held open, to model events arriving mid-round-trip. */
+private class GatedPermissionPort : RecordingPermissionPort() {
+    val gate: CompletableDeferred<PermissionReplyOutcome> = CompletableDeferred()
+
+    override suspend fun reply(
+        requestId: String,
+        decision: PermissionDecision,
+    ): PermissionReplyOutcome {
+        replies += requestId to decision
+        return gate.await()
+    }
+}
+
+private class FakeBiometricAuthenticator(
+    var result: BiometricResult = BiometricResult.Succeeded,
+) : BiometricAuthenticator {
+    var calls: Int = 0
+    override suspend fun authenticate(reason: String): BiometricResult {
+        calls += 1
+        return result
+    }
+}
+
+private class RecordingNotifier : PermissionNotifier {
+    val snapshots: MutableList<List<String>> = mutableListOf()
+    override suspend fun onPendingChanged(pending: List<PermissionRequest>) {
+        snapshots += pending.map { it.id }
+    }
+}
+
 class PermissionCoordinatorTest {
 
     private val bashRequest = PermissionRequest(
@@ -62,18 +97,17 @@ class PermissionCoordinatorTest {
         capabilities = PermissionCapabilities.fromServer(listOf("bash:rm")),
     )
 
-    private val armedConfirmation = PermissionConfirmation(foregrounded = true, authenticated = true)
-
     private fun coordinator(
         port: RecordingPermissionPort = RecordingPermissionPort(),
         store: InMemoryPendingPermissionStore = InMemoryPendingPermissionStore(),
         gate: ToggleMutationGate = ToggleMutationGate(),
-    ): Triple<PermissionCoordinator, RecordingPermissionPort, InMemoryPendingPermissionStore> =
-        Triple(PermissionCoordinator(port, store, gate), port, store)
+        biometric: FakeBiometricAuthenticator = FakeBiometricAuthenticator(),
+        notifier: RecordingNotifier = RecordingNotifier(),
+    ): PermissionCoordinator = PermissionCoordinator(port, store, gate, biometric, notifier)
 
     @Test
     fun askedEventSurfacesTheBannerWithTheServerPayloadVerbatim() = runTest {
-        val (coordinator, _, _) = coordinator()
+        val coordinator = coordinator()
         coordinator.onEvent(PermissionEvent.Asked(bashRequest))
 
         val state = coordinator.state.value
@@ -85,45 +119,133 @@ class PermissionCoordinatorTest {
     }
 
     @Test
-    fun submitRelaysTheExactDecisionOnce() = runTest {
-        val (coordinator, port, _) = coordinator()
+    fun approveRelaysTheExactDecisionOnceAfterTheBiometricGate() = runTest {
+        val port = RecordingPermissionPort()
+        val biometric = FakeBiometricAuthenticator()
+        val coordinator = coordinator(port = port, biometric = biometric)
         coordinator.onForegroundChanged(true)
         coordinator.onEvent(PermissionEvent.Asked(bashRequest))
         coordinator.arm(bashRequest.id)
 
-        val result = coordinator.submit(bashRequest.id, PermissionDecision.Once, armedConfirmation)
+        val result = coordinator.submit(
+            bashRequest.id,
+            PermissionDecision.Once,
+            bashRequest.contentFingerprint,
+        )
 
         assertEquals(PermissionSubmitResult.Accepted, result)
         assertEquals(listOf(bashRequest.id to PermissionDecision.Once), port.replies)
-        assertTrue(coordinator.state.value.pending.isEmpty(), "the decided request must leave the banner")
+        assertEquals(1, biometric.calls, "the biometric gate must run once per approval")
+        assertTrue(coordinator.state.value.pending.isEmpty())
+    }
+
+    @Test
+    fun denyNeedsNeitherTheConfirmationNorTheBiometricGate() = runTest {
+        val port = RecordingPermissionPort()
+        val biometric = FakeBiometricAuthenticator()
+        val coordinator = coordinator(port = port, biometric = biometric)
+        coordinator.onEvent(PermissionEvent.Asked(bashRequest))
+
+        val result = coordinator.submit(
+            bashRequest.id,
+            PermissionDecision.Deny,
+            displayedFingerprint = "ignored-for-deny",
+        )
+
+        assertEquals(PermissionSubmitResult.Accepted, result)
+        assertEquals(listOf(bashRequest.id to PermissionDecision.Deny), port.replies)
+        assertEquals(0, biometric.calls, "denying grants no capability and needs no biometric")
+    }
+
+    @Test
+    fun approvalWithoutAForegroundConfirmationIsRefused() = runTest {
+        val port = RecordingPermissionPort()
+        val coordinator = coordinator(port = port)
+        coordinator.onEvent(PermissionEvent.Asked(bashRequest))
+
+        val result = coordinator.approve(
+            bashRequest.id,
+            PermissionDecision.Once,
+            bashRequest.contentFingerprint,
+        )
+
+        assertEquals(PermissionSubmitResult.NotForegrounded, result)
+        assertTrue(port.replies.isEmpty())
+    }
+
+    @Test
+    fun approvalWithoutAnArmedConfirmationIsRefused() = runTest {
+        val port = RecordingPermissionPort()
+        val coordinator = coordinator(port = port)
+        coordinator.onForegroundChanged(true)
+        coordinator.onEvent(PermissionEvent.Asked(bashRequest))
+
+        val result = coordinator.approve(
+            bashRequest.id,
+            PermissionDecision.Once,
+            bashRequest.contentFingerprint,
+        )
+
+        assertEquals(PermissionSubmitResult.NotArmed, result)
+        assertTrue(port.replies.isEmpty())
+    }
+
+    @Test
+    fun aFailedBiometricGateNeverReachesTheWire() = runTest {
+        val port = RecordingPermissionPort()
+        val biometric = FakeBiometricAuthenticator(BiometricResult.Failed("no match"))
+        val coordinator = coordinator(port = port, biometric = biometric)
+        coordinator.onForegroundChanged(true)
+        coordinator.onEvent(PermissionEvent.Asked(bashRequest))
+        coordinator.arm(bashRequest.id)
+
+        val result = coordinator.approve(
+            bashRequest.id,
+            PermissionDecision.Once,
+            bashRequest.contentFingerprint,
+        )
+
+        assertEquals(PermissionSubmitResult.NotAuthenticated("no match"), result)
+        assertTrue(port.replies.isEmpty(), "a failed gate must not authorize execution")
     }
 
     @Test
     fun decisionTheServerNeverExposedIsNeverRelayed() = runTest {
         val onceOnly = bashRequest.copy(capabilities = PermissionCapabilities.OnceOnly)
-        val (coordinator, port, _) = coordinator()
+        val port = RecordingPermissionPort()
+        val coordinator = coordinator(port = port)
         coordinator.onForegroundChanged(true)
         coordinator.onEvent(PermissionEvent.Asked(onceOnly))
         coordinator.arm(onceOnly.id)
 
-        val result = coordinator.submit(onceOnly.id, PermissionDecision.Remember, armedConfirmation)
-
-        assertEquals(
-            PermissionSubmitResult.Unavailable(PermissionDecision.Remember),
-            result,
+        val result = coordinator.approve(
+            onceOnly.id,
+            PermissionDecision.Remember,
+            onceOnly.contentFingerprint,
         )
+
+        assertEquals(PermissionSubmitResult.Unavailable(PermissionDecision.Remember), result)
         assertTrue(port.replies.isEmpty(), "an unavailable decision must never reach the wire")
+
+        val deny = coordinator.deny(onceOnly.id)
+        assertEquals(PermissionSubmitResult.Unavailable(PermissionDecision.Deny), deny)
+        assertTrue(port.replies.isEmpty())
     }
 
     @Test
     fun offlineMutationsAreRefusedAndNothingIsQueued() = runTest {
         val gate = ToggleMutationGate(initialOnline = false)
-        val (coordinator, port, _) = coordinator(gate = gate)
+        val port = RecordingPermissionPort()
+        val coordinator = coordinator(port = port, gate = gate)
         coordinator.onForegroundChanged(true)
         coordinator.onEvent(PermissionEvent.Asked(bashRequest))
         coordinator.arm(bashRequest.id)
 
-        val result = coordinator.submit(bashRequest.id, PermissionDecision.Once, armedConfirmation)
+        val result = coordinator.approve(
+            bashRequest.id,
+            PermissionDecision.Once,
+            bashRequest.contentFingerprint,
+        )
 
         assertEquals(PermissionSubmitResult.Offline, result)
         assertTrue(port.replies.isEmpty())
@@ -133,25 +255,27 @@ class PermissionCoordinatorTest {
     @Test
     fun killSurvivalRestoresThePendingRequestWithoutAnyImplicitApproval() = runTest {
         val store = InMemoryPendingPermissionStore(listOf(bashRequest))
-        val gate = ToggleMutationGate(initialOnline = false)
         val port = RecordingPermissionPort()
-        val restarted = PermissionCoordinator(port, store, gate)
+        val restarted = PermissionCoordinator(
+            port,
+            store,
+            ToggleMutationGate(initialOnline = false),
+            FakeBiometricAuthenticator(),
+            RecordingNotifier(),
+        )
 
         restarted.start()
 
         assertTrue(restarted.state.value.bannerVisible, "a pending permission must survive an app kill")
         assertEquals(bashRequest.id, restarted.state.value.activeRequest?.id)
-        assertTrue(
-            port.replies.isEmpty(),
-            "restoring a pending request must never approve it implicitly",
-        )
+        assertTrue(port.replies.isEmpty(), "restoring must never approve implicitly")
     }
 
     @Test
     fun reconcileDropsRequestsDecidedWhileTheAppWasGone() = runTest {
         val store = InMemoryPendingPermissionStore(listOf(bashRequest))
         val port = RecordingPermissionPort(serverPending = emptyList())
-        val coordinator = PermissionCoordinator(port, store, ToggleMutationGate())
+        val coordinator = coordinator(port = port, store = store)
 
         coordinator.start()
 
@@ -161,67 +285,50 @@ class PermissionCoordinatorTest {
 
     @Test
     fun leavingTheForegroundDisarmsTheConfirmation() = runTest {
-        val (coordinator, port, _) = coordinator()
+        val port = RecordingPermissionPort()
+        val coordinator = coordinator(port = port)
         coordinator.onForegroundChanged(true)
         coordinator.onEvent(PermissionEvent.Asked(bashRequest))
         coordinator.arm(bashRequest.id)
 
         coordinator.onForegroundChanged(false)
-        val result = coordinator.submit(bashRequest.id, PermissionDecision.Once, armedConfirmation)
+        val result = coordinator.approve(
+            bashRequest.id,
+            PermissionDecision.Once,
+            bashRequest.contentFingerprint,
+        )
 
-        assertEquals(PermissionSubmitResult.NotArmed, result)
-        assertTrue(port.replies.isEmpty(), "a tap landing after a background transition must not submit")
+        assertEquals(PermissionSubmitResult.NotForegrounded, result)
+        assertTrue(port.replies.isEmpty())
         assertNull(coordinator.state.value.armedRequestId)
     }
 
     @Test
     fun contentChangeInvalidatesTheArmedConfirmation() = runTest {
-        val (coordinator, port, _) = coordinator()
+        val port = RecordingPermissionPort()
+        val coordinator = coordinator(port = port)
         coordinator.onForegroundChanged(true)
         coordinator.onEvent(PermissionEvent.Asked(bashRequest))
         coordinator.arm(bashRequest.id)
+        val displayed = bashRequest.contentFingerprint
 
         port.serverPending = listOf(bashRequest.copy(rawArguments = """{"command":"rm -rf /"}"""))
         coordinator.reconcile()
 
-        val result = coordinator.submit(bashRequest.id, PermissionDecision.Once, armedConfirmation)
+        val result = coordinator.approve(bashRequest.id, PermissionDecision.Once, displayed)
 
         assertEquals(PermissionSubmitResult.ContentChanged, result)
         assertTrue(port.replies.isEmpty(), "a stale screen must never approve changed content")
     }
 
     @Test
-    fun approvingRequiresAuthenticationButDenyingDoesNot() = runTest {
-        val withoutAuthentication = PermissionConfirmation(foregrounded = true, authenticated = false)
-
-        val (approvalCoordinator, approvalPort, _) = coordinator()
-        approvalCoordinator.onForegroundChanged(true)
-        approvalCoordinator.onEvent(PermissionEvent.Asked(bashRequest))
-        approvalCoordinator.arm(bashRequest.id)
-        assertEquals(
-            PermissionSubmitResult.NotAuthenticated,
-            approvalCoordinator.submit(bashRequest.id, PermissionDecision.Once, withoutAuthentication),
-        )
-        assertTrue(approvalPort.replies.isEmpty())
-
-        val (denyCoordinator, denyPort, _) = coordinator()
-        denyCoordinator.onForegroundChanged(true)
-        denyCoordinator.onEvent(PermissionEvent.Asked(bashRequest))
-        denyCoordinator.arm(bashRequest.id)
-        assertEquals(
-            PermissionSubmitResult.Accepted,
-            denyCoordinator.submit(bashRequest.id, PermissionDecision.Deny, withoutAuthentication),
-        )
-        assertEquals(listOf(bashRequest.id to PermissionDecision.Deny), denyPort.replies)
-    }
-
-    @Test
     fun aReplayedAskedEventCannotResurrectADecidedRequest() = runTest {
-        val (coordinator, port, _) = coordinator()
+        val port = RecordingPermissionPort()
+        val coordinator = coordinator(port = port)
         coordinator.onForegroundChanged(true)
         coordinator.onEvent(PermissionEvent.Asked(bashRequest))
         coordinator.arm(bashRequest.id)
-        coordinator.submit(bashRequest.id, PermissionDecision.Once, armedConfirmation)
+        coordinator.approve(bashRequest.id, PermissionDecision.Once, bashRequest.contentFingerprint)
 
         coordinator.onEvent(PermissionEvent.Asked(bashRequest))
 
@@ -230,13 +337,64 @@ class PermissionCoordinatorTest {
     }
 
     @Test
+    fun anOutOfOrderRepliedThenAskedDoesNotResurrectADecidedRequest() = runTest {
+        val coordinator = coordinator()
+
+        // The server reports the decision before the event pipeline delivers the ask.
+        coordinator.onEvent(PermissionEvent.Replied(bashRequest.id))
+        coordinator.onEvent(PermissionEvent.Asked(bashRequest))
+
+        assertTrue(
+            coordinator.state.value.pending.isEmpty(),
+            "an already-replied request must not be re-surfaced (T6)",
+        )
+    }
+
+    @Test
+    fun aRequestArrivingDuringTheReplyRoundTripIsNotLost() = runTest {
+        val port = GatedPermissionPort()
+        val coordinator = coordinator(port = port)
+        coordinator.onForegroundChanged(true)
+        coordinator.onEvent(PermissionEvent.Asked(bashRequest))
+        coordinator.arm(bashRequest.id)
+
+        val pendingSecond = bashRequest.copy(id = "per_mock_0002", patterns = listOf("git push"))
+        val submit = async {
+            coordinator.approve(bashRequest.id, PermissionDecision.Once, bashRequest.contentFingerprint)
+        }
+
+        // The reply is held open; a second request arrives meanwhile.
+        coordinator.onEvent(PermissionEvent.Asked(pendingSecond))
+        port.gate.complete(PermissionReplyOutcome.Accepted)
+        submit.await()
+
+        assertEquals(
+            listOf("per_mock_0002"),
+            coordinator.state.value.pending.map { it.id },
+            "a request that arrived during the round trip must remain on the banner",
+        )
+    }
+
+    @Test
     fun repliedEventRemovesTheRequestFromTheBanner() = runTest {
-        val (coordinator, _, store) = coordinator()
+        val store = InMemoryPendingPermissionStore()
+        val coordinator = coordinator(store = store)
         coordinator.onEvent(PermissionEvent.Asked(bashRequest))
 
         coordinator.onEvent(PermissionEvent.Replied(bashRequest.id))
 
         assertFalse(coordinator.state.value.bannerVisible)
         assertTrue(store.saved.isEmpty())
+    }
+
+    @Test
+    fun everyPendingChangeIsSignalledToTheNotifier() = runTest {
+        val notifier = RecordingNotifier()
+        val coordinator = coordinator(notifier = notifier)
+
+        coordinator.onEvent(PermissionEvent.Asked(bashRequest))
+        coordinator.onEvent(PermissionEvent.Replied(bashRequest.id))
+
+        assertEquals(listOf(listOf(bashRequest.id), emptyList()), notifier.snapshots)
     }
 }

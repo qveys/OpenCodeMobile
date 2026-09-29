@@ -93,4 +93,48 @@ class OpenCodePermissionGatewayTest {
         assertNull(gateway.decode("permission.asked", "not-json"))
         assertNull(gateway.decode("session.updated", """{"type":"session.updated","properties":{}}"""))
     }
+
+    @Test
+    fun malformedArrayElementsDoNotThrow() {
+        val gateway = OpenCodePermissionGateway(
+            httpClient = io.ktor.client.HttpClient(),
+            baseUrl = "http://unused.invalid",
+        )
+
+        // A non-primitive element inside `patterns` used to throw out of decode,
+        // which would kill the SSE pipeline. It must be ignored instead.
+        val decoded = gateway.decode(
+            "permission.asked",
+            """{"type":"permission.asked","properties":{"id":"per_1","sessionID":"ses_1",""" +
+                """"permission":"bash","patterns":[{"a":1}],"always":[],"metadata":{}}}""",
+        )
+
+        val request = (decoded as? PermissionEvent.Asked)?.request
+        assertEquals("per_1", request?.id)
+        assertTrue(request?.patterns?.isEmpty() == true)
+    }
+
+    @Test
+    fun v2EventsAreNotConflatedWithTheRootSurface() {
+        val gateway = OpenCodePermissionGateway(
+            httpClient = io.ktor.client.HttpClient(),
+            baseUrl = "http://unused.invalid",
+        )
+
+        // The app standardizes on the canonical root surface (ADR-0002). The v2
+        // protocol has a different reply route/body; it must not be decoded into
+        // the same pending type only to be un-reconcilable and un-repliable.
+        assertNull(
+            gateway.decode(
+                "permission.v2.asked",
+                """{"type":"permission.v2.asked","properties":{"id":"per_1","sessionID":"ses_1","action":"bash","resources":["rm -rf build"]}}""",
+            ),
+        )
+        assertNull(
+            gateway.decode(
+                "permission.v2.replied",
+                """{"type":"permission.v2.replied","properties":{"sessionID":"ses_1","requestID":"per_1","reply":"once"}}""",
+            ),
+        )
+    }
 }

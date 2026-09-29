@@ -72,6 +72,24 @@ class PermissionUiStateTest {
     }
 
     @Test
+    fun displayStripsBidiFromToolAndTargetsButKeepsArgumentsExact() {
+        val hostile = request.copy(
+            tool = "ba\u202Esh",
+            patterns = listOf("rm -rf \u200Bbuild"),
+        )
+
+        val banner = PermissionUiState.from(PermissionState(pending = listOf(hostile))).banner
+
+        assertEquals("bash", banner?.tool)
+        assertEquals(listOf("rm -rf build"), banner?.targets)
+        assertEquals(
+            """{"command":"rm -rf build"}""",
+            banner?.argumentsText,
+            "the exact server arguments are shown byte-for-byte",
+        )
+    }
+
+    @Test
     fun bannerIsAbsentWhenNothingIsPending() {
         val ui = PermissionUiState.from(PermissionState())
 

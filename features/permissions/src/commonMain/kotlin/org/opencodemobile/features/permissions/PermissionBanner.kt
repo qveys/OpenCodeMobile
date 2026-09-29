@@ -28,8 +28,12 @@ import org.opencodemobile.shared.domain.permission.PermissionDecision
  *
  * It is rendered exactly while a request is pending and it is **not
  * dismissable**: there is no dismiss callback, no swipe-to-dismiss wrapper, and
- * no close affordance. The only way to make it go away is to submit one of the
- * decisions the server exposed, which removes the request from the pending set.
+ * no close affordance. The only way to make it go away is to decide the request.
+ *
+ * Approving is only ever finalized on the foreground confirmation screen, so an
+ * approving control here calls [onApproveRequested] to navigate to that screen;
+ * it never submits directly. [onDeny] is the safe, reversible direction and may
+ * submit directly.
  *
  * The full command/targets are shown verbatim in a wrapping monospace block; they
  * are never truncated or summarized.
@@ -37,7 +41,8 @@ import org.opencodemobile.shared.domain.permission.PermissionDecision
 @Composable
 public fun PermissionBanner(
     model: PermissionBannerModel,
-    onDecision: (PermissionDecision) -> Unit,
+    onApproveRequested: (PermissionDecision) -> Unit,
+    onDeny: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -76,39 +81,47 @@ public fun PermissionBanner(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (decision in model.decisions) {
-                    PermissionDecisionButton(decision = decision, onDecision = onDecision)
+                    if (decision.decision == PermissionDecision.Deny) {
+                        BannerDenyButton(label = decision.label, onDeny = onDeny)
+                    } else {
+                        BannerApproveButton(
+                            decision = decision,
+                            onApproveRequested = onApproveRequested,
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-/**
- * One decision control. No control is pre-selected or auto-focused, and the
- * dangerous direction is visually distinct (`docs/DESIGN-SYSTEM.md`).
- */
 @Composable
-private fun PermissionDecisionButton(
+private fun BannerApproveButton(
     decision: PermissionDecisionUi,
-    onDecision: (PermissionDecision) -> Unit,
+    onApproveRequested: (PermissionDecision) -> Unit,
 ) {
     when (decision.emphasis) {
-        PermissionEmphasis.Primary -> Button(onClick = { onDecision(decision.decision) }) {
-            Text(decision.label)
-        }
-
-        PermissionEmphasis.Ghost -> OutlinedButton(onClick = { onDecision(decision.decision) }) {
-            Text(decision.label)
-        }
-
-        PermissionEmphasis.Danger -> Button(
-            onClick = { onDecision(decision.decision) },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.error,
-                contentColor = MaterialTheme.colorScheme.onError,
-            ),
+        PermissionEmphasis.Ghost -> OutlinedButton(
+            onClick = { onApproveRequested(decision.decision) },
         ) {
             Text(decision.label)
         }
+
+        else -> Button(onClick = { onApproveRequested(decision.decision) }) {
+            Text(decision.label)
+        }
+    }
+}
+
+@Composable
+private fun BannerDenyButton(label: String, onDeny: () -> Unit) {
+    Button(
+        onClick = onDeny,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.error,
+            contentColor = MaterialTheme.colorScheme.onError,
+        ),
+    ) {
+        Text(label)
     }
 }

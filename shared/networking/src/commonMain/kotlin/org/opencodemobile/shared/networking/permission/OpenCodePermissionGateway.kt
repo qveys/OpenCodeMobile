@@ -6,7 +6,6 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import org.opencode.mobile.networking.client.generated.apis.OpenCodeApiClient
 import org.opencode.mobile.networking.client.generated.models.ApiPermissionReplyRequest
 import org.opencode.mobile.networking.client.generated.models.ApiPermissionRequest
@@ -26,6 +25,14 @@ import org.opencodemobile.shared.domain.permission.PermissionRequest
  * `GET /permission`, `POST /permission/{requestID}/reply` with `once` / `reject`
  * / `always`, and the `permission.asked` / `permission.replied` SSE payloads. The
  * domain and the UI only ever see [PermissionDecision] and [PermissionRequest].
+ *
+ * **Protocol scope.** The app standardizes on the canonical root surface
+ * (ADR-0002 §3.1). The experimental `permission.v2.*` events and the
+ * `/api/session/{sessionID}/permission/...` reply route are a different protocol
+ * whose reply returns `204` and has no `once`/`always`/`reject` body; this class
+ * does not silently conflate the two. `permission.v2.*` is deliberately ignored
+ * until it is implemented on its own (rather than surfacing a v2 request that
+ * `GET /permission` can never reconcile or reply to).
  */
 public class OpenCodePermissionGateway(
     private val httpClient: HttpClient,
@@ -64,8 +71,10 @@ public class OpenCodePermissionGateway(
             ?: return null
         val declaredType = root.stringOrNull("type") ?: type
         return when (declaredType) {
-            "permission.asked", "permission.v2.asked" -> decodeAsked(root)
-            "permission.replied", "permission.v2.replied" -> decodeReplied(root)
+            "permission.asked" -> decodeAsked(root)
+            "permission.replied" -> decodeReplied(root)
+            // Different protocol, see the class doc: ignored, not conflated.
+            "permission.v2.asked", "permission.v2.replied" -> null
             else -> null
         }
     }
@@ -73,18 +82,14 @@ public class OpenCodePermissionGateway(
     private fun decodeAsked(root: JsonObject): PermissionEvent? {
         val properties = root["properties"] as? JsonObject ?: return null
         val id = properties.stringOrNull("id") ?: return null
-        val tool = properties.stringOrNull("permission")
-            ?: properties.stringOrNull("action")
-            ?: return null
+        val tool = properties.stringOrNull("permission") ?: return null
         val rememberScopes = properties.stringList("always")
-            .ifEmpty { properties.stringList("save") }
         return PermissionEvent.Asked(
             PermissionRequest(
                 id = id,
                 sessionId = properties.stringOrNull("sessionID"),
                 tool = tool,
-                patterns = properties.stringList("patterns")
-                    .ifEmpty { properties.stringList("resources") },
+                patterns = properties.stringList("patterns"),
                 rawArguments = properties["metadata"]?.toString().orEmpty(),
                 rememberScopes = rememberScopes,
                 capabilities = PermissionCapabilities.fromServer(rememberScopes),
@@ -112,8 +117,8 @@ public class OpenCodePermissionGateway(
 }
 
 /**
- * The app's decision, encoded exactly as the pinned OpenCode Server v2 spec
- * expects (`PermissionV2Reply`: `once` / `always` / `reject`). The app's
+ * The app's decision, encoded exactly as the pinned OpenCode Server v2 root
+ * surface expects (`PermissionV2Reply`: `once` / `always` / `reject`). The app's
  * vocabulary ("Allow once" / "Deny" / "Allow session") never leaks onto the wire,
  * and the wire never leaks into the UI.
  */
@@ -126,5 +131,12 @@ internal fun PermissionDecision.toWireValue(): String = when (this) {
 private fun JsonObject.stringOrNull(key: String): String? =
     (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
 
+/**
+ * Reads a string array, ignoring non-primitive elements instead of throwing.
+ * `PermissionEventDecoder.decode` is documented never to throw, and a malformed
+ * element must not be able to kill the SSE pipeline.
+ */
 private fun JsonObject.stringList(key: String): List<String> =
-    (this[key] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
+    (this[key] as? JsonArray)
+        ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+        ?: emptyList()

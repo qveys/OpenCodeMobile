@@ -600,13 +600,20 @@ from an in-app pending-approvals list). This screen enforces:
   confirmation without biometrics," never down to "notification-only."
   (This directly answers the open product decision: notification-only
   approval is not offered as a mode.)
-- **Request-bound, single-use decision.** The confirmation screen carries
-  the server-issued permission-request ID and a content hash of what it is
-  displaying; the approve/deny call back to the server includes both. A
-  request that was already decided, superseded, or whose content changed
-  since it was fetched cannot be approved from a stale screen — the app
-  re-fetches and re-renders before allowing the tap to submit (ties into
-  T6's single-use/no-replay requirement on the same IDs).
+- **Request-bound, single-use decision.** The confirmation screen arms itself
+  with the server-issued permission-request ID and a content hash of what it is
+  displaying; the coordinator re-checks that hash, and the request's
+  server-exposed decision set, immediately before and immediately after the
+  biometric prompt. A request that was already decided, superseded, or whose
+  content changed since it was fetched cannot be approved from a stale screen —
+  the app re-renders before allowing the tap to submit (ties into T6's
+  single-use/no-replay requirement on the same IDs).
+  The pinned v2 reply body (`POST /permission/{requestID}/reply`) carries only
+  the decision, with no field for a content hash, so the binding is enforced
+  client-side and the server cannot re-verify it; see
+  `docs/THREAT-MODEL.md` T6 for the residual risk and the follow-up to extend
+  the contract. The hash is still what binds the screen to the request: a stale
+  or swapped request fails the local check and never reaches the wire.
 
 ### Rationale
 

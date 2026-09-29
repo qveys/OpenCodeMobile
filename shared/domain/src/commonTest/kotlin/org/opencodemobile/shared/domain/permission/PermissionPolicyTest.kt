@@ -37,6 +37,16 @@ class PermissionPolicyTest {
             ),
             "a once-only server must not gain deny or remember",
         )
+        assertEquals(
+            listOf(PermissionDecision.Once),
+            PermissionPolicy.availableDecisions(
+                bashRequest.copy(
+                    rememberScopes = emptyList(),
+                    capabilities = PermissionCapabilities.fromServer(emptyList(), supportsDeny = false),
+                ),
+            ),
+            "a server that does not accept reject exposes only once",
+        )
     }
 
     @Test
@@ -47,7 +57,7 @@ class PermissionPolicyTest {
     }
 
     @Test
-    fun notificationCanNeverApprove() {
+    fun notificationCanNeverApproveAndNeverLeaksTheCommand() {
         assertFalse(PermissionPolicy.NOTIFICATION_CAN_APPROVE)
 
         val notification = PermissionPolicy.notificationFor(bashRequest)
@@ -68,6 +78,10 @@ class PermissionPolicyTest {
                 "a notification deep link must never carry a decision ($decisionWireToken)",
             )
         }
+        assertFalse(
+            notification.body.contains("rm -rf"),
+            "the lock-screen body must not leak the exact command",
+        )
     }
 
     @Test
@@ -93,5 +107,33 @@ class PermissionPolicyTest {
             bashRequest.contentFingerprint,
             bashRequest.copy(patterns = listOf("rm -rf .")).contentFingerprint,
         )
+    }
+
+    @Test
+    fun fingerprintDistinguishesCodePointsThatShareALowByte() {
+        val plain = bashRequest.copy(rawArguments = """{"command":"rm -rf build"}""")
+        val spoofed = bashRequest.copy(rawArguments = """{"command":"rm -rf \u0162uild"}""")
+
+        assertNotEquals(
+            plain.contentFingerprint,
+            spoofed.contentFingerprint,
+            "the digest must not mask to the low byte",
+        )
+    }
+
+    @Test
+    fun fingerprintCoversTheDecisionSurface() {
+        assertNotEquals(
+            bashRequest.contentFingerprint,
+            bashRequest.copy(capabilities = PermissionCapabilities.OnceOnly).contentFingerprint,
+            "a changed decision set must invalidate the armed confirmation",
+        )
+    }
+
+    @Test
+    fun sanitizeStripsControlAndBidiCharacters() {
+        val hostile = "ba\u202Esh\u0000\u200B"
+
+        assertEquals("bash", PermissionDisplay.sanitizeForDisplay(hostile))
     }
 }
