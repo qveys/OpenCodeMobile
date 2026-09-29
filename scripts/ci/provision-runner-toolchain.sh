@@ -509,8 +509,25 @@ write_env() { # jdk sdk
   # Best-effort: the GitHub runner also reads an `.env` file from its install
   # directory at startup. Appending here helps after a runner restart, but CI
   # never relies on it — scripts/ci/runner-toolchain-env.sh is authoritative.
-  local runner_env
-  runner_env="$(find "$HOME" -maxdepth 3 -name '.env' -path '*actions-runner*' 2>/dev/null | head -n1 || true)"
+  # Discovery is bounded on purpose: a full `find "$HOME"` stalled ~2h51m on the
+  # mac runner (OPE-100 run 36552097830, 13:31 -> 16:22).
+  local runner_env="" cand
+  if [ -n "${RUNNER_WORKSPACE:-}" ]; then
+    cand="$(dirname "$(dirname "$RUNNER_WORKSPACE")")/.env"
+    [ -f "$cand" ] && runner_env="$cand"
+  fi
+  if [ -z "$runner_env" ]; then
+    for cand in \
+      "$HOME"/actions-runner*/.env \
+      "$HOME"/*/actions-runner*/.env \
+      "$HOME"/*/*/actions-runner*/.env \
+      /opt/actions-runner*/.env; do
+      [ -f "$cand" ] && { runner_env="$cand"; break; }
+    done
+  fi
+  if [ -z "$runner_env" ] && command -v find >/dev/null 2>&1; then
+    runner_env="$(with_timeout 30 find "$HOME" -maxdepth 3 -name '.env' -path '*actions-runner*' 2>/dev/null | head -n1 || true)"
+  fi
   if [ -n "$runner_env" ] && [ -w "$runner_env" ]; then
     {
       echo "JAVA_HOME=$jdk"
