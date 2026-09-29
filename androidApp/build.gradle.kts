@@ -56,4 +56,5 @@ dependencies {
 
     implementation(libs.koin.android)
     implementation(libs.koin.compose)
+    implementation(libs.kotlinx.coroutines.core)
 }

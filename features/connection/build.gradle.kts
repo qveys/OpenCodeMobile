@@ -34,6 +34,17 @@ kotlin {
 
         }
 
+        // Android-only camera stack: the feature stays free of platform camera
+        // dependencies everywhere else (commonMain has no CameraX/ML Kit symbol).
+        androidMain.dependencies {
+            implementation(libs.androidx.activity.compose)
+            implementation(libs.androidx.camera.core)
+            implementation(libs.androidx.camera.camera2)
+            implementation(libs.androidx.camera.lifecycle)
+            implementation(libs.androidx.camera.view)
+            implementation(libs.mlkit.barcode.scanning)
+        }
+
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
