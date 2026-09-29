@@ -6,12 +6,10 @@
 # path-level filter clears that class of finding, and the repository is the
 # only place that knows which of its files are fixtures.
 #
-# Both files below assert that a server address carrying user-info is rejected:
-#   assertEquals(ServerInputProblem.CREDENTIALS_NOT_ALLOWED, problem("http://user:pass@host"))
-#   ServerAddressParser.parse("https://user:pass@host") -> CredentialsInAddress
-# `user:pass@host` is a deliberately obvious dummy that proves credentials are
-# forbidden in a server address (threat T8). These are negative test fixtures,
-# not credentials. Nothing else is exempt: production sources stay fully
-# scanned.
+# Both files below are negative fixtures: they assert that a server address
+# carrying user-info is rejected (CREDENTIALS_NOT_ALLOWED / CredentialsInAddress).
+# The user-info in those test strings is an obvious dummy that proves
+# credentials are forbidden in a server address (threat T8). It is not a real
+# credential. Production sources stay fully scanned.
 shared/domain/src/commonTest/kotlin/org/opencodemobile/shared/domain/connection/ServerAddressTest.kt
 shared/domain/src/commonTest/kotlin/org/opencodemobile/shared/domain/connection/ServerAddressParserTest.kt
