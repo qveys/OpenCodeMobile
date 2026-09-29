@@ -53,6 +53,10 @@ dependencies {
     implementation(compose.material3)
     implementation(compose.ui)
     implementation(libs.androidx.activity.compose)
+    // V1-06/T2: MainActivity is a FragmentActivity (BiometricPrompt) and the
+    // notification uses NotificationCompat.
+    implementation(libs.androidx.fragment)
+    implementation(libs.androidx.core.ktx)
 
     implementation(libs.koin.android)
     implementation(libs.koin.compose)
