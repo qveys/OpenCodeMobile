@@ -1,29 +1,41 @@
 package org.opencodemobile.shared.testsupport
 
+import io.ktor.client.plugins.skipSavingBody
+import io.ktor.client.request.contentType
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
-import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import io.ktor.http.ContentType
+import io.ktor.http.content.TextContent
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.readUTF8Line
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.TimeSource
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * End-to-end example that proves the [MockOpenCodeServer] harness works.
  *
  * The test drives the mock through a real Ktor client stack (request routing, headers and
  * body decoding all run) but no socket is opened: the engine is in-process. It covers the
- * three scenarios required by OPE-32 — health, session list and a scripted SSE stream —
- * plus lifecycle and every [MockOpenCodeScenario] the baseline must replay:
- * `UnsupportedVersion`, `AuthenticationFailure`, `MalformedEvent` and `ServerError`.
+ * baseline routes (health, session list, scripted SSE) and has one test per
+ * [MockOpenCodeScenario], including the streaming, disconnect, reconnect, permission-request,
+ * slow-network and long-transcript scenarios added for the MVP acceptance run (OPE-115).
  */
 class MockOpenCodeServerTest {
     private val server = MockOpenCodeServer()
@@ -89,6 +101,163 @@ class MockOpenCodeServerTest {
     }
 
     @Test
+    fun streamingScenarioDeliversEventsProgressively() = runTest {
+        val streaming = MockOpenCodeServer(MockOpenCodeScenario.Streaming).start()
+        try {
+            val expected = OpenCodeFixtures.streamingSseEvents()
+            val channel = streaming.client
+                .get("${streaming.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
+                .bodyAsChannel()
+
+            val first = readEvent(channel)
+            assertEquals(expected[0].id, first?.id)
+
+            // The second event is held back by the inter-event delay, so consuming the body is
+            // genuinely progressive rather than one concatenated block.
+            assertNull(withTimeoutOrNull(30) { readEvent(channel) })
+
+            assertEquals(expected[1].id, readEvent(channel)?.id)
+            assertEquals(expected[2].id, readEvent(channel)?.id)
+            assertNull(readEvent(channel))
+        } finally {
+            streaming.stop()
+        }
+    }
+
+    @Test
+    fun slowNetworkScenarioTakesAtLeastOneInterEventDelay() = runTest {
+        val slow = MockOpenCodeServer(MockOpenCodeScenario.SlowNetwork).start()
+        try {
+            val started = TimeSource.Monotonic.markNow()
+            val raw = slow.client.get("${slow.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }.bodyAsText()
+            val elapsed = started.elapsedNow().inWholeMilliseconds
+            val events = MockSseCodec.decode(raw)
+
+            assertEquals(3, events.size)
+            assertTrue(
+                elapsed >= slow.streamConfig.slowNetworkDelayMillis,
+                "expected at least one inter-event delay (${slow.streamConfig.slowNetworkDelayMillis}ms), took ${elapsed}ms",
+            )
+        } finally {
+            slow.stop()
+        }
+    }
+
+    @Test
+    fun disconnectScenarioStopsBeforeTheLastEvent() = runTest {
+        val disconnected = MockOpenCodeServer(MockOpenCodeScenario.Disconnect).start()
+        try {
+            val script = OpenCodeFixtures.disconnectSseEvents()
+            val channel = disconnected.client
+                .get("${disconnected.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
+                .bodyAsChannel()
+            val received = readEvents(channel)
+
+            assertEquals(disconnected.streamConfig.disconnectAfterEvents, received.size)
+            assertTrue(received.size < script.size, "the stream must stop before the last scripted event")
+            assertEquals(script[0].id, received[0].id)
+            assertFalse(
+                received.any { it.id == script.last().id },
+                "the last scripted event must never arrive on a disconnected stream",
+            )
+        } finally {
+            disconnected.stop()
+        }
+    }
+
+    @Test
+    fun reconnectScenarioResumesWithoutReplayingConsumedEvents() = runTest {
+        val reconnect = MockOpenCodeServer(MockOpenCodeScenario.Reconnect).start()
+        try {
+            val script = OpenCodeFixtures.disconnectSseEvents()
+
+            val first = readEvents(
+                reconnect.client
+                    .get("${reconnect.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
+                    .bodyAsChannel(),
+            )
+            assertEquals(reconnect.streamConfig.disconnectAfterEvents, first.size)
+
+            val second = readEvents(
+                reconnect.client
+                    .get("${reconnect.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
+                    .bodyAsChannel(),
+            )
+            assertTrue(second.isNotEmpty())
+            val consumedIds = first.map { it.id }.toSet()
+            assertTrue(
+                second.none { it.id in consumedIds },
+                "reconnect must not replay already-consumed events",
+            )
+            assertEquals(script.map { it.id }, (first + second).map { it.id })
+        } finally {
+            reconnect.stop()
+        }
+    }
+
+    @Test
+    fun permissionRequestScenarioProvidesEventAndDecisionEndpoint() = runTest {
+        val permission = MockOpenCodeServer(MockOpenCodeScenario.PermissionRequest).start()
+        try {
+            val events = MockSseCodec.decode(
+                permission.client.get("${permission.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
+                    .bodyAsText(),
+            )
+            val asked = events.single { it.type == "permission.asked" }
+            val properties = Json.parseToJsonElement(asked.data).jsonObject["properties"]!!.jsonObject
+            val requestID = properties["id"]!!.jsonPrimitive.content
+            assertEquals(OpenCodeFixtures.PERMISSION_REQUEST_ID, requestID)
+
+            val pending = permission.client
+                .get("${permission.baseUrl}${MockOpenCodeServer.PERMISSION_PATH}")
+                .bodyAsText()
+            assertTrue(pending.contains(OpenCodeFixtures.PERMISSION_REQUEST_ID))
+
+            val questions = permission.client
+                .get("${permission.baseUrl}${MockOpenCodeServer.QUESTION_PATH}")
+                .bodyAsText()
+            assertTrue(questions.contains(OpenCodeFixtures.QUESTION_REQUEST_ID))
+
+            val response = permission.client.post(
+                "${permission.baseUrl}${MockOpenCodeServer.PERMISSION_PATH}/$requestID/reply",
+            ) {
+                contentType(ContentType.Application.Json)
+                setBody(TextContent("""{"reply":"once"}""", ContentType.Application.Json))
+            }
+            assertEquals(200, response.status.value)
+            assertTrue(Json.parseToJsonElement(response.bodyAsText()).jsonPrimitive.boolean)
+            assertEquals("once", permission.permissionReplies.single().reply)
+            assertTrue(permission.requests.contains("POST /permission/$requestID/reply"))
+
+            val reject = permission.client.post(
+                "${permission.baseUrl}${MockOpenCodeServer.QUESTION_PATH}/" +
+                    "${OpenCodeFixtures.QUESTION_REQUEST_ID}/reject",
+            )
+            assertEquals(200, reject.status.value)
+            assertEquals("reject", permission.questionReplies.single().decision)
+        } finally {
+            permission.stop()
+        }
+    }
+
+    @Test
+    fun longTranscriptScenarioStreamsHundredsOfParts() = runTest {
+        val transcript = MockOpenCodeServer(MockOpenCodeScenario.LongTranscript).start()
+        try {
+            val raw = transcript.client
+                .get("${transcript.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
+                .bodyAsText()
+            val events = MockSseCodec.decode(raw)
+
+            assertEquals(1 + transcript.streamConfig.longTranscriptPartCount, events.size)
+            assertEquals("message.part.updated", events.last().type)
+            assertEquals("evt_mock_part_0600", events.last().id)
+        } finally {
+            transcript.stop()
+        }
+    }
+
+    @Test
     fun unsupportedVersionScenarioReportsAnIncompatibleVersion() = runTest {
         val old = MockOpenCodeServer(MockOpenCodeScenario.UnsupportedVersion).start()
         try {
@@ -145,5 +314,32 @@ class MockOpenCodeServerTest {
         } finally {
             malformed.stop()
         }
+    }
+
+    /** Reads one SSE record, or `null` at end of stream. */
+    private suspend fun readEvent(channel: ByteReadChannel): MockSseEvent? {
+        val lines = mutableListOf<String>()
+        while (true) {
+            val line = channel.readUTF8Line()
+            if (line == null) {
+                return if (lines.isEmpty()) null else decodeEvent(lines)
+            }
+            if (line.isEmpty()) {
+                return decodeEvent(lines)
+            }
+            lines += line
+        }
+    }
+
+    private fun decodeEvent(lines: List<String>): MockSseEvent? =
+        MockSseCodec.decode(lines.joinToString("\n") + "\n").firstOrNull()
+
+    private suspend fun readEvents(channel: ByteReadChannel): List<MockSseEvent> {
+        val events = mutableListOf<MockSseEvent>()
+        while (true) {
+            val event = readEvent(channel) ?: break
+            events += event
+        }
+        return events
     }
 }

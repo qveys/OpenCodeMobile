@@ -1,9 +1,11 @@
 package org.opencodemobile.shared.testsupport
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
 /** A deterministic session fixture served by [MockOpenCodeServer] on `GET /session`. */
@@ -29,6 +31,12 @@ public object OpenCodeFixtures {
     public const val PROJECT_ID: String = "prj_mock_0001"
     public const val DIRECTORY: String = "/home/dev/workspace/opencode-mobile"
     public const val BASE_TIME: Long = 1_700_000_000_000L
+
+    /** Server-issued id of the pending permission request exposed by [permissionObject]. */
+    public const val PERMISSION_REQUEST_ID: String = "per_mock_0001"
+
+    /** Server-issued id of the pending question exposed by [questionObject]. */
+    public const val QUESTION_REQUEST_ID: String = "que_mock_0001"
 
     public val sessions: List<MockSession> = listOf(
         MockSession(
@@ -85,20 +93,7 @@ public object OpenCodeFixtures {
     public fun defaultSseEvents(
         sessionID: String = sessions.first().id,
     ): List<MockSseEvent> = listOf(
-        MockSseEvent(
-            id = "evt_mock_0001",
-            type = "session.updated",
-            data = buildJsonObject {
-                put("type", "session.updated")
-                putJsonObject("properties") {
-                    putJsonObject("info") {
-                        put("id", sessionID)
-                        put("title", sessions.first().title)
-                        put("directory", DIRECTORY)
-                    }
-                }
-            }.toString(),
-        ),
+        sessionUpdatedEvent(sessionID),
         MockSseEvent(
             id = "evt_mock_0002",
             type = "message.part.updated",
@@ -115,6 +110,149 @@ public object OpenCodeFixtures {
                 }
             }.toString(),
         ),
+    )
+
+    /** The leading `session.updated` event shared by every scripted stream. */
+    public fun sessionUpdatedEvent(sessionID: String = sessions.first().id): MockSseEvent =
+        MockSseEvent(
+            id = "evt_mock_0001",
+            type = "session.updated",
+            data = buildJsonObject {
+                put("type", "session.updated")
+                putJsonObject("properties") {
+                    putJsonObject("info") {
+                        put("id", sessionID)
+                        put("title", sessions.first().title)
+                        put("directory", DIRECTORY)
+                    }
+                }
+            }.toString(),
+        )
+
+    /** One stable `message.part.updated` event, used to build the multi-event scripts. */
+    public fun partUpdatedEvent(index: Int, sessionID: String = sessions.first().id): MockSseEvent {
+        val suffix = index.toString().padStart(4, '0')
+        return MockSseEvent(
+            id = "evt_mock_part_$suffix",
+            type = "message.part.updated",
+            data = buildJsonObject {
+                put("type", "message.part.updated")
+                putJsonObject("properties") {
+                    put("sessionID", sessionID)
+                    put("messageID", "msg_mock_$suffix")
+                    put("time", BASE_TIME + index)
+                    putJsonObject("part") {
+                        put("id", "prt_mock_$suffix")
+                        put("type", "text")
+                        put("text", "streamed chunk $index")
+                    }
+                }
+            }.toString(),
+        )
+    }
+
+    /** `GET /event` script for [MockOpenCodeScenario.Streaming]: a session update plus two parts. */
+    public fun streamingSseEvents(): List<MockSseEvent> =
+        listOf(sessionUpdatedEvent()) + (1..2).map { partUpdatedEvent(it) }
+
+    /**
+     * `GET /event` script for [MockOpenCodeScenario.Disconnect] and
+     * [MockOpenCodeScenario.Reconnect]: a session update plus three parts.
+     */
+    public fun disconnectSseEvents(): List<MockSseEvent> =
+        listOf(sessionUpdatedEvent()) + (1..3).map { partUpdatedEvent(it) }
+
+    /** `GET /event` script for [MockOpenCodeScenario.SlowNetwork]: a session update plus two parts. */
+    public fun slowNetworkSseEvents(): List<MockSseEvent> =
+        listOf(sessionUpdatedEvent()) + (1..2).map { partUpdatedEvent(it) }
+
+    /** `GET /event` script for [MockOpenCodeScenario.LongTranscript]: a session update plus many parts. */
+    public fun longTranscriptSseEvents(partCount: Int = 600): List<MockSseEvent> =
+        listOf(sessionUpdatedEvent()) + (1..partCount).map { partUpdatedEvent(it) }
+
+    /**
+     * `GET /event` script for [MockOpenCodeScenario.PermissionRequest]: a session update, a
+     * `permission.asked` event and a `question.asked` event, so both the V1-06 permission flow
+     * and the V1-07 pending-question flow have a fixture.
+     */
+    public fun permissionSseEvents(): List<MockSseEvent> = listOf(
+        sessionUpdatedEvent(),
+        permissionAskedEvent(),
+        questionAskedEvent(),
+    )
+
+    /** One `ApiPermissionRequest` shape, as required by the pinned spec. */
+    public fun permissionObject(): JsonObject = buildJsonObject {
+        put("id", PERMISSION_REQUEST_ID)
+        put("sessionID", sessions.first().id)
+        put("permission", "bash")
+        putJsonArray("patterns") { add("rm -rf build") }
+        putJsonArray("always") { add("bash:rm") }
+        putJsonObject("tool") {
+            put("messageID", "msg_mock_0001")
+            put("callID", "call_mock_0001")
+        }
+        putJsonObject("metadata") { put("command", "rm -rf build") }
+    }
+
+    /** `GET /permission` body. */
+    public fun permissionsJson(): String = buildJsonArray { add(permissionObject()) }.toString()
+
+    /** `permission.asked` SSE event wrapping [permissionObject]. */
+    public fun permissionAskedEvent(): MockSseEvent = MockSseEvent(
+        id = "evt_mock_permission_asked",
+        type = "permission.asked",
+        data = buildJsonObject {
+            put("type", "permission.asked")
+            put("properties", permissionObject())
+        }.toString(),
+    )
+
+    /** `GET /question` body, in the pinned `ApiQuestionRequest` shape. */
+    public fun questionsJson(): String = buildJsonArray { add(questionObject()) }.toString()
+
+    /** One pending question, matching the pinned `ApiQuestionRequest` shape. */
+    public fun questionObject(): JsonObject = buildJsonObject {
+        put("id", QUESTION_REQUEST_ID)
+        put("sessionID", sessions.first().id)
+        putJsonArray("questions") {
+            add(
+                buildJsonObject {
+                    put("question", "Which branch should I rebase onto?")
+                    put("header", "Rebase target")
+                    put("multiple", false)
+                    put("custom", false)
+                    putJsonArray("options") {
+                        add(
+                            buildJsonObject {
+                                put("label", "main")
+                                put("description", "Rebase onto main")
+                            },
+                        )
+                        add(
+                            buildJsonObject {
+                                put("label", "release")
+                                put("description", "Rebase onto release")
+                            },
+                        )
+                    }
+                },
+            )
+        }
+        putJsonObject("tool") {
+            put("messageID", "msg_mock_0001")
+            put("callID", "call_mock_0002")
+        }
+    }
+
+    /** `question.asked` SSE event wrapping [questionObject]. */
+    public fun questionAskedEvent(): MockSseEvent = MockSseEvent(
+        id = "evt_mock_question_asked",
+        type = "question.asked",
+        data = buildJsonObject {
+            put("type", "question.asked")
+            put("properties", questionObject())
+        }.toString(),
     )
 
     /** `GET /event` script for [MockOpenCodeScenario.MalformedEvent]: a valid event then a truncated payload. */
