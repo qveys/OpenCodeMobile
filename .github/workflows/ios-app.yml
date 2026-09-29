@@ -35,19 +35,33 @@ permissions:
   contents: read
 
 jobs:
+  # Acceptance host: the company `mac` self-hosted runner.
   ios-app-simulator:
-    name: Build and smoke-test iosApp on iOS Simulator
+    name: Build and smoke-test iosApp (self-hosted mac)
     runs-on: [self-hosted, mac]
     timeout-minutes: 75
-    steps:
+    steps: &ios_app_steps
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Resolve and export the JDK 21 toolchain
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          # GitHub-hosted macOS images expose the JDK through JAVA_HOME_21_*;
+          # the self-hosted runner resolves it in runner-toolchain-env.sh.
+          if [ -z "${JAVA_HOME:-}" ]; then JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-}}"; fi
+          if [ -z "${JAVA_HOME:-}" ] || [ ! -x "$JAVA_HOME/bin/java" ]; then
+            echo "::error::no JDK 21 toolchain found"
+            exit 1
+          fi
+          echo "JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME/bin" >> "$GITHUB_PATH"
+          echo "JAVA_HOME=$JAVA_HOME"
+          java -version
 
       - name: Toolchain diagnostics
         run: |
           set -euo pipefail
-          . scripts/ci/runner-toolchain-env.sh
-          echo "JAVA_HOME=${JAVA_HOME:-<unset>}"
-          java -version || true
           xcodebuild -version
           xcrun simctl list runtimes || true
 
@@ -132,3 +146,13 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -derivedDataPath build/DerivedData \
             test-without-building
+
+  # The company `mac` runner is shared and can sit behind a long provisioning
+  # job. This leg runs the identical steps on a GitHub-hosted macOS runner (the
+  # framework script is arch-aware) so the project is still validated when the
+  # self-hosted runner is busy. It is not the acceptance host named by OPE-169.
+  ios-app-simulator-github:
+    name: Build and smoke-test iosApp (github macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 75
+    steps: *ios_app_steps
