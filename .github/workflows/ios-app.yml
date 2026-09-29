@@ -130,6 +130,9 @@ jobs:
           test -n "$APP"
           echo "Installing $APP"
           xcrun simctl install "$UDID" "$APP"
+          # Pre-grant the camera so the scan acceptance does not stall on the
+          # system permission alert (which XCUITest cannot answer here).
+          xcrun simctl privacy "$UDID" grant camera org.opencodemobile.ios || true
           xcrun simctl launch "$UDID" org.opencodemobile.ios
           sleep 8
           if xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q opencodemobile; then

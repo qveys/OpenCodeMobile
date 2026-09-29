@@ -63,12 +63,15 @@ final class ConnectionScreenUITests: XCTestCase {
         let cancel = element(app, "Cancel")
         if cancel.waitForExistence(timeout: 15) {
             cancel.tap()
+        } else {
+            print("SCAN_TREE_NO_CANCEL:\n\(app.debugDescription)")
         }
 
-        XCTAssertTrue(
-            element(app, "Connect to a server").waitForExistence(timeout: 30),
-            "Cancelling the scan did not return to the entry screen."
-        )
+        let returned = element(app, "Connect to a server").waitForExistence(timeout: 30)
+        if !returned {
+            print("SCAN_TREE_NOT_RETURNED:\n\(app.debugDescription)")
+        }
+        XCTAssertTrue(returned, "Cancelling the scan did not return to the entry screen.")
     }
 
     /// OPE-153 criterion 3a: a valid import link opens the review screen.
