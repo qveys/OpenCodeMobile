@@ -26,11 +26,11 @@ public data class CacheScope(
 )
 
 /**
- * The production consumer of [SessionCacheWriter] (OPE-172, item 3).
+ * The projector that moves the realtime model into the cache (OPE-172, item 3).
  *
- * It is the bridge the security review asked for: the cache is written **only**
- * from the realtime pipeline (`shared/realtime`, OPE-106) — never from a user
- * action. Concretely:
+ * [CacheWritePipeline] is the production consumer that constructs and starts it
+ * (OPE-180); the cache is written **only** from the realtime pipeline
+ * (`shared/realtime`, OPE-106) — never from a user action. Concretely:
  *
  * - every reconciled server snapshot (D2) upserts its sessions, and
  * - every normalized server event advances the project-level sync cursor.
@@ -50,11 +50,24 @@ public class RealtimeCacheProjector(
 ) {
     private var appliedSnapshot: RealtimeSnapshot? = null
 
-    /** Starts both collectors in [coroutineScope] and returns their job. */
+    /**
+     * Starts both collectors in [coroutineScope] and returns their job.
+     *
+     * Kept for tests and for a caller that wants the two collectors without the
+     * connectivity binding. [CacheWritePipeline] does not use it: it drives
+     * [onState] / [onEvent] itself so the D8 gate is updated before the matching
+     * write (see [CacheWritePipeline]).
+     */
     public fun start(coroutineScope: CoroutineScope): Job = coroutineScope.launch {
         launch { source.state.collect(::projectState) }
         launch { source.events.collect(::projectEvent) }
     }
+
+    /** Projects one reconciled state; exposed module-internally to [CacheWritePipeline]. */
+    internal suspend fun onState(state: RealtimeState) = projectState(state)
+
+    /** Projects one normalized event; exposed module-internally to [CacheWritePipeline]. */
+    internal suspend fun onEvent(event: ServerEvent) = projectEvent(event)
 
     private suspend fun projectState(state: RealtimeState) {
         // Nothing is reconciled yet: do not seed a cursor from the initial Idle state.

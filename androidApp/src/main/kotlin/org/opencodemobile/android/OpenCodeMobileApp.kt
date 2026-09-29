@@ -6,6 +6,7 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import org.koin.core.qualifier.named
+import org.opencodemobile.android.cache.CacheWriteRuntime
 import org.opencodemobile.android.di.PERMISSION_SCOPE_QUALIFIER
 import org.opencodemobile.android.di.cacheModule
 import org.opencodemobile.android.di.permissionModule
@@ -21,6 +22,7 @@ class OpenCodeMobileApp : Application() {
             modules(cacheModule, permissionModule)
         }
         startPermissionSurface()
+        startCacheWritePath()
     }
 
     /**
@@ -39,5 +41,18 @@ class OpenCodeMobileApp : Application() {
             koin.get<CoroutineScope>(named(PERMISSION_SCOPE_QUALIFIER))
         }.getOrNull() ?: return
         runtime.start(scope)
+    }
+
+    /**
+     * Starts the D8 cache write path (OPE-180): it binds the connection's
+     * realtime pipeline to the cache gate and projects snapshots/events through
+     * the gated writer. It is inert until a connection composition root binds a
+     * `CacheConnection`; that root calls `CacheWriteRuntime.start()` again once
+     * it has bound one.
+     */
+    private fun startCacheWritePath() {
+        val koin = GlobalContext.getOrNull() ?: return
+        val runtime = runCatching { koin.get<CacheWriteRuntime>() }.getOrNull() ?: return
+        runtime.start()
     }
 }

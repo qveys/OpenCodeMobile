@@ -38,8 +38,8 @@ directory. `iosApp` only hosts the SwiftUI shell that starts Koin and presents t
 The iOS cache stack is assembled in Kotlin, not in this Swift directory: `shared/data` exposes
 `createIosCacheStack()` (in `shared/data/src/iosMain`), which builds the
 `DataProtectionCacheDriverProvider` and wires it into a `CacheStack`. The Swift host calls that
-factory from its composition root and starts the `RealtimeCacheProjector` with
-`stack.writer()`, so the cache is written only from the realtime pipeline and the D8 gate stays
-structural (the writer is already gated). T3 on iOS remains the accepted residual risk recorded
-in ADR 0005 OP2.
+factory from its composition root (`iosApp/iosApp/CacheComposition.swift`) and starts the
+`CacheWritePipeline` with `stack.writer()`, so the cache is written only from the realtime
+pipeline and the D8 gate stays structural (the writer is already gated). T3 on iOS remains the
+accepted residual risk recorded in ADR 0005 OP2.
 
