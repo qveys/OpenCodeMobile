@@ -11,10 +11,13 @@ name: Deployment Smoke Test
 #   - `pull_request` / `push`: run the self-test so the smoke script itself is
 #     verified before it guards a deployment.
 #
+# Runner policy (docs/CI-RUNNER-STRATEGY.md §2): both jobs run on the company
+# self-hosted pool (`[self-hosted, hostinger]`), never on GitHub-hosted runners.
+#
 # Repo Actions allowlist: only `actions/checkout@*` may run; every other action
 # (`actions/setup-java`, `actions/upload-artifact`, ...) is rejected with
 # `startup_failure`. This workflow therefore uses ONLY `actions/checkout` and
-# relies on the bash/curl/python3 preinstalled on GitHub-hosted runners. The
+# relies on the bash/curl/python3 available on the self-hosted runner. The
 # JSON report is rendered in the job summary instead of an uploaded artifact.
 on:
   workflow_run:
@@ -49,7 +52,7 @@ permissions:
 jobs:
   self-test:
     name: Smoke script self-test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 10
     if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
@@ -59,7 +62,7 @@ jobs:
 
   smoke:
     name: Post-deployment smoke test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 15
     # Only smoke a deployment that actually ran: a successful CD run, or a
     # manual dispatch of this workflow.

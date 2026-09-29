@@ -17,13 +17,20 @@ name: CD
 #   - push a `v*` tag       -> deploy to `production`
 #   - `workflow_dispatch`   -> explicit environment / track / dry-run
 #
+# Runner policy (docs/CI-RUNNER-STRATEGY.md §2): every job runs on the company
+# self-hosted pool, never on GitHub-hosted runners —
+#   - Linux / Gradle / curl jobs -> `[self-hosted, hostinger]`
+#   - Apple-capable jobs         -> `[self-hosted, mac]`
+# Each step that needs the JDK / Android SDK sources
+# `scripts/ci/runner-toolchain-env.sh` (OPE-98), which resolves JAVA_HOME /
+# ANDROID_HOME on the runner.
+#
 # Toolchain policy (repo Actions allowlist): the repository allows only
 # `actions/checkout@*` to run; every other action (`actions/setup-java`,
 # `actions/upload-artifact`, `google-github-actions/auth`, ...) is rejected with
 # `startup_failure` before the job starts. This workflow therefore uses ONLY
 # `actions/checkout` plus shell steps, and relies on the JDK / Android SDK /
-# curl / python3 that GitHub-hosted runners already provide (`JAVA_HOME_21_X64`
-# on ubuntu, same convention as `.github/workflows/build.yml`).
+# curl / python3 that the self-hosted runner image provides.
 #
 # A consequence of that allowlist: build outputs cannot be shared between jobs
 # (no `upload-artifact`/`download-artifact`), so each platform job builds and
@@ -73,7 +80,7 @@ permissions:
 jobs:
   prepare:
     name: Prepare deployment
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 10
     outputs:
       target_env: ${{ steps.determine.outputs.target_env }}
@@ -111,7 +118,7 @@ jobs:
 
   deploy-android:
     name: Deploy Android (${{ needs.prepare.outputs.target_env }})
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 60
     needs: prepare
     environment:
@@ -163,7 +170,7 @@ jobs:
             exit 0
           fi
 
-          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          . scripts/ci/runner-toolchain-env.sh
           chmod +x ./gradlew
           java -version
           ./gradlew :androidApp:assembleRelease :androidApp:bundleRelease --no-daemon --stacktrace
@@ -186,9 +193,8 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          # GitHub-hosted OIDC/WIF needs `google-github-actions/auth`, which the
-          # Actions allowlist rejects today; the service-account fallback is used
-          # until that action is allowlisted.
+          # The self-hosted pool predates OIDC/WIF; the service-account fallback
+          # is used until the allowlist permits `google-github-actions/auth`.
           PLAY_CONSOLE_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_CONSOLE_SERVICE_ACCOUNT_JSON }}
         run: bash scripts/deploy/deploy-play-store.sh
 
@@ -198,7 +204,7 @@ jobs:
 
   deploy-ios:
     name: Deploy iOS (${{ needs.prepare.outputs.target_env }})
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, mac]
     timeout-minutes: 30
     needs: prepare
     environment:
@@ -215,7 +221,10 @@ jobs:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
-        run: bash scripts/deploy/deploy-testflight.sh
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          bash scripts/deploy/deploy-testflight.sh
 
       - name: Clean up iOS credentials
         if: always()
@@ -223,7 +232,7 @@ jobs:
 
   smoke-test:
     name: Post-deploy check (${{ needs.prepare.outputs.target_env }})
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 15
     needs: [prepare, deploy-android, deploy-ios]
     # Run whenever at least the Android deploy leg succeeded, so a flaky iOS leg

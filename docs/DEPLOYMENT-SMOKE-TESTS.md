@@ -32,6 +32,11 @@ and alerts when either check fails.
 - **On PRs touching the smoke scripts.** The `self-test` job keeps the smoke
   test itself honest.
 
+Both jobs run on the company self-hosted pool
+(`runs-on: [self-hosted, hostinger]`, see `docs/CI-RUNNER-STRATEGY.md` §2);
+the workflow needs only bash, curl and python3, so no toolchain step is
+required.
+
 ## Configuration
 
 Repository variables (Settings → Secrets and variables → Actions → Variables):
