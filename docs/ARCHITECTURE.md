@@ -67,7 +67,7 @@ Clean Architecture, dependency direction pointing inward only:
 | Domain | `shared/domain` | Entities, value objects, ports. Kotlin stdlib only. |
 | Application | `shared/application` | Use cases orchestrating domain ports and coroutines. |
 | Infrastructure | `shared/data`, `shared/networking`, `shared/realtime`, `shared/persistence`, `shared/security` | Adapters for server protocol, event stream, cache, and platform security. |
-| Presentation | `features/*`, `design-system`, `androidApp`, `iosApp` | Compose UI, ViewModels, navigation, platform host shells. |
+| Presentation | `features/*`, `design-system`, `androidApp`, `iosApp`, `iosAppHost` | Compose UI, ViewModels, navigation, platform host shells. |
 
 ### 2.2 Module map
 
@@ -75,6 +75,7 @@ Clean Architecture, dependency direction pointing inward only:
 |---|---|---|
 | `androidApp` | Android app | Host shell, Koin composition root, platform `actual` wiring. |
 | `iosApp` | Swift/Xcode host | Swift entry point; not a Gradle module. See `iosApp/README.md`. |
+| `iosAppHost` | KMP library | Kotlin half of the iOS host: Koin graph assembly + Compose hosting (ADR 0006). iOS targets only. |
 | `shared/domain` | KMP library | Entities, value objects, and ports. Kotlin stdlib only. |
 | `shared/application` | KMP library | Use cases that orchestrate domain ports and coroutines. |
 | `shared/data` | KMP library | Repository implementations, coordinating networking, realtime, persistence, and security. |
@@ -90,7 +91,8 @@ Clean Architecture, dependency direction pointing inward only:
 The Gradle module list is authoritative in `settings.gradle.kts`; the scaffold
 is recorded in ADR 0001. `iosApp` is intentionally not a Gradle subproject: it
 is an Xcode project linking one static framework per Kotlin module (ADR 0001
-§3, §4).
+§3, §4). Its Kotlin composition root is therefore the separate `:iosAppHost`
+module (ADR 0006), the iOS counterpart of `androidApp`.
 
 ### 2.3 Ownership and seams
 
@@ -105,7 +107,7 @@ that cross-layer work goes through:
 | `shared/persistence` | Local cache schema only (disposable) | SQLDelight queries behind a domain port |
 | `shared/security` | Credential storage, identity pins, biometric gate | Implements the domain security ports |
 | `features/*` | Screen state and user intent | ViewModels exposing application-layer flows |
-| `androidApp` / `iosApp` | Composition root only | Koin module assembly, platform `actual`s |
+| `androidApp` / `iosApp` / `iosAppHost` | Composition root only | Koin module assembly, platform `actual`s |
 
 Rules that hold across all of them:
 
@@ -266,10 +268,11 @@ handling are mandatory and specified below.
 
 Compose screens and shared ViewModels observe application-layer flows with
 unidirectional data flow (`StateFlow` in, events out). Koin modules are
-declared in `androidApp` (composition root) and `features/*`; the `iosApp`
-Swift shell starts Koin and hosts the Compose UI. Pure Compose Multiplatform
-owns navigation and lifecycle on both platforms — `iosApp` stays a thin host
-(ADR 0003).
+declared in `androidApp` (composition root), `iosAppHost` (iOS composition
+root, ADR 0006), and `features/*`; the `iosApp` Swift shell calls
+`startIosKoin()` in `:iosAppHost` and hosts the Compose UI. Pure Compose
+Multiplatform owns navigation and lifecycle on both platforms — `iosApp` stays
+a thin host (ADR 0003).
 
 ---
 
@@ -335,6 +338,35 @@ An incompatible server produces an explicit screen with the server's version
 and the supported range. Contract tests against a real instance plus the
 deterministic `MockOpenCodeServer` are the drift detector; the compatibility
 matrix is an L6 deliverable.
+
+Status (OPE-135): implemented. `CompatibilityProfile.OpenCodeServerV2` accepts
+server major `1` at `>= 1.18.0`; `OpenCodeV2Adapter` parses the reported
+version, gates it, and raises `HandshakeException`
+(`HealthUnavailable` / `ServerUnhealthy` / `Incomplete` / `Incompatible`) for a
+handshake that cannot be completed.
+
+### 4.5 Connection policy (HTTP/TLS)
+
+This resolves the open policy question in the T1 section: whether plaintext
+HTTP is restricted to private address ranges.
+
+- `HttpConnectionPolicy` classifies a profile host as `Loopback`, `Lan`,
+  `Tailscale`, or `Public` (RFC 1918 + link-local + ULA, CGNAT
+  `100.64.0.0/10` and `*.ts.net`, mDNS `.local`).
+- HTTPS is allowed for every scope.
+- Plaintext HTTP is allowed only on `Loopback`, `Lan`, and `Tailscale`; those
+  profiles still carry the persistent plaintext warning and the TOFU identity
+  check (T1).
+- Plaintext HTTP to a `Public` host is rejected with
+  `ConnectionPolicyException.Rejected` before any request is built: TLS is
+  mandatory for any external connection, and the credential is never sent.
+- The outbound HTTP surface is an allowlist: only `GET`, `POST`, and `DELETE`
+  reach the network. Any other method is refused with
+  `ConnectionPolicyException.MethodNotAllowed` in the request pipeline
+  (`installHttpMethodPolicy` in `shared/networking`).
+
+Status (OPE-135): implemented (`OpenCodeV2Adapter.connect` step 1,
+`HttpConnectionPolicy`).
 
 ---
 
@@ -420,7 +452,7 @@ Controls that are architecture, not process:
 | Concern | Decision | Where enforced |
 |---|---|---|
 | Concurrency and state | Coroutines + `StateFlow`, unidirectional data flow | `shared/application`, `features/*` |
-| Dependency injection | Koin, runtime resolution, composition root only | `androidApp`, `features/*` |
+| Dependency injection | Koin, runtime resolution, composition root only | `androidApp`, `iosAppHost`, `features/*` |
 | Localization | French + English from V1 | resources in `androidApp` / `iosApp` / `design-system` |
 | Logging | One sanctioned sanitizing entry point | `shared/networking/.../logging/`, CI gate |
 | Error handling | Typed `DomainError` at the domain boundary | `shared/domain`, `shared/networking` |
@@ -974,6 +1006,7 @@ otherwise.
 | [0003](adr/0003-liquid-glass-vs-pure-cmp-ios.md) | Pure Compose Multiplatform UI on iOS, no native Liquid Glass chrome; CMP owns navigation and lifecycle. |
 | [0004](adr/0004-architecture-dependency-rules-konsist.md) | Architecture/dependency rules enforced by Konsist in CI. |
 | [0005](adr/0005-v1-open-decisions-op1-op5.md) | Closeout of the V1 open decisions OP1–OP5, and the MVP cut that follows from them. |
+| [0006](adr/0006-ios-composition-root-module.md) | iOS composition root as a Kotlin Multiplatform module (`:iosAppHost`): Koin graph + Compose host, linked by the Xcode project. |
 | [on-device-speech-to-text](adr/on-device-speech-to-text.md) | On-device-only dictation in V1, with a fail-closed availability model. |
 
 Anything not literally fixed by the architecture specification goes through an

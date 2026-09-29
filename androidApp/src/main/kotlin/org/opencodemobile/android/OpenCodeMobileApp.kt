@@ -19,6 +19,7 @@ import org.opencodemobile.android.di.questionsModule
 import org.opencodemobile.android.di.sessionsModule
 import org.opencodemobile.android.permission.PermissionRuntime
 import org.opencodemobile.android.questions.PendingQuestionsRuntime
+import org.opencodemobile.features.connection.ConnectionModule
 
 class OpenCodeMobileApp : Application() {
     override fun onCreate() {
@@ -27,6 +28,13 @@ class OpenCodeMobileApp : Application() {
             androidContext(this@OpenCodeMobileApp)
             // Per-module Koin modules (shared/*, features/*) are added here as each
             // layer is implemented; D12 keeps shared/domain free of Koin entirely.
+            // L1 connection composition root: SecureStore-backed profile/credential
+            // stores, the identity gate, and the OpenCodeGateway. The camera port
+            // stays out of Koin: it is activity-scoped and is created directly by
+            // MainActivity (see ConnectionCompositionRoot).
+            modules(connectionCompositionModule, ConnectionModule.koinModule)
+            // L2/L3 surfaces: realtime/cache, sessions, chat, permissions,
+            // questions and catalog.
             modules(cacheModule, permissionModule, sessionsModule, chatModule, questionsModule, catalogModule)
         }
         startPermissionSurface()

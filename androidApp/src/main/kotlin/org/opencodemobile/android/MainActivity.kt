@@ -45,6 +45,10 @@ import org.opencodemobile.features.catalog.CatalogPresenter
 import org.opencodemobile.features.catalog.ServerCatalogScreen
 import org.opencodemobile.features.composer.ComposerBar
 import org.opencodemobile.features.composer.ComposerPresenter
+import org.opencodemobile.features.connection.AndroidQrCodeScanner
+import org.opencodemobile.features.connection.ConnectionSetupController
+import org.opencodemobile.features.connection.ConnectionSetupScreen
+import org.opencodemobile.features.connection.QrCodeScanner
 import org.opencodemobile.features.permissions.PermissionBanner
 import org.opencodemobile.features.permissions.PermissionConfirmationScreen
 import org.opencodemobile.features.permissions.PermissionDeepLink
@@ -58,10 +62,20 @@ import org.opencodemobile.features.transcript.TranscriptScreen
 import org.opencodemobile.shared.domain.session.SessionSummary
 
 /**
- * The Android host for the permission surface (OPE-173 / V1-06).
+ * The single Android host of the assembled MVP.
  *
  * It is a [FragmentActivity] because `BiometricPrompt` requires one; the
  * coordinator's biometric gate is bound to it through [PermissionHostActivity].
+ *
+ * It hosts two lots that landed on separate branches and are joined here:
+ *
+ * - L1 connection setup: the activity-scoped [AndroidQrCodeScanner] is created
+ *   in [onCreate] (before the activity is `STARTED`, as
+ *   `registerForActivityResult` requires) and passed to [ConnectionSetupScreen]
+ *   together with the injected [ConnectionSetupController]. The connection
+ *   composition root (`connectionCompositionModule`) provides the controller.
+ * - L2/L3 surfaces (sessions, chat, permissions, questions, catalog): rendered
+ *   by [PermissionHost] once their graph is wired.
  *
  * Responsibilities:
  * - render [PermissionBanner] while a request is pending and
@@ -85,15 +99,23 @@ class MainActivity : FragmentActivity() {
      */
     private var requestedConfirmation by mutableStateOf<String?>(null)
 
+    /**
+     * The activity-scoped camera port. Created here from `onCreate` because
+     * [AndroidQrCodeScanner] registers an `ActivityResultLauncher`.
+     */
+    private lateinit var qrCodeScanner: AndroidQrCodeScanner
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestNotificationPermission()
         consumePermissionIntent(intent)
+        qrCodeScanner = AndroidQrCodeScanner(this)
         val sessionsPresenter = sessionsPresenterOrNull()
         val transcriptPresenter = transcriptPresenterOrNull()
         val composerPresenter = composerPresenterOrNull()
         val questionsPresenter = questionsPresenterOrNull()
         val catalogPresenter = catalogPresenterOrNull()
+        val connectionController = connectionSetupControllerOrNull()
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -104,6 +126,8 @@ class MainActivity : FragmentActivity() {
                         composerPresenter = composerPresenter,
                         questionsPresenter = questionsPresenter,
                         catalogPresenter = catalogPresenter,
+                        connectionController = connectionController,
+                        scanner = qrCodeScanner,
                         requestedConfirmationId = requestedConfirmation,
                         onConfirmationRequestHandled = { requestedConfirmation = null },
                     )
@@ -196,6 +220,16 @@ class MainActivity : FragmentActivity() {
      */
     private fun catalogPresenterOrNull(): CatalogPresenter? =
         runCatching { GlobalContext.getOrNull()?.get<CatalogPresenter>() }.getOrNull()
+
+    /**
+     * L1: the connection setup graph (SecureStore-backed stores, identity gate,
+     * [org.opencodemobile.shared.domain.connection.OpenCodeGateway],
+     * [ConnectionSetupController]). It is registered by
+     * `connectionCompositionModule`; resolution is defensive so a missing graph
+     * cannot crash the app at launch.
+     */
+    private fun connectionSetupControllerOrNull(): ConnectionSetupController? =
+        runCatching { GlobalContext.getOrNull()?.get<ConnectionSetupController>() }.getOrNull()
 }
 
 @Composable
@@ -206,11 +240,21 @@ private fun PermissionHost(
     composerPresenter: ComposerPresenter?,
     questionsPresenter: QuestionsPresenter?,
     catalogPresenter: CatalogPresenter?,
+    connectionController: ConnectionSetupController?,
+    scanner: QrCodeScanner?,
     requestedConfirmationId: String?,
     onConfirmationRequestHandled: () -> Unit,
 ) {
     if (presenter == null) {
-        AppContent(sessionsPresenter, transcriptPresenter, composerPresenter, questionsPresenter, catalogPresenter)
+        AppContent(
+            sessionsPresenter,
+            transcriptPresenter,
+            composerPresenter,
+            questionsPresenter,
+            catalogPresenter,
+            connectionController,
+            scanner,
+        )
         return
     }
     val state = presenter.state.collectAsState().value
@@ -237,7 +281,15 @@ private fun PermissionHost(
                 },
             )
         } else {
-            AppContent(sessionsPresenter, transcriptPresenter, composerPresenter, questionsPresenter, catalogPresenter)
+            AppContent(
+                sessionsPresenter,
+                transcriptPresenter,
+                composerPresenter,
+                questionsPresenter,
+                catalogPresenter,
+                connectionController,
+                scanner,
+            )
             if (banner != null) {
                 PermissionBanner(
                     model = banner,
@@ -251,11 +303,13 @@ private fun PermissionHost(
 }
 
 /**
- * The app's two surfaces: the V1-04 sessions list, and the V1-05 session screen
- * (transcript + composer) it navigates to.
+ * The app's entry surfaces.
  *
- * Until the connection/onboarding composition root lands, an unwired chat graph
- * falls back to the sessions list and a session cannot be opened.
+ * When no session graph is wired yet, the connection setup screen (L1) is shown
+ * if its controller is available: it is the only way to enter a server profile
+ * and a QR payload. Once a session presenters exists (the L2/L3 graph is bound
+ * by a connection composition root, OPE-176), the sessions list becomes the home
+ * surface and a session can be opened.
  */
 @Composable
 private fun AppContent(
@@ -264,6 +318,8 @@ private fun AppContent(
     composerPresenter: ComposerPresenter?,
     questionsPresenter: QuestionsPresenter?,
     catalogPresenter: CatalogPresenter?,
+    connectionController: ConnectionSetupController?,
+    scanner: QrCodeScanner?,
 ) {
     var openSession by remember { mutableStateOf<SessionSummary?>(null) }
     var catalogOpen by remember { mutableStateOf(false) }
@@ -287,8 +343,12 @@ private fun AppContent(
     }
 
     if (sessionsPresenter == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("OpenCode Mobile")
+        if (connectionController != null) {
+            ConnectionSetupScreen(controller = connectionController, scanner = scanner)
+        } else {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("OpenCode Mobile")
+            }
         }
         return
     }

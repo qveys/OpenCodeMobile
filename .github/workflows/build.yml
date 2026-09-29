@@ -96,7 +96,9 @@ jobs:
           export JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-$JAVA_HOME}}"
           chmod +x gradlew
           java -version
-          ./gradlew linkDebugFrameworkIosSimulatorArm64 linkDebugFrameworkIosArm64 --no-daemon --stacktrace
+          ./gradlew linkDebugFrameworkIosSimulatorArm64 linkDebugFrameworkIosArm64 \
+            :iosAppHost:linkDebugFrameworkIosSimulatorArm64 :iosAppHost:linkDebugFrameworkIosArm64 \
+            --no-daemon --stacktrace
       # OPE-107: type-check the iOS cache at-rest protection code and its test
       # (Data Protection + NSURLIsExcludedFromBackupKey) on every build.
       - name: Compile the iOS cache-at-rest test
@@ -113,3 +115,4 @@ jobs:
           test -n "$(find . -path '*/build/bin/iosArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/security/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/domain/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
+          test -n "$(find . -path '*/iosAppHost/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"

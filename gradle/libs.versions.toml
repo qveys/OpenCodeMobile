@@ -36,6 +36,11 @@ androidx-core = "1.13.1"
 # B2 / T2: platform biometric + device-credential gate
 androidx-biometric = "1.1.0"
 
+# QR capture: CameraX preview + ML Kit barcode decoding (Android only,
+# features/connection/src/androidMain; kept out of commonMain on purpose)
+camerax = "1.4.1"
+mlkit-barcode-scanning = "17.3.0"
+
 # Architecture tests
 konsist = "0.17.3"
 
@@ -81,6 +86,13 @@ androidx-activity-compose = { module = "androidx.activity:activity-compose", ver
 androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "androidx-fragment" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
 androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "androidx-biometric" }
+
+# QR capture (Android): CameraX preview + ML Kit barcode scanning
+androidx-camera-core = { module = "androidx.camera:camera-core", version.ref = "camerax" }
+androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
+mlkit-barcode-scanning = { module = "com.google.mlkit:barcode-scanning", version.ref = "mlkit-barcode-scanning" }
 
 konsist = { module = "com.lemonapp.konsist:konsist", version.ref = "konsist" }
 konsist-test = { module = "com.lemonapp.konsist:konsist-test", version.ref = "konsist" }

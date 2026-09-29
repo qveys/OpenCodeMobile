@@ -39,7 +39,7 @@ class InteractionGatewayAdapterTest {
 
     private val profile = ServerProfile(
         id = "mock-profile",
-        host = "mock.opencode.test",
+        host = "localhost",
         port = 4096,
         tls = ServerProfile.TlsMode.PlaintextHttp,
     )

@@ -2,6 +2,8 @@ package org.opencodemobile.shared.networking.adapter
 
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.ClientRequestException
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.pluginOrNull
 import io.ktor.http.HttpStatusCode
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.CancellationException
@@ -30,13 +32,20 @@ import org.opencodemobile.shared.domain.chat.OpenCodeChatGateway
 import org.opencodemobile.shared.domain.chat.TranscriptMessage
 import org.opencodemobile.shared.domain.chat.TranscriptPart
 import org.opencodemobile.shared.domain.chat.TranscriptRole
+import org.opencodemobile.shared.domain.connection.CompatibilityProfile
+import org.opencodemobile.shared.domain.connection.CompatibilityResult
 import org.opencodemobile.shared.domain.connection.ConnectionHandshake
+import org.opencodemobile.shared.domain.connection.ConnectionPolicyException
+import org.opencodemobile.shared.domain.connection.HandshakeException
+import org.opencodemobile.shared.domain.connection.HttpConnectionPolicy
+import org.opencodemobile.shared.domain.connection.HttpConnectionPolicyDecision
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerCredential
 import org.opencodemobile.shared.domain.connection.ServerHealth
 import org.opencodemobile.shared.domain.connection.ServerIdentityCheck
 import org.opencodemobile.shared.domain.connection.ServerIdentityException
 import org.opencodemobile.shared.domain.connection.ServerProfile
+import org.opencodemobile.shared.domain.connection.ServerVersion
 import org.opencodemobile.shared.domain.interaction.AgentDescriptor
 import org.opencodemobile.shared.domain.interaction.InteractionNotConnectedException
 import org.opencodemobile.shared.domain.interaction.ModelDescriptor
@@ -86,6 +95,7 @@ public class OpenCodeV2Adapter(
     private val httpClient: HttpClient,
     private val identityGate: ServerIdentityGate,
     private val identityPin: ServerIdentityPinController,
+    private val compatibilityProfile: CompatibilityProfile = CompatibilityProfile.OpenCodeServerV2,
 ) : OpenCodeGateway, OpenCodeInteractionGateway, SessionGateway, OpenCodeChatGateway, ChatEventDecoder {
 
     /** Payload decoding for the chat surface only; the domain stays JSON-free. */
@@ -114,6 +124,16 @@ public class OpenCodeV2Adapter(
     ): ConnectionHandshake {
         disconnect()
 
+        // 1. Connection policy: fail closed before any request or credential release.
+        //    A plaintext HTTP profile aimed at a public host is rejected here.
+        val scope = when (val policy = HttpConnectionPolicy.decide(profile)) {
+            is HttpConnectionPolicyDecision.Rejected ->
+                throw ConnectionPolicyException.Rejected(policy)
+
+            is HttpConnectionPolicyDecision.Allowed -> policy.scope
+        }
+
+        // 2. Identity is verified: only now may the credential be released.
         val identityCheck = when (val authorization = identityGate.authorize(profile)) {
             is ServerIdentityAuthorization.Authorized -> {
                 identityPin.setExpectedPin(authorization.fingerprint)
@@ -147,12 +167,41 @@ public class OpenCodeV2Adapter(
         activeClient = client
 
         return try {
-            val dto = client.getHealth()
-            ConnectionHandshake(
-                profileId = profile.id,
-                health = ServerHealth(healthy = dto.healthy, version = dto.version),
-                identity = identityCheck,
-            )
+            // 3. Health probe: the first request on the connection.
+            val health = try {
+                client.getHealth()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                throw HandshakeException.HealthUnavailable(failure)
+            }
+
+            if (!health.healthy) throw HandshakeException.ServerUnhealthy()
+
+            // 4. Version gate: an absent or unparseable version is incomplete,
+            //    never implicitly compatible.
+            val version = ServerVersion.parseOrNull(health.version)
+                ?: throw HandshakeException.Incomplete(
+                    "GET /global/health returned no parseable version ('${health.version}')",
+                )
+
+            when (val compatibility = compatibilityProfile.evaluate(version)) {
+                is CompatibilityResult.Compatible -> ConnectionHandshake(
+                    profileId = profile.id,
+                    health = ServerHealth(healthy = health.healthy, version = health.version),
+                    identity = identityCheck,
+                    version = compatibility.version,
+                    scope = scope,
+                )
+
+                is CompatibilityResult.Incompatible ->
+                    throw HandshakeException.Incompatible(compatibility.serverVersion, compatibility.profile)
+
+                CompatibilityResult.Unknown ->
+                    throw HandshakeException.Incomplete(
+                        "GET /global/health returned no parseable version ('${health.version}')",
+                    )
+            }
         } catch (failure: Throwable) {
             disconnect()
             throw failure
@@ -416,6 +465,19 @@ public class OpenCodeV2Adapter(
 
     /** Test/diagnostic hook: whether an active connection currently permits the credential. */
     internal fun isCredentialPermitActive(): Boolean = authorizationsEnabled && credentialPermit != null
+
+    /**
+     * Test/diagnostic hook (OPE-170): whether this adapter's client was built by
+     * the sanctioned [OpenCodeHttpClient.create] factory, that is, JSON
+     * [ContentNegotiation] is installed.
+     *
+     * A composition root that replaces the sanctioned factory with a raw Ktor
+     * client (the OPE-151 defect-2 regression) makes this return false, so the
+     * `:androidApp` composition-root resolver test fails instead of silently
+     * shipping a client that cannot encode or decode JSON.
+     */
+    public fun negotiatesJsonContent(): Boolean =
+        httpClient.pluginOrNull(ContentNegotiation) != null
 }
 
 private fun ApiQuestionRequest.toDomain(): PendingQuestion = PendingQuestion(

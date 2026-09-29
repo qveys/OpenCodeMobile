@@ -17,6 +17,10 @@ import org.opencodemobile.shared.security.identity.ServerIdentityPinController
  * `installSanitizingLogging` factory, which routes every line through
  * `LogRedactor` and redacts credential headers. A raw Ktor `Logging` plugin
  * install is rejected by the T4 CI gate (`scripts/check-no-secret-logging.sh`).
+ *
+ * The connection transport policy (HTTP method allowlist, no redirect
+ * following) is applied by [createOpenCodeHttpClient]'s platform actuals, so it
+ * holds for every caller and not only for this wrapper.
  */
 public object OpenCodeHttpClient {
 
