@@ -181,6 +181,14 @@ private class QrScannerViewController(
         if (handled) return
         handled = true
         if (session.running) session.stopRunning()
+        // Leave the full-screen capture surface before handing the result back,
+        // so both the scanned and cancelled paths return to the entry/review
+        // screen behind it. Dismissal is not awaited: the result must resolve
+        // even if the controller was never fully presented (e.g. permission
+        // denied in viewDidLoad).
+        if (presentingViewController != null) {
+            dismissViewControllerAnimated(true, completion = null)
+        }
         onResult(payload)
     }
 }
