@@ -72,6 +72,7 @@ class DomainErrorMessagesTest {
             ),
             DomainError.IdentityNotVerifiable(),
             DomainError.PolicyRejected(ServerNetworkScope.Public, HttpPolicyViolation.PublicPlaintextHttp),
+            DomainError.PolicyMethodNotAllowed("PUT"),
             DomainError.InvalidServerAddress(ServerInputProblem.BLANK, ""),
             DomainError.InvalidImportLink(ServerInputProblem.MALFORMED, "x"),
             DomainError.StorageFailure("detail"),

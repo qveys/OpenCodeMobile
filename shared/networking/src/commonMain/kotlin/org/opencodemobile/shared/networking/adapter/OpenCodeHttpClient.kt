@@ -38,6 +38,7 @@ public object OpenCodeHttpClient {
             json(defaultJson)
         }
         installSanitizingLogging(level = LogLevel.INFO)
+        installHttpMethodPolicy()
         configure()
     }
 }

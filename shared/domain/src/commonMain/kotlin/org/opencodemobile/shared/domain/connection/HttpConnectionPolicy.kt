@@ -69,6 +69,21 @@ public sealed interface HttpConnectionPolicyDecision {
  */
 public object HttpConnectionPolicy {
 
+    /**
+     * The HTTP methods this client is allowed to send to an OpenCode Server.
+     *
+     * The app is outbound-only and the generated client uses exactly these
+     * verbs (read with `GET`, act with `POST`, remove with `DELETE`). Any other
+     * method is a policy violation and is refused before it reaches the
+     * network, which keeps the outbound surface minimal if a future change
+     * starts building requests by hand.
+     */
+    public val allowedMethods: Set<String> = setOf("GET", "POST", "DELETE")
+
+    /** Whether [method] (case-insensitive, trimmed) is in [allowedMethods]. */
+    public fun isMethodAllowed(method: String): Boolean =
+        method.trim().uppercase() in allowedMethods
+
     /** Evaluates [profile] without performing any I/O. */
     public fun decide(profile: ServerProfile): HttpConnectionPolicyDecision {
         val scope = scopeOf(profile.host)

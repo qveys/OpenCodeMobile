@@ -107,6 +107,17 @@ class DomainErrorTest {
     }
 
     @Test
+    fun aDisallowedHttpMethodBecomesAPolicyError() {
+        val error = assertIs<DomainError.PolicyMethodNotAllowed>(
+            ConnectionPolicyException.MethodNotAllowed("PUT").toDomainError(),
+        )
+
+        assertEquals(DomainErrorCode.POLICY_METHOD_NOT_ALLOWED, error.code)
+        assertEquals(DomainErrorCategory.POLICY, error.category)
+        assertEquals("PUT", error.method)
+    }
+
+    @Test
     fun everyCodeHasACategoryAndWireValue() {
         for (code in DomainErrorCode.entries) {
             assertTrue(code.wireValue.isNotBlank(), "empty wire value for $code")

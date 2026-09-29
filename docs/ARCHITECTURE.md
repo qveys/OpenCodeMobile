@@ -357,6 +357,10 @@ HTTP is restricted to private address ranges.
 - Plaintext HTTP to a `Public` host is rejected with
   `ConnectionPolicyException.Rejected` before any request is built: TLS is
   mandatory for any external connection, and the credential is never sent.
+- The outbound HTTP surface is an allowlist: only `GET`, `POST`, and `DELETE`
+  reach the network. Any other method is refused with
+  `ConnectionPolicyException.MethodNotAllowed` in the request pipeline
+  (`installHttpMethodPolicy` in `shared/networking`).
 
 Status (OPE-135): implemented (`OpenCodeV2Adapter.connect` step 1,
 `HttpConnectionPolicy`).

@@ -2,6 +2,8 @@ package org.opencodemobile.shared.domain.connection
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class HttpConnectionPolicyTest {
 
@@ -104,5 +106,20 @@ class HttpConnectionPolicyTest {
             ),
             HttpConnectionPolicy.decide(profile("example.com", plaintext)),
         )
+    }
+
+    @Test
+    fun theAllowedMethodSetIsExactlyTheGeneratedClientVerbs() {
+        assertEquals(setOf("GET", "POST", "DELETE"), HttpConnectionPolicy.allowedMethods)
+    }
+
+    @Test
+    fun methodChecksAreCaseInsensitiveAndTrimmed() {
+        for (allowed in listOf("GET", "GET ".trim(), " get", "post", "Delete")) {
+            assertTrue(HttpConnectionPolicy.isMethodAllowed(allowed), allowed)
+        }
+        for (rejected in listOf("PUT", "PATCH", "HEAD", "OPTIONS", "TRACE", "CONNECT", "")) {
+            assertFalse(HttpConnectionPolicy.isMethodAllowed(rejected), rejected)
+        }
     }
 }

@@ -142,6 +142,16 @@ public object DomainErrorMessages {
             retryable = false,
         )
 
+        is DomainError.PolicyMethodNotAllowed -> DomainErrorPresentation(
+            titleKey = "domain_error.policy_method_not_allowed.title",
+            messageKey = "domain_error.policy_method_not_allowed.message",
+            title = "Connection refused by policy",
+            message = "The app tried to use an HTTP method that the connection policy does not " +
+                "allow (${error.method}).",
+            actionHint = "Update the app and try again.",
+            retryable = false,
+        )
+
         is DomainError.InvalidServerAddress -> DomainErrorPresentation(
             titleKey = "domain_error.invalid_server_address.title",
             messageKey = "domain_error.invalid_server_address.${error.problem.name.lowercase()}",

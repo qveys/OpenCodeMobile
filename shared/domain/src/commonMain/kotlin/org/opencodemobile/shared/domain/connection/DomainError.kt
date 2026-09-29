@@ -51,6 +51,7 @@ public enum class DomainErrorCode {
     IDENTITY_CHANGED,
     IDENTITY_NOT_VERIFIABLE,
     POLICY_PUBLIC_PLAINTEXT_HTTP_REJECTED,
+    POLICY_METHOD_NOT_ALLOWED,
     VALIDATION_INVALID_SERVER_ADDRESS,
     VALIDATION_INVALID_IMPORT_LINK,
     STORAGE_FAILURE,
@@ -77,6 +78,7 @@ public enum class DomainErrorCode {
             -> DomainErrorCategory.IDENTITY
 
             POLICY_PUBLIC_PLAINTEXT_HTTP_REJECTED -> DomainErrorCategory.POLICY
+            POLICY_METHOD_NOT_ALLOWED -> DomainErrorCategory.POLICY
 
             VALIDATION_INVALID_SERVER_ADDRESS,
             VALIDATION_INVALID_IMPORT_LINK,
@@ -202,6 +204,12 @@ public sealed class DomainError(
     ) : DomainError(
         code = DomainErrorCode.POLICY_PUBLIC_PLAINTEXT_HTTP_REJECTED,
         message = "Connection policy rejected the profile: $violation (scope $scope)",
+    )
+
+    /** A request used an HTTP method outside the connection policy allowlist. */
+    public class PolicyMethodNotAllowed(public val method: String) : DomainError(
+        code = DomainErrorCode.POLICY_METHOD_NOT_ALLOWED,
+        message = "HTTP method $method is not allowed by the connection policy",
     )
 
     /**
@@ -332,6 +340,7 @@ public fun Throwable.toDomainError(): DomainError = when (this) {
     is HandshakeException.Incomplete -> DomainError.HandshakeIncomplete(detail)
     is HandshakeException.Incompatible -> DomainError.ServerIncompatible(serverVersion, profile.supportedRange)
     is ConnectionPolicyException.Rejected -> DomainError.PolicyRejected(decision.scope, decision.violation)
+    is ConnectionPolicyException.MethodNotAllowed -> DomainError.PolicyMethodNotAllowed(method)
     is ServerIdentityException.ConfirmationRequired -> DomainError.IdentityUnconfirmed(presented)
     is ServerIdentityException.IdentityChanged -> DomainError.IdentityChanged(previous, presented)
     is ServerIdentityException.NoCertificatePresented -> DomainError.IdentityNotVerifiable()

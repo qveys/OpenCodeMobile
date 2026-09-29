@@ -49,4 +49,14 @@ public sealed class ConnectionPolicyException(message: String) : IllegalStateExc
     ) : ConnectionPolicyException(
         "Connection policy rejected the profile: ${decision.violation} (scope ${decision.scope})",
     )
+
+    /**
+     * A request used an HTTP method outside
+     * [HttpConnectionPolicy.allowedMethods]. Refused before it reaches the
+     * network.
+     */
+    public class MethodNotAllowed(public val method: String) : ConnectionPolicyException(
+        "HTTP method $method is not allowed by the connection policy " +
+            "(allowed: ${HttpConnectionPolicy.allowedMethods.joinToString()})",
+    )
 }
