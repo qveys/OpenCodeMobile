@@ -23,6 +23,7 @@ kotlin {
             implementation(project(":shared:domain"))
             implementation(project(":shared:application"))
             implementation(project(":shared:networking"))
+            implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.mock)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.serialization.kotlinx.json)
