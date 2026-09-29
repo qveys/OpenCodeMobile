@@ -139,7 +139,8 @@ column of *Cahier des charges* §3.1 (which runs V1-01…V1-14); §13 is the
   (on-device only, [ADR: on-device speech-to-text](on-device-speech-to-text.md));
   only the implementation is open.
 - L5 files and diffs (V1-11, V1-12).
-- L6 hardening, compatibility matrix, store publication.
+- L6 hardening, compatibility matrix, store publication, and V1-14 (FR/EN
+  languages, system theme) — the §13.3 V1 Definition of Done items.
 - Post-V1: multi-profile, mDNS discovery, terminal, light editing.
 
 **Not authorised by this ADR.** It closes scope questions; it does not open a

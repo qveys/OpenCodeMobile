@@ -27,10 +27,11 @@ All code changes ship via PR (no direct commits to `main`), with review intensit
 | **L6** | Hardening + release | Performance targets (§10.1), server compatibility matrix, best-effort accessibility, threat-model review, store listings + non-affiliation disclaimer, TestFlight/Play Internal → public | §10, §11, §13 | Full V1 Definition of Done met; publication approved |
 | **Post-V1** | P1 backlog | Light file editing behind a flag, interactive terminal, mDNS discovery, attachments/deep links, multi-server profiles | §3.2 | One ADR per feature |
 
-**All five open decisions are closed** (2026-09-29) by
-[`docs/adr/0005-v1-open-decisions-op1-op5.md`](docs/adr/0005-v1-open-decisions-op1-op5.md),
-recorded in the specification issue's accepted-decisions document. Summary, for
-anyone reading only the roadmap:
+**All five open decisions are decided** (2026-09-29) by
+[`docs/adr/0005-v1-open-decisions-op1-op5.md`](docs/adr/0005-v1-open-decisions-op1-op5.md).
+OP1/OP3/OP4/OP5 are recorded in the specification issue's accepted-decisions
+document; **OP2 is partially closed** — Android closed, iOS accepted with
+residual risk (see ADR 0005 §2/§3). Summary, for anyone reading only the roadmap:
 
 | ID | Decision taken | Effect on this roadmap |
 |---|---|---|
