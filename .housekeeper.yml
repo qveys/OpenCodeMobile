@@ -1,0 +1,51 @@
+# Housekeeper GitHub App — per-repository handler configuration.
+#
+# An absent or unparseable file means every handler is disabled.
+# Housekeeper reads this file from the repository default branch (main).
+# Handler reference: https://github.com/qveys/my-housekeeper/blob/main/docs/handlers/README.md
+
+handlers:
+  # Agentic PR review. Informational: it publishes a verdict but never blocks a
+  # merge by itself (same policy as qveys/my-housekeeper).
+  pr-review:
+    enabled: true
+    checkPolicy: informational
+
+  # Publishes and maintains the single master PR comment (anchor used by the
+  # other handlers to report their sections).
+  pr-comment:
+    enabled: true
+
+  # Resolves review threads that a new push has addressed.
+  pr-comments-resolver:
+    enabled: true
+
+  # Resolves simple merge conflicts automatically.
+  conflict-resolve:
+    enabled: true
+
+  # Keeps PR branches current with the base branch.
+  require-up-to-date:
+    enabled: true
+
+  # Fails closed when a secret is detected in the diff.
+  secret-scan:
+    enabled: true
+
+  # Normalizes issue / PR titles to Conventional Commits.
+  normalize-title:
+    enabled: true
+
+  # Reconciles repository labels with .github/labels.yml (create / update only).
+  sync-labels:
+    enabled: true
+
+  # Verifies that governance files exist at the PR head. OpenCodeMobile has no
+  # CODEOWNERS, PR template or security policy yet, so this checks the files
+  # that do exist instead of the handler defaults (which would fail every PR).
+  required-checks:
+    enabled: true
+    requiredFiles:
+      - README.md
+      - ROADMAP.md
+      - LICENSE
