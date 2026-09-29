@@ -255,7 +255,8 @@ public class MockOpenCodeServer(
                 val id = path.removePrefix("$SESSION_PATH/").removeSuffix("/prompt_async")
                 val text = parsePromptText(readBodyText(request.body))
                 promptLog += MockPrompt(sessionId = id, text = text.orEmpty())
-                jsonResponse("""{"messageID":"msg_user_mock"}""", HttpStatusCode.OK, callContext)
+                // Pinned spec: `POST /session/{id}/prompt_async` answers `204 No Content`.
+                noContentResponse(callContext)
             }
 
             method == HttpMethod.Post && path == SESSION_PATH -> {
@@ -577,17 +578,19 @@ public class MockOpenCodeServer(
                     ?: return@forEach
                 val properties = root["properties"] as? JsonObject ?: return@forEach
                 if ((properties["sessionID"] as? JsonPrimitive)?.contentOrNull != sessionId) return@forEach
-                val messageId = (properties["messageID"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
                 val part = properties["part"] as? JsonObject ?: return@forEach
+                // The spec carries the messageID on the part, not on `properties`.
+                val messageId = (part["messageID"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
                 partsByMessage.getOrPut(messageId) { mutableListOf() }.add(part)
             }
         return partsByMessage.map { (messageId, parts) ->
-            buildJsonObject {
-                put("id", messageId)
-                put("sessionID", sessionId)
-                put("role", "assistant")
-                put("parts", buildJsonArray { parts.forEach { add(it) } })
-            }
+            // Spec shape: `{ info: Message, parts: Part[] }`.
+            OpenCodeFixtures.messageEnvelopeObject(
+                messageId = messageId,
+                role = "assistant",
+                parts = parts.map { it as JsonObject },
+                sessionID = sessionId,
+            )
         }
     }
 
@@ -658,6 +661,15 @@ public class MockOpenCodeServer(
         headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
         version = HttpProtocolVersion.HTTP_1_1,
         body = ByteReadChannel(body),
+        callContext = callContext,
+    )
+
+    private fun noContentResponse(callContext: CoroutineContext): HttpResponseData = HttpResponseData(
+        statusCode = HttpStatusCode.NoContent,
+        requestTime = GMTDate(),
+        headers = headersOf(),
+        version = HttpProtocolVersion.HTTP_1_1,
+        body = ByteReadChannel(ByteArray(0)),
         callContext = callContext,
     )
 

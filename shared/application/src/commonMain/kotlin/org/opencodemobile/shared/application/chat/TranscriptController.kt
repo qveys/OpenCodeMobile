@@ -101,9 +101,23 @@ public class TranscriptController(
             }
 
             is ChatEvent.MessageUpdated -> {
-                if (event.message.sessionId.isNotEmpty() && event.message.sessionId != sessionId) return
-                if (!byId.containsKey(event.message.id)) order += event.message.id
-                byId[event.message.id] = event.message
+                val incoming = event.message
+                if (incoming.sessionId.isNotEmpty() && incoming.sessionId != sessionId) return
+                // The spec's `EventMessageUpdated.properties.info` is a `Message`
+                // with no `parts`: merge the identity/role into the parts already
+                // streamed instead of replacing the message with a partless copy.
+                val existing = byId[incoming.id]
+                val merged = if (existing == null) {
+                    incoming
+                } else {
+                    existing.copy(
+                        sessionId = incoming.sessionId.ifBlank { existing.sessionId },
+                        role = incoming.role,
+                        parts = if (incoming.parts.isEmpty()) existing.parts else incoming.parts,
+                    )
+                }
+                if (!byId.containsKey(merged.id)) order += merged.id
+                byId[merged.id] = merged
                 emit()
             }
 
@@ -113,6 +127,15 @@ public class TranscriptController(
                     order.remove(event.messageId)
                     emit()
                 }
+            }
+
+            is ChatEvent.PartRemoved -> {
+                if (event.sessionId != null && event.sessionId != sessionId) return
+                val existing = byId[event.messageId] ?: return
+                val remaining = existing.parts.filterNot { it.id == event.partId }
+                if (remaining.size == existing.parts.size) return
+                byId[event.messageId] = existing.copy(parts = remaining)
+                emit()
             }
         }
     }

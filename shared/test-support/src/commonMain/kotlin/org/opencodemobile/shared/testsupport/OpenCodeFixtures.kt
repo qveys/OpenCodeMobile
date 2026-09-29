@@ -162,22 +162,59 @@ public object OpenCodeFixtures {
         sessionID: String = sessions.first().id,
     ): List<MockSseEvent> = listOf(
         sessionUpdatedEvent(sessionID),
-        MockSseEvent(
-            id = "evt_mock_0002",
-            type = "message.part.updated",
-            data = buildJsonObject {
-                put("type", "message.part.updated")
-                putJsonObject("properties") {
-                    put("sessionID", sessionID)
-                    put("messageID", "msg_mock_0001")
-                    putJsonObject("part") {
-                        put("id", "prt_mock_0001")
-                        put("type", "text")
-                        put("text", "Streaming from the mock server.")
-                    }
-                }
-            }.toString(),
+        partUpdatedSseEvent(
+            eventId = "evt_mock_0002",
+            partId = "prt_mock_0001",
+            messageId = "msg_mock_0001",
+            text = "Streaming from the mock server.",
+            sessionID = sessionID,
         ),
+    )
+
+    /**
+     * One spec-conformant `TextPart` object.
+     *
+     * The pinned spec's `TextPart` requires `id, sessionID, messageID, type, text`:
+     * the `messageID` is carried by the **part**, not by the enclosing event's
+     * `properties` (which is `{sessionID, part, time}`, `additionalProperties:false`).
+     */
+    public fun textPartObject(
+        partId: String,
+        messageId: String,
+        text: String,
+        sessionID: String = sessions.first().id,
+        start: Long = BASE_TIME,
+    ): JsonObject = buildJsonObject {
+        put("id", partId)
+        put("sessionID", sessionID)
+        put("messageID", messageId)
+        put("type", "text")
+        put("text", text)
+        putJsonObject("time") { put("start", start) }
+    }
+
+    /**
+     * One spec-conformant `message.part.updated` event
+     * (`EventMessagePartUpdated`: `properties = {sessionID, part, time}`).
+     */
+    public fun partUpdatedSseEvent(
+        eventId: String,
+        partId: String,
+        messageId: String,
+        text: String,
+        sessionID: String = sessions.first().id,
+        time: Long = BASE_TIME,
+    ): MockSseEvent = MockSseEvent(
+        id = eventId,
+        type = "message.part.updated",
+        data = buildJsonObject {
+            put("type", "message.part.updated")
+            putJsonObject("properties") {
+                put("sessionID", sessionID)
+                put("part", textPartObject(partId, messageId, text, sessionID, time))
+                put("time", time)
+            }
+        }.toString(),
     )
 
     /** The leading `session.updated` event shared by every scripted stream. */
@@ -200,22 +237,13 @@ public object OpenCodeFixtures {
     /** One stable `message.part.updated` event, used to build the multi-event scripts. */
     public fun partUpdatedEvent(index: Int, sessionID: String = sessions.first().id): MockSseEvent {
         val suffix = index.toString().padStart(4, '0')
-        return MockSseEvent(
-            id = "evt_mock_part_$suffix",
-            type = "message.part.updated",
-            data = buildJsonObject {
-                put("type", "message.part.updated")
-                putJsonObject("properties") {
-                    put("sessionID", sessionID)
-                    put("messageID", "msg_mock_$suffix")
-                    put("time", BASE_TIME + index)
-                    putJsonObject("part") {
-                        put("id", "prt_mock_$suffix")
-                        put("type", "text")
-                        put("text", "streamed chunk $index")
-                    }
-                }
-            }.toString(),
+        return partUpdatedSseEvent(
+            eventId = "evt_mock_part_$suffix",
+            partId = "prt_mock_$suffix",
+            messageId = "msg_mock_$suffix",
+            text = "streamed chunk $index",
+            sessionID = sessionID,
+            time = BASE_TIME + index,
         )
     }
 
@@ -251,8 +279,32 @@ public object OpenCodeFixtures {
     // --- V1-05: transcript messages (`GET /session/{id}/message`) ---
 
     /**
-     * One `ApiMessage` object for a user prompt recorded on
-     * `POST /session/{id}/prompt_async`, in the pinned spec shape.
+     * One `GET /session/{id}/message` element, in the pinned spec shape:
+     * `{ info: Message, parts: Part[] }` (the message identity/role live in
+     * `info`; the parts are a sibling array).
+     */
+    public fun messageEnvelopeObject(
+        messageId: String,
+        role: String,
+        parts: List<JsonObject>,
+        sessionID: String = sessions.first().id,
+        time: Long = BASE_TIME,
+    ): JsonObject = buildJsonObject {
+        putJsonObject("info") {
+            put("id", messageId)
+            put("sessionID", sessionID)
+            put("role", role)
+            putJsonObject("time") {
+                put("created", time)
+                put("updated", time)
+            }
+        }
+        putJsonArray("parts") { parts.forEach { add(it) } }
+    }
+
+    /**
+     * One `{info, parts}` envelope for a user prompt recorded on
+     * `POST /session/{id}/prompt_async`.
      */
     public fun userMessageObject(
         index: Int,
@@ -260,45 +312,44 @@ public object OpenCodeFixtures {
         sessionID: String = sessions.first().id,
     ): JsonObject {
         val suffix = index.toString().padStart(4, '0')
-        return buildJsonObject {
-            put("id", "msg_user_$suffix")
-            put("sessionID", sessionID)
-            put("role", "user")
-            putJsonArray("parts") {
-                add(
-                    buildJsonObject {
-                        put("id", "prt_user_$suffix")
-                        put("type", "text")
-                        put("text", text)
-                    },
-                )
-            }
-        }
+        return messageEnvelopeObject(
+            messageId = "msg_user_$suffix",
+            role = "user",
+            parts = listOf(
+                textPartObject(
+                    partId = "prt_user_$suffix",
+                    messageId = "msg_user_$suffix",
+                    text = text,
+                    sessionID = sessionID,
+                ),
+            ),
+            sessionID = sessionID,
+        )
     }
 
     /**
-     * One assistant `ApiMessage` derived from a scripted `message.part.updated`
-     * part, so the SSE stream and `GET /session/{id}/message` stay consistent.
+     * One assistant `{info, parts}` envelope derived from a scripted
+     * `message.part.updated` part, so the SSE stream and
+     * `GET /session/{id}/message` stay consistent.
      */
     public fun assistantMessageObject(
         index: Int,
         sessionID: String = sessions.first().id,
     ): JsonObject {
         val suffix = index.toString().padStart(4, '0')
-        return buildJsonObject {
-            put("id", "msg_mock_$suffix")
-            put("sessionID", sessionID)
-            put("role", "assistant")
-            putJsonArray("parts") {
-                add(
-                    buildJsonObject {
-                        put("id", "prt_mock_$suffix")
-                        put("type", "text")
-                        put("text", "streamed chunk $index")
-                    },
-                )
-            }
-        }
+        return messageEnvelopeObject(
+            messageId = "msg_mock_$suffix",
+            role = "assistant",
+            parts = listOf(
+                textPartObject(
+                    partId = "prt_mock_$suffix",
+                    messageId = "msg_mock_$suffix",
+                    text = "streamed chunk $index",
+                    sessionID = sessionID,
+                ),
+            ),
+            sessionID = sessionID,
+        )
     }
 
     /** `GET /session/{id}/message` body: user prompts first, then assistant messages. */

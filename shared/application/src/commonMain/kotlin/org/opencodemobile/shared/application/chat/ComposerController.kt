@@ -17,10 +17,12 @@ public data class ComposerState(
     /** The local draft. Never sent until the user explicitly sends it (§8.1). */
     public val draft: String = "",
     public val sending: Boolean = false,
+    /** True when the D8 gate refuses mutations, so the send affordance is disabled. */
+    public val offline: Boolean = false,
     public val error: String? = null,
 ) {
     public val canSend: Boolean
-        get() = draft.isNotBlank() && !sending
+        get() = draft.isNotBlank() && !sending && !offline
 }
 
 /**
@@ -47,14 +49,15 @@ public class ComposerController(
 
     /** Opens [sessionId] and restores its draft. Never sends anything. */
     public suspend fun open(sessionId: String): Result<Unit> {
-        mutableState.value = ComposerState(sessionId = sessionId)
+        val offline = !mutationGate.mutationsAllowed()
+        mutableState.value = ComposerState(sessionId = sessionId, offline = offline)
         return runCatchingNonCancellable { drafts.loadDraft(sessionId) }.fold(
             onSuccess = { draft ->
-                mutableState.value = ComposerState(sessionId = sessionId, draft = draft)
+                mutableState.value = ComposerState(sessionId = sessionId, draft = draft, offline = offline)
                 Result.success(Unit)
             },
             onFailure = { failure ->
-                mutableState.value = ComposerState(sessionId = sessionId, error = failure.messageOrType())
+                mutableState.value = ComposerState(sessionId = sessionId, offline = offline, error = failure.messageOrType())
                 Result.failure(failure)
             },
         )
@@ -63,7 +66,10 @@ public class ComposerController(
     /** Records a keystroke and persists the draft locally. Never sends. */
     public suspend fun updateDraft(text: String) {
         val sessionId = mutableState.value.sessionId ?: return
-        mutableState.value = mutableState.value.copy(draft = text)
+        mutableState.value = mutableState.value.copy(
+            draft = text,
+            offline = !mutationGate.mutationsAllowed(),
+        )
         runCatchingNonCancellable { drafts.saveDraft(sessionId, text) }
     }
 
@@ -80,6 +86,7 @@ public class ComposerController(
             return Result.failure(IllegalArgumentException("The prompt is empty"))
         }
         if (!mutationGate.mutationsAllowed()) {
+            mutableState.value = current.copy(offline = true)
             return Result.failure(CacheMutationNotAllowedException())
         }
 

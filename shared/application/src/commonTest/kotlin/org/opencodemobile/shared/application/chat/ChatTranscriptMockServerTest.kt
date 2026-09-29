@@ -136,6 +136,19 @@ class ChatTranscriptMockServerTest {
     }
 
     @Test
+    fun transcriptReadsTheSpecMessageEnvelope() = runTest {
+        val server = startServer(MockOpenCodeScenario.Streaming)
+        val adapter = connectedAdapter(server)
+
+        val messages = adapter.transcript(sessionId)
+
+        assertEquals(2, messages.size, "expected one assistant message per scripted part: $messages")
+        assertEquals("msg_mock_0001", messages.first().id)
+        assertEquals(TranscriptRole.Assistant, messages.first().role)
+        assertEquals("streamed chunk 1", messages.first().text)
+    }
+
+    @Test
     fun killMidTurnReconstitutesFromTheServerWithoutDuplicatesOrLostText() = runTest {
         val server = startServer(
             MockOpenCodeScenario.Streaming,
@@ -288,6 +301,8 @@ class ChatTranscriptMockServerTest {
         composers.open(sessionId)
         composers.updateDraft("blocked offline")
 
+        assertTrue(composers.state.value.offline, "the composer must know it is offline")
+        assertTrue(!composers.state.value.canSend, "the send affordance must be disabled offline")
         assertTrue(composers.send().isFailure)
         assertTrue(server.prompts.isEmpty(), "offline is read-only: nothing may reach the wire (D8)")
     }

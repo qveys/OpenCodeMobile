@@ -318,7 +318,8 @@ private fun SessionContent(
                     state = composer,
                     onDraftChange = composerPresenter::updateDraft,
                     onSend = composerPresenter::send,
-                    enabled = true,
+                    // D8: the composer is disabled offline, not merely refused at send.
+                    enabled = !composer.offline,
                 )
             }
         }

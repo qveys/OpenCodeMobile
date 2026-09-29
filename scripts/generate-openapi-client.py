@@ -121,6 +121,17 @@ data class ApiMessage(
     val parts: List<ApiMessagePart> = emptyList()
 )
 
+/**
+ * One element of GET /session/{{sessionID}}/message: the spec returns an array of
+ * `{{ info: Message, parts: Part[] }}`, not a flat message. Rule R12: emitted by
+ * the generator, never edited by hand.
+ */
+@Serializable
+data class ApiMessageEnvelope(
+    val info: ApiMessage,
+    val parts: List<ApiMessagePart> = emptyList()
+)
+
 @Serializable
 data class ApiModelRef(
     val providerID: String,
@@ -389,7 +400,7 @@ class OpenCodeApiClient(
     /**
      * List messages for a session (GET /session/{{sessionID}}/message).
      */
-    suspend fun listMessages(sessionID: String): List<ApiMessage> {{
+    suspend fun listMessages(sessionID: String): List<ApiMessageEnvelope> {{
         return httpClient.get("$baseUrl/session/$sessionID/message") {{
             applyAuth()
         }}.body()

@@ -56,6 +56,13 @@ public sealed interface ChatEvent {
         public val messageId: String,
         public val sessionId: String?,
     ) : ChatEvent
+
+    /** One part of [messageId] was removed (`message.part.removed`). */
+    public data class PartRemoved(
+        public val messageId: String,
+        public val partId: String,
+        public val sessionId: String?,
+    ) : ChatEvent
 }
 
 /**

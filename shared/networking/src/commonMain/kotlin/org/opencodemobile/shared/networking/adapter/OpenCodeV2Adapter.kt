@@ -14,6 +14,7 @@ import org.opencode.mobile.networking.client.generated.apis.OpenCodeApiClient
 import org.opencode.mobile.networking.client.generated.models.ApiAgent
 import org.opencode.mobile.networking.client.generated.models.ApiCreateSessionRequest
 import org.opencode.mobile.networking.client.generated.models.ApiMessage
+import org.opencode.mobile.networking.client.generated.models.ApiMessageEnvelope
 import org.opencode.mobile.networking.client.generated.models.ApiMessagePart
 import org.opencode.mobile.networking.client.generated.models.ApiModelRef
 import org.opencode.mobile.networking.client.generated.models.ApiPromptAsyncRequest
@@ -301,20 +302,36 @@ public class OpenCodeV2Adapter(
             "message.part.updated" -> decodePartUpdated(properties)
             "message.updated" -> decodeMessageUpdated(properties)
             "message.removed" -> decodeMessageRemoved(properties)
+            "message.part.removed" -> decodePartRemoved(properties)
             else -> null
         }
     }
 
+    /**
+     * `EventMessagePartUpdated.properties` is `{sessionID, part, time}` with
+     * `additionalProperties: false`: the `messageID` is carried by the **part**
+     * (`TextPart` requires `id, sessionID, messageID, type, text`), not by
+     * `properties`. The `properties` fallback keeps older payload shapes working.
+     */
     private fun decodePartUpdated(properties: JsonObject): ChatEvent? {
-        val messageId = properties.stringOrNull("messageID") ?: return null
-        val part = (properties["part"] as? JsonObject)?.toTranscriptPartOrNull() ?: return null
+        val partObject = properties["part"] as? JsonObject ?: return null
+        val messageId = partObject.stringOrNull("messageID")
+            ?: properties.stringOrNull("messageID")
+            ?: return null
+        val part = partObject.toTranscriptPartOrNull() ?: return null
         return ChatEvent.PartUpdated(
             messageId = messageId,
-            sessionId = properties.stringOrNull("sessionID"),
+            sessionId = properties.stringOrNull("sessionID") ?: partObject.stringOrNull("sessionID"),
             part = part,
         )
     }
 
+    /**
+     * `EventMessageUpdated.properties` is `{sessionID, info}` and `info` is a
+     * `Message`; the spec has **no** `parts` on it. Parts arrive through their own
+     * events, so the identity/role is all this carries: the controller merges it
+     * into the parts it already has.
+     */
     private fun decodeMessageUpdated(properties: JsonObject): ChatEvent? {
         val info = properties["info"] as? JsonObject
             ?: properties["message"] as? JsonObject
@@ -329,6 +346,16 @@ public class OpenCodeV2Adapter(
             ?: return null
         return ChatEvent.MessageRemoved(
             messageId = messageId,
+            sessionId = properties.stringOrNull("sessionID"),
+        )
+    }
+
+    private fun decodePartRemoved(properties: JsonObject): ChatEvent? {
+        val messageId = properties.stringOrNull("messageID") ?: return null
+        val partId = properties.stringOrNull("partID") ?: return null
+        return ChatEvent.PartRemoved(
+            messageId = messageId,
+            partId = partId,
             sessionId = properties.stringOrNull("sessionID"),
         )
     }
@@ -428,10 +455,15 @@ private fun ApiSession.toDomain(): SessionSummary = SessionSummary(
     updatedAt = time?.updated ?: time?.created ?: 0L,
 )
 
-private fun ApiMessage.toDomain(): TranscriptMessage = TranscriptMessage(
-    id = id,
-    sessionId = sessionID,
-    role = TranscriptRole.fromWire(role),
+/**
+ * Maps one `{info, parts}` element of `GET /session/{id}/message`. The spec keeps
+ * the message identity/role in `info` and the parts in a sibling array, so both
+ * are read here.
+ */
+private fun ApiMessageEnvelope.toDomain(): TranscriptMessage = TranscriptMessage(
+    id = info.id,
+    sessionId = info.sessionID,
+    role = TranscriptRole.fromWire(info.role),
     parts = parts.mapNotNull { it.toDomain() },
 )
 

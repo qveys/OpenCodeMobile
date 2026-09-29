@@ -156,7 +156,7 @@ class OpenCodeApiClient(
     /**
      * List messages for a session (GET /session/{sessionID}/message).
      */
-    suspend fun listMessages(sessionID: String): List<ApiMessage> {
+    suspend fun listMessages(sessionID: String): List<ApiMessageEnvelope> {
         return httpClient.get("$baseUrl/session/$sessionID/message") {
             applyAuth()
         }.body()
