@@ -24,7 +24,6 @@ options:
     iOS: "16.0"
   createIntermediateGroups: true
   developmentLanguage: en
-  minimumXcodeGenVersion: "2.35.0"
 
 settings:
   base:
@@ -33,27 +32,6 @@ settings:
     # The framework-staging run-script phase writes into iosApp/build/, which is
     # outside Xcode's script sandbox; disable the sandbox so it may do so.
     ENABLE_USER_SCRIPT_SANDBOXING: "NO"
-    # Static Kotlin/Native frameworks staged by scripts/ios/build-frameworks.sh.
-    FRAMEWORK_SEARCH_PATHS:
-      - "$(inherited)"
-      - "$(SRCROOT)/build/frameworks"
-    # Static archives are linked with explicit -framework flags; the frameworks
-    # are staged just before the link phase, so they are not file references in
-    # the generated project.
-    OTHER_LDFLAGS:
-      - "$(inherited)"
-      - "-framework"
-      - "iosAppHost"
-      - "-framework"
-      - "featuresConnection"
-      - "-framework"
-      - "designSystem"
-      - "-framework"
-      - "sharedDomain"
-      - "-framework"
-      - "sharedApplication"
-      - "-framework"
-      - "sharedSecurity"
 
 targets:
   iosApp:
@@ -71,6 +49,28 @@ targets:
         GENERATE_INFOPLIST_FILE: "NO"
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        # Static Kotlin/Native frameworks staged by scripts/ios/build-frameworks.sh.
+        FRAMEWORK_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/build/frameworks"
+        # Static archives are linked with explicit -framework flags; the
+        # frameworks are staged just before the link phase, so they are not file
+        # references in the generated project. The UI test bundle does not link
+        # them (it drives the app through XCUIApplication).
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-framework"
+          - "iosAppHost"
+          - "-framework"
+          - "featuresConnection"
+          - "-framework"
+          - "designSystem"
+          - "-framework"
+          - "sharedDomain"
+          - "-framework"
+          - "sharedApplication"
+          - "-framework"
+          - "sharedSecurity"
     preBuildScripts:
       - name: "Build Kotlin frameworks"
         shell: /bin/bash
