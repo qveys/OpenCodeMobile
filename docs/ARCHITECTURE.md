@@ -523,6 +523,9 @@ the sole path by which an imported profile is persisted, and it enforces:
   This applies uniformly regardless of the open decision on single- vs.
   multi-profile support (see `docs/THREAT-MODEL.md` §1); in either mode,
   every existing profile is subject to the same no-silent-overwrite rule.
+  V1 stores exactly **one** profile (OP3, ADR 0005), so an import that would
+  create a second profile must be rejected with an explicit message rather
+  than silently replacing or queueing behind the stored one.
 - **One pending import at a time.** If a second import link arrives while a
   review screen is already pending confirmation, it does not queue behind
   or silently replace the pending one; the new link is discarded and the
@@ -955,6 +958,7 @@ otherwise.
 | [0002](adr/ADR-0002-opencode-v2-api-surface-mapping.md) | OpenCode v2 API surface mapping: root surface is canonical, async prompt only, directory scoping, generated-client isolation (R3). |
 | [0003](adr/0003-liquid-glass-vs-pure-cmp-ios.md) | Pure Compose Multiplatform UI on iOS, no native Liquid Glass chrome; CMP owns navigation and lifecycle. |
 | [0004](adr/0004-architecture-dependency-rules-konsist.md) | Architecture/dependency rules enforced by Konsist in CI. |
+| [0005](adr/0005-v1-open-decisions-op1-op5.md) | Closeout of the V1 open decisions OP1–OP5, and the MVP cut that follows from them. |
 | [on-device-speech-to-text](adr/on-device-speech-to-text.md) | On-device-only dictation in V1, with a fail-closed availability model. |
 
 Anything not literally fixed by the architecture specification goes through an
@@ -962,13 +966,17 @@ ADR, per the specification's own rule.
 
 ## 9. Open decisions
 
-| # | Decision | State |
-|---|---|---|
-| OP1 | Liquid Glass vs. pure Compose Multiplatform on iOS | Resolved — ADR 0003. iOS POC still required. |
-| OP2 | Local cache encryption | Resolved — encrypted at rest; see detailed design above. |
-| OP3 | Single vs. multiple server profiles in V1 | Open — affects the connection data model; decide before L1. |
-| OP4 | Approving permissions from a lock-screen notification | Resolved — not offered; see detailed design above. |
-| OP5 | `PROPOSED`-only requirements in the specification | Open — owned by the Product Owner. |
+All five V1 open decisions are **closed** by
+[ADR 0005](adr/0005-v1-open-decisions-op1-op5.md) (2026-09-29). The register is
+empty; the table is kept as the traceability index, not as a work list.
+
+| # | Decision | Decision taken | Binding design |
+|---|---|---|---|
+| OP1 | Liquid Glass vs. pure Compose Multiplatform on iOS | Pure CMP UI in V1, no native Liquid Glass. iOS POC still required in L1. | [ADR 0003](adr/0003-liquid-glass-vs-pure-cmp-ios.md) |
+| OP2 | Local cache encryption | Encrypted at rest. Android SQLCipher + Keystore-held passphrase; iOS Data Protection as the V1 bar, SQLCipher-for-iOS deferred. Lands with the cache in L2. | §"Local cache encryption at rest" above, T3 |
+| OP3 | Single vs. multiple server profiles in V1 | **One** stored profile. `ServerId` is kept in the Domain model, and the cache stays scoped `ServerId → ProjectId → SessionId`, so multi-profile remains a data-layer change. No profile-management UI in V1; multi-profile is Post-V1 P1. | ADR 0005 §2, §3.4, T8 |
+| OP4 | Approving permissions from a lock-screen notification | **Not offered in V1.** Notifications are a read-only surface; approval requires the foregrounded, authenticated confirmation screen. | §"Permission approval confirmation" above, T2 |
+| OP5 | `PROPOSED`-only requirements in the specification | No bulk validation. Each `PROPOSÉ` item keeps its status until an explicit individual decision. V1-07 (agent questions) and V1-08 (abort) are in the MVP cut **by explicit decision**, not by bulk validation. | ADR 0005 §2, §4 |
 
 ## 10. Known gaps
 

@@ -27,7 +27,27 @@ All code changes ship via PR (no direct commits to `main`), with review intensit
 | **L6** | Hardening + release | Performance targets (§10.1), server compatibility matrix, best-effort accessibility, threat-model review, store listings + non-affiliation disclaimer, TestFlight/Play Internal → public | §10, §11, §13 | Full V1 Definition of Done met; publication approved |
 | **Post-V1** | P1 backlog | Light file editing behind a flag, interactive terminal, mDNS discovery, attachments/deep links, multi-server profiles | §3.2 | One ADR per feature |
 
-Five decisions remain open and should be closed no later than L0/L1: Liquid Glass on iOS (OP1), local cache encryption (OP2), single vs. multiple server profiles in V1 (OP3), approving permissions from a lock-screen notification (OP4), and the batch of `PROPOSED`-only requirements in the spec (OP5).
+**All five open decisions are closed** (2026-09-29) by
+[`docs/adr/0005-v1-open-decisions-op1-op5.md`](docs/adr/0005-v1-open-decisions-op1-op5.md),
+recorded in the specification issue's accepted-decisions document. Summary, for
+anyone reading only the roadmap:
+
+| ID | Decision taken | Effect on this roadmap |
+|---|---|---|
+| OP1 | Pure Compose Multiplatform UI on iOS, no native Liquid Glass | L0 deliverable fulfilled ([ADR 0003](docs/adr/0003-liquid-glass-vs-pure-cmp-ios.md)); iOS POC stays an L1 verification item. |
+| OP2 | Cache encrypted at rest — SQLCipher on Android, OS Data Protection as the iOS V1 bar, SQLCipher-for-iOS deferred | No encryption work in L1 (there is no cache yet); the cache and its encryption land together in L2. |
+| OP3 | One stored server profile in V1, `ServerId` kept in the Domain | L1 builds no profile-management UI; multi-profile moves to the Post-V1 P1 backlog. |
+| OP4 | No permission approval from a notification in V1 | L3 permission banner is foreground-only; V1-13 notifications stay a read-only MAY surface. |
+| OP5 | No bulk validation of `PROPOSÉ` requirements; each needs an explicit individual decision | V1-07 and V1-08 are in the L3 scope by explicit decision, not by validating the column. |
+
+### MVP cut
+
+The first shippable cut is **L1 + L2 + L3**, i.e. the §3.1 requirements
+V1-01…V1-06: connect to a server, complete the handshake, enter or scan the
+server address, list and manage sessions, send a prompt and read the streamed
+transcript, and see and answer permission requests. L4 (dictation, local
+notifications, biometrics), L5 (files, diffs) and L6 (hardening, publication)
+are sequenced after it and are not part of the MVP.
 
 ## Current status (2026-09-24)
 
