@@ -152,18 +152,25 @@ public class EventProcessor(
             }
 
             applySnapshot(snapshot)
-            backoff = config.reconnectInitialBackoffMillis
             mutableState.value = mutableState.value.copy(phase = ConnectionPhase.Live)
 
-            runSseSession()
+            val healthyStream = runSseSession()
 
             // Early close, inactivity or failure: the mandatory polling fallback.
             mutableState.value = mutableState.value.copy(phase = ConnectionPhase.Polling)
             pollUntilHealthy()
 
+            // Reset the backoff only after a stream that actually delivered events. A
+            // server that answers the snapshot but closes /event immediately (zero events)
+            // keeps growing the backoff instead of flapping at a fixed interval.
+            backoff = if (healthyStream) {
+                config.reconnectInitialBackoffMillis
+            } else {
+                nextBackoff(backoff, config.reconnectMaxBackoffMillis)
+            }
+
             // Bounded backoff before the next SSE attempt.
             delay(backoff)
-            backoff = nextBackoff(backoff, config.reconnectMaxBackoffMillis)
         }
     }
 
@@ -188,8 +195,12 @@ public class EventProcessor(
     /**
      * Consumes one SSE session until it ends, times out, or fails. Never throws:
      * every ending is handled by the caller as "degrade to polling".
+     *
+     * @return true when the session delivered at least one normalized event, i.e. the
+     *   transport was demonstrably healthy. The caller uses it to decide whether the
+     *   reconnect backoff resets or keeps growing.
      */
-    private suspend fun runSseSession() = coroutineScope {
+    private suspend fun runSseSession(): Boolean = coroutineScope {
         val channel = Channel<RawServerEvent>(capacity = config.eventBufferCapacity)
         val producer = launch {
             try {
@@ -203,6 +214,7 @@ public class EventProcessor(
             }
         }
 
+        var acceptedAny = false
         try {
             while (true) {
                 val raw = try {
@@ -211,23 +223,26 @@ public class EventProcessor(
                     break
                 }
                 if (raw == null) break // inactivity timeout -> polling fallback
-                handleRawEvent(raw)
+                if (handleRawEvent(raw)) acceptedAny = true
             }
         } finally {
             producer.cancel()
         }
+        acceptedAny
     }
 
     /**
      * Normalizes and accepts one raw record. A payload that is not valid JSON is
      * dropped silently: the malformed event never reaches [events] and the pipeline
      * keeps running. Duplicate server ids are dropped as well.
+     *
+     * @return true when the record produced a normalized event on [events].
      */
-    private suspend fun handleRawEvent(raw: RawServerEvent) {
-        if (!isWellFormed(raw.data)) return
+    private suspend fun handleRawEvent(raw: RawServerEvent): Boolean {
+        if (!isWellFormed(raw.data)) return false
 
         val id = raw.id?.takeIf { it.isNotBlank() }
-        if (id != null && isDuplicate(id)) return
+        if (id != null && isDuplicate(id)) return false
 
         sequence += 1
         val accepted = ServerEvent(
@@ -241,6 +256,7 @@ public class EventProcessor(
             lastEventId = id ?: mutableState.value.lastEventId,
         )
         mutableEvents.emit(accepted)
+        return true
     }
 
     private fun isWellFormed(payload: String): Boolean =
@@ -299,5 +315,13 @@ public class EventProcessor(
  */
 public class FailFastMutationSender : MutationSender {
     override suspend fun send(mutation: UserMutation): Result<Unit> =
-        runCatching { mutation.execute() }
+        try {
+            Result.success(mutation.execute())
+        } catch (cancellation: CancellationException) {
+            // Structured concurrency: cancellation is not a mutation failure, it must
+            // propagate so the caller's scope actually stops.
+            throw cancellation
+        } catch (failure: Throwable) {
+            Result.failure(failure)
+        }
 }

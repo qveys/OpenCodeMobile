@@ -2,7 +2,9 @@ package org.opencodemobile.shared.realtime
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
@@ -199,7 +201,7 @@ class EventProcessorTest {
         runCurrent()
         transport.snapshot = second
 
-        advanceTimeBy(600) // past the 500ms reconnect backoff
+        advanceTimeBy(1_100) // past the grown reconnect backoff (the zero-event stream grows it)
         runCurrent()
 
         assertTrue(transport.snapshotAt.size >= 2, "a reconnect must refetch the snapshot")
@@ -268,6 +270,43 @@ class EventProcessorTest {
     }
 
     @Test
+    fun streamFlappingBackoffGrowsEvenWhenTheSnapshotStaysHealthy() = runTest {
+        val transport = FakeEventTransport { testScheduler.currentTime }
+        transport.snapshot = RealtimeSnapshot(listOf(session), emptyMap())
+        // The JSON routes always answer, but /event closes immediately every time (0 events).
+        transport.stream = { emptyFlow() }
+        val config = EventProcessorConfig(
+            reconnectInitialBackoffMillis = 500L,
+            reconnectMaxBackoffMillis = 8_000L,
+        )
+
+        val processor = EventProcessor(transport, config)
+        processor.start(backgroundScope)
+        runCurrent()
+
+        advanceTimeBy(1_000); runCurrent()
+        advanceTimeBy(2_000); runCurrent()
+        advanceTimeBy(4_000); runCurrent()
+        advanceTimeBy(8_000); runCurrent()
+        advanceTimeBy(8_000); runCurrent()
+
+        assertEquals(
+            listOf(0L, 1_000L, 3_000L, 7_000L, 15_000L, 23_000L),
+            transport.streamAt,
+            "a flapping /event must not reconnect at a fixed interval",
+        )
+        val intervals = transport.streamAt.zipWithNext { previous, next -> next - previous }
+        assertTrue(intervals.all { it <= 8_000L }, "reconnect backoff must stay bounded: $intervals")
+        assertTrue(
+            intervals.zipWithNext().all { (first, second) -> second >= first },
+            "the reconnect interval must never shrink: $intervals",
+        )
+        assertEquals(8_000L, intervals.last())
+
+        processor.stop()
+    }
+
+    @Test
     fun polledStatusesReconcileWithoutLosingRetryState() = runTest {
         val transport = FakeEventTransport { testScheduler.currentTime }
         transport.snapshot = RealtimeSnapshot(listOf(session), emptyMap())
@@ -321,6 +360,23 @@ class EventProcessorTest {
         assertEquals(1, attempts, "the mutation must never be replayed after a reconnect")
 
         processor.stop()
+    }
+
+    @Test
+    fun mutationCancellationPropagatesInsteadOfBecomingAFailure() = runTest {
+        val sender = FailFastMutationSender()
+        val cancellation = CancellationException("caller scope cancelled")
+
+        val outcome = runCatching {
+            sender.send(UserMutation { throw cancellation })
+        }
+
+        assertTrue(outcome.isFailure)
+        assertSame(
+            cancellation,
+            outcome.exceptionOrNull(),
+            "cancellation must be rethrown, not converted into a mutation failure",
+        )
     }
 
     /** Scripted [EventTransport] whose call timestamps use the test scheduler's virtual clock. */
