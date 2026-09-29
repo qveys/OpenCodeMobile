@@ -55,42 +55,38 @@ case "${CONFIGURATION:-Debug}" in
 esac
 KMP_VARIANT_LC="$(printf '%s' "$KMP_VARIANT" | tr '[:upper:]' '[:lower:]')"
 
-# module path -> framework base name (ADR 0001 §3, iosApp/README.md).
-MODULES=(
-  ":iosAppHost|iosAppHost"
-  ":features:connection|featuresConnection"
-  ":design-system|designSystem"
-  ":shared:domain|sharedDomain"
-  ":shared:application|sharedApplication"
-  ":shared:security|sharedSecurity"
-)
+# The app links a single framework: the composition root.
+#
+# The per-module frameworks are still declared (ADR 0001 §3) and their outputs
+# are what the Build CI verifies, but Xcode must not link several of them at
+# once. A Kotlin/Native *static* framework contains the Kotlin runtime **and**
+# the code of all its transitive dependencies (linking iosAppHost + a module it
+# depends on produces duplicate `_Kotlin_*` symbols), so injecting more than one
+# runtime aborts at `+[KotlinBase load]` (`injectToRuntime()`). Building and
+# linking only `iosAppHost.framework` gives exactly one runtime and still
+# resolves every symbol the Swift shell imports, because the framework already
+# carries featuresConnection, designSystem, sharedDomain/application/security
+# and the Compose dependencies.
+MODULE_PATH=":iosAppHost"
+FRAMEWORK_NAME="iosAppHost"
 
 OUT="$ROOT/iosApp/build/frameworks"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-TASKS=()
-for entry in "${MODULES[@]}"; do
-  TASKS+=("${entry%%|*}:link${KMP_VARIANT}Framework${KMP_TARGET}")
-done
-
-echo "== Building Kotlin/Native frameworks (target=${KMP_TARGET}, variant=${KMP_VARIANT}) =="
+echo "== Building Kotlin/Native framework (target=${KMP_TARGET}, variant=${KMP_VARIANT}) =="
 # `bash ./gradlew` because the repository's signed-commit flow cannot carry the
 # executable bit (gradlew is recorded 100644), so `./gradlew` fails in a fresh
 # checkout.
-bash ./gradlew "${TASKS[@]}" --no-daemon --stacktrace
+bash ./gradlew "${MODULE_PATH}:link${KMP_VARIANT}Framework${KMP_TARGET}" --no-daemon --stacktrace
 
-for entry in "${MODULES[@]}"; do
-  module_path="${entry%%|*}"
-  name="${entry##*|}"
-  rel="$(printf '%s' "${module_path#:}" | tr ':' '/')"
-  src="$ROOT/$rel/build/bin/${KMP_TARGET}/${KMP_VARIANT_LC}Framework/${name}.framework"
-  if [ ! -d "$src" ]; then
-    echo "::error::expected framework not found: $src" >&2
-    exit 1
-  fi
-  cp -R "$src" "$OUT/"
-done
+rel="$(printf '%s' "${MODULE_PATH#:}" | tr ':' '/')"
+src="$ROOT/$rel/build/bin/${KMP_TARGET}/${KMP_VARIANT_LC}Framework/${FRAMEWORK_NAME}.framework"
+if [ ! -d "$src" ]; then
+  echo "::error::expected framework not found: $src" >&2
+  exit 1
+fi
+cp -R "$src" "$OUT/"
 
-echo "== Staged frameworks in $OUT =="
+echo "== Staged framework in $OUT =="
 ls -1 "$OUT"

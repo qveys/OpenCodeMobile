@@ -54,16 +54,21 @@ reviewable and regenerable. The generated `iosApp.xcodeproj` is disposable and i
 except for `project.pbxproj`, which may be committed for convenience.
 
 The app target is iOS 16+, uses `iosApp/Info.plist` (with `NSCameraUsageDescription`), and
-links the per-module **static** Kotlin/Native frameworks directly — no umbrella framework
-(ADR 0001 §3): `iosAppHost`, `featuresConnection`, `designSystem`, `sharedDomain`,
-`sharedApplication`, `sharedSecurity`. Modules without a framework binary
-(`shared/networking`, `shared/tls-test-support`) are compiled into the frameworks that depend
-on them.
+links the composition root's **static** Kotlin/Native framework, `iosAppHost.framework`.
+
+ADR 0001 §3 declares one framework per module and the Build CI keeps verifying each of them,
+but the app links only `iosAppHost`: a Kotlin/Native static framework already embeds the Kotlin
+runtime **and** the code of every transitive dependency (linking `iosAppHost` plus a module it
+depends on yields duplicate `_Kotlin_*` symbols), so linking several frameworks injects the
+Kotlin runtime more than once and the app aborts in `+[KotlinBase load]`. `iosAppHost`
+transitively carries `featuresConnection`, `designSystem`, `sharedDomain`,
+`sharedApplication`, `sharedSecurity` (and the modules without a framework binary,
+`shared/networking` and `shared/tls-test-support`).
 
 A `Build Kotlin frameworks` run-script build phase runs
 [`scripts/ios/build-frameworks.sh`](../scripts/ios/build-frameworks.sh) before Swift
 compilation. It derives the Kotlin/Native target from Xcode's `PLATFORM_NAME`/`ARCHS` and the
-Gradle variant from `CONFIGURATION`, builds the module frameworks, and stages them in
+Gradle variant from `CONFIGURATION`, builds `iosAppHost.framework`, and stages it in
 `iosApp/build/frameworks`, where `FRAMEWORK_SEARCH_PATHS` points.
 
 `.github/workflows/ios-app.yml` builds the app for an iOS simulator on the company `mac`

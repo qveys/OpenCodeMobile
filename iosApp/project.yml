@@ -49,28 +49,22 @@ targets:
         GENERATE_INFOPLIST_FILE: "NO"
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
-        # Static Kotlin/Native frameworks staged by scripts/ios/build-frameworks.sh.
+        # The static Kotlin/Native framework staged by
+        # scripts/ios/build-frameworks.sh just before the link phase.
         FRAMEWORK_SEARCH_PATHS:
           - "$(inherited)"
           - "$(SRCROOT)/build/frameworks"
-        # Static archives are linked with explicit -framework flags; the
-        # frameworks are staged just before the link phase, so they are not file
-        # references in the generated project. The UI test bundle does not link
-        # them (it drives the app through XCUIApplication).
+        # Only the composition root is linked: a Kotlin/Native static framework
+        # embeds the Kotlin runtime and all transitive dependency code, so
+        # linking several per-module frameworks injects the runtime more than
+        # once and aborts at `+[KotlinBase load]`. `iosAppHost.framework`
+        # already carries featuresConnection, designSystem and the shared
+        # frameworks. The UI test bundle does not link it (it drives the app
+        # through XCUIApplication).
         OTHER_LDFLAGS:
           - "$(inherited)"
           - "-framework"
           - "iosAppHost"
-          - "-framework"
-          - "featuresConnection"
-          - "-framework"
-          - "designSystem"
-          - "-framework"
-          - "sharedDomain"
-          - "-framework"
-          - "sharedApplication"
-          - "-framework"
-          - "sharedSecurity"
     preBuildScripts:
       - name: "Build Kotlin frameworks"
         shell: /bin/bash
