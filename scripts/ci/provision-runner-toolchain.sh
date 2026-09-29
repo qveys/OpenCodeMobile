@@ -333,9 +333,27 @@ register_macos_jdk() { # home
   case "$home" in
     "$jvmdir"/*) return 0 ;;
   esac
+  # Synthesize a proper `.jdk` bundle around a bare JDK home (e.g. a JDK left in
+  # ~/.local/jdk-21 by an earlier run). java_home needs Contents/Info.plist to
+  # identify the JVM, so write a minimal one plus the libjli shim.
   rm -rf "$bundle"
-  mkdir -p "$bundle/Contents"
+  mkdir -p "$bundle/Contents/MacOS"
   ln -sfn "$home" "$bundle/Contents/Home"
+  [ -f "$home/lib/libjli.dylib" ] && ln -sfn "$home/lib/libjli.dylib" "$bundle/Contents/MacOS/libjli.dylib"
+  cat > "$bundle/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>temurin-21</string>
+  <key>CFBundleName</key><string>Java SE 21</string>
+  <key>JavaVM</key>
+  <dict>
+    <key>JVMVersion</key><string>21</string>
+  </dict>
+</dict>
+</plist>
+PLIST
   info "registered user-level JDK bundle $bundle -> $home"
 }
 

@@ -26,8 +26,14 @@ on:
       - 'scripts/ci/**'
 
 concurrency:
-  group: provision-runner-toolchain-${{ github.ref }}
-  cancel-in-progress: false
+  # One provisioning run repository-wide. Provisioning is idempotent, so a newer
+  # change supersedes older pending/in-progress runs instead of piling up behind
+  # them on the single `macbook-openclaw` runner. Without this, several branches
+  # touching scripts/ci/** each enqueue a provisioning job and one stalled job
+  # blocks the others for hours (observed 2026-09-29). Same policy as the OPE-98
+  # concurrency fix, applied here so this branch's fixes are not starved.
+  group: provision-runner-toolchain
+  cancel-in-progress: true
 
 permissions:
   contents: read
