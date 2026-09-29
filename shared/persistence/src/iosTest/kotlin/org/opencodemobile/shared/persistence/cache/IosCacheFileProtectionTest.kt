@@ -76,6 +76,19 @@ class IosCacheFileProtectionTest {
 
         assertTrue(fileManager.fileExistsAtPath(databasePath), "the cache DB must exist after an open")
 
+        println(
+            "IosCacheFileProtectionTest diag: dir=$directory dirExcluded=" +
+                "${IosCacheFileProtection.isExcludedFromBackup(directory)} dirProtection=" +
+                "${IosCacheFileProtection.protectionClass(directory)}",
+        )
+        listOf(databasePath, "$databasePath-wal", "$databasePath-shm").forEach { path ->
+            println(
+                "IosCacheFileProtectionTest diag: path=$path exists=${fileManager.fileExistsAtPath(path)} " +
+                    "excluded=${IosCacheFileProtection.isExcludedFromBackup(path)} " +
+                    "protection=${IosCacheFileProtection.protectionClass(path)}",
+            )
+        }
+
         // The DB and the WAL companions created by the open + write must each
         // carry the protection class and the backup exclusion. These checks are
         // unconditional: a companion that is missing or unprotected is a
