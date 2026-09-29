@@ -1,6 +1,8 @@
 package org.opencodemobile.shared.networking.adapter
 
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.pluginOrNull
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
 import org.opencode.mobile.networking.client.generated.apis.OpenCodeApiClient
@@ -181,4 +183,17 @@ public class OpenCodeV2Adapter(
 
     /** Test/diagnostic hook: whether an active connection currently permits the credential. */
     internal fun isCredentialPermitActive(): Boolean = authorizationsEnabled && credentialPermit != null
+
+    /**
+     * Test/diagnostic hook (OPE-170): whether this adapter's client was built by
+     * the sanctioned [OpenCodeHttpClient.create] factory, that is, JSON
+     * [ContentNegotiation] is installed.
+     *
+     * A composition root that replaces the sanctioned factory with a raw Ktor
+     * client (the OPE-151 defect-2 regression) makes this return false, so the
+     * `:androidApp` composition-root resolver test fails instead of silently
+     * shipping a client that cannot encode or decode JSON.
+     */
+    public fun negotiatesJsonContent(): Boolean =
+        httpClient.pluginOrNull(ContentNegotiation) != null
 }
