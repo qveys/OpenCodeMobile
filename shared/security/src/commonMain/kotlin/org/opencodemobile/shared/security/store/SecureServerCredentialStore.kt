@@ -17,18 +17,27 @@ public class SecureServerCredentialStore(
     private val keyPrefix: String = DEFAULT_KEY_PREFIX,
 ) : ServerCredentialStore {
 
-    override suspend fun credential(profileId: String): ServerCredential? {
-        val stored = store.get(entryKey(profileId)) ?: return null
-        return decode(stored)
-    }
+    override suspend fun credential(profileId: String): ServerCredential? =
+        translate { store.get(entryKey(profileId))?.let(::decode) }
 
     override suspend fun storeCredential(profileId: String, credential: ServerCredential) {
-        store.put(entryKey(profileId), encode(credential))
+        translate { store.put(entryKey(profileId), encode(credential)) }
     }
 
     override suspend fun clearCredential(profileId: String) {
-        store.remove(entryKey(profileId))
+        translate { store.remove(entryKey(profileId)) }
     }
+
+    /**
+     * Surfaces any [SecureStoreException] as the typed, retryable
+     * `DomainError.StorageFailure` the connection layer handles (OPE-145).
+     */
+    private suspend fun <T> translate(block: suspend () -> T): T =
+        try {
+            block()
+        } catch (failure: SecureStoreException) {
+            throw failure.toDomainError()
+        }
 
     private fun entryKey(profileId: String): String {
         require(profileId.isNotBlank()) { "A server credential must be keyed by a non-blank profile id" }

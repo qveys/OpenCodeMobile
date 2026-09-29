@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlinx.coroutines.test.runTest
+import org.opencodemobile.shared.domain.connection.DomainError
 import org.opencodemobile.shared.domain.connection.ServerProfile
 
 class SecureServerProfileStoreTest {
@@ -89,7 +90,7 @@ class SecureServerProfileStoreTest {
         store.put(SecureServerProfileStore.DEFAULT_ENTRY_KEY, "v0\nid=p1\nhost=h\nport=1\ntls=Https\nlabel=")
         val profiles = SecureServerProfileStore(store)
 
-        assertFailsWith<SecureStoreException.CorruptedEntry> { profiles.load() }
+        assertFailsWith<DomainError.StorageFailure> { profiles.load() }
     }
 
     @Test
@@ -98,6 +99,6 @@ class SecureServerProfileStoreTest {
         store.put(SecureServerProfileStore.DEFAULT_ENTRY_KEY, "v1\nid=p1\nhost=h\nport=not-a-port\ntls=Https\nlabel=")
         val profiles = SecureServerProfileStore(store)
 
-        assertFailsWith<SecureStoreException.CorruptedEntry> { profiles.load() }
+        assertFailsWith<DomainError.StorageFailure> { profiles.load() }
     }
 }

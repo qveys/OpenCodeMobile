@@ -6,6 +6,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import org.opencodemobile.shared.domain.connection.DomainError
 import org.opencodemobile.shared.domain.connection.ServerCredential
 
 class SecureServerCredentialStoreTest {
@@ -70,7 +71,7 @@ class SecureServerCredentialStoreTest {
         store.put("server_credential:$profileId", "raw-token-without-envelope")
         val credentials = SecureServerCredentialStore(store)
 
-        assertFailsWith<SecureStoreException.CorruptedEntry> {
+        assertFailsWith<DomainError.StorageFailure> {
             credentials.credential(profileId)
         }
     }

@@ -19,18 +19,27 @@ public class SecureServerProfileStore(
     private val entryKey: String = DEFAULT_ENTRY_KEY,
 ) : ServerProfileStore {
 
-    override suspend fun load(): ServerProfile? {
-        val stored = store.get(entryKey) ?: return null
-        return decode(stored)
-    }
+    override suspend fun load(): ServerProfile? =
+        translate { store.get(entryKey)?.let(::decode) }
 
     override suspend fun save(profile: ServerProfile) {
-        store.put(entryKey, encode(profile))
+        translate { store.put(entryKey, encode(profile)) }
     }
 
     override suspend fun clear() {
-        store.remove(entryKey)
+        translate { store.remove(entryKey) }
     }
+
+    /**
+     * Surfaces any [SecureStoreException] as the typed, retryable
+     * `DomainError.StorageFailure` the connection layer handles (OPE-145).
+     */
+    private suspend fun <T> translate(block: suspend () -> T): T =
+        try {
+            block()
+        } catch (failure: SecureStoreException) {
+            throw failure.toDomainError()
+        }
 
     private fun encode(profile: ServerProfile): String = buildString {
         append(FORMAT_V1).append('\n')
