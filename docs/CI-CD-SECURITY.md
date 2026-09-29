@@ -113,6 +113,8 @@ implement against, so verification isn't duplicated inside T10/OPE-23 itself.
       (enforced by `scripts/check-workflow-action-pinning.sh`, SEC-04)
 - [ ] `gradle/wrapper/gradle-wrapper.properties` still carries a `distributionSha256Sum` and an `https` `distributionUrl`, and `gradle/wrapper/gradle-wrapper.jar.sha256` matches the committed wrapper JAR
       (enforced by `scripts/check-gradle-supply-chain.sh`, SEC-05)
+- [ ] `gradle/verification-metadata.xml` is committed and still pins a SHA-256 for every resolved artifact, and every Gradle invocation in CI still resolves cleanly under strict dependency verification
+      (enforced by `scripts/check-gradle-supply-chain.sh`, SEC-05)
 - [ ] `permissions:` is explicit and least-privilege
 - [ ] No credential value is printed to logs (`::add-mask::` used for any dynamically generated secret)
 - [ ] Static long-lived store credentials are used only where OIDC/short-lived auth isn't supported by the target platform

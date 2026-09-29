@@ -2,6 +2,11 @@
 # scripts/tests/test-supply-chain-gates.sh
 # Local tests for the SEC-04 / SEC-05 supply-chain gates.
 #
+# Covers action-SHA pinning (SEC-04) and the four Gradle toolchain controls
+# (SEC-05): distributionSha256Sum, https distributionUrl, the committed
+# gradle-wrapper.jar digest, and the now-mandatory
+# gradle/verification-metadata.xml dependency-checksum metadata.
+#
 # Runs scripts/check-workflow-action-pinning.sh and
 # scripts/check-gradle-supply-chain.sh against synthetic fixtures in a temp
 # directory. It never contacts GitHub or any artifact repository, and never
@@ -68,6 +73,26 @@ write_wrapper_jar() { # dir [digest_override]
   actual="$(sha256sum "$dir/gradle/wrapper/gradle-wrapper.jar" | awk '{print $1}')"
   printf '%s  gradle/wrapper/gradle-wrapper.jar\n' "${override:-$actual}" \
     > "$dir/gradle/wrapper/gradle-wrapper.jar.sha256"
+}
+
+write_verification_metadata() { # dir
+  local dir="$1"
+  cat > "$dir/gradle/verification-metadata.xml" <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata xmlns="https://schema.gradle.org/dependency-verification">
+   <configuration>
+      <verify-metadata>true</verify-metadata>
+      <verify-signatures>false</verify-signatures>
+   </configuration>
+   <components>
+      <component group="org.jetbrains.kotlin" name="kotlin-stdlib" version="2.1.0">
+         <artifact name="kotlin-stdlib-2.1.0.jar">
+            <sha256 value="0000000000000000000000000000000000000000000000000000000000000000"/>
+         </artifact>
+      </component>
+   </components>
+</verification-metadata>
+XML
 }
 
 # --- SEC-04: action pinning -------------------------------------------------
@@ -142,9 +167,27 @@ GOOD_SHA='distributionSha256Sum=31c55713e40233a8303827ceb42ca48a47267a0ad4bab917
 d="$(make_repo sec05-ok)"
 write_wrapper "$d" "$GOOD_SHA"
 write_wrapper_jar "$d"
+write_verification_metadata "$d"
 out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
 check "fully pinned toolchain exits zero" "0" "$code"
 check_contains "wrapper JAR match is reported" "$out" "matches its committed SHA-256"
+check_contains "dependency verification is reported" "$out" "verification-metadata.xml is present"
+
+d="$(make_repo sec05-no-verification-metadata)"
+write_wrapper "$d" "$GOOD_SHA"
+write_wrapper_jar "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "missing verification-metadata.xml exits nonzero" "1" "$code"
+check_contains "missing dependency metadata is named" "$out" "gradle/verification-metadata.xml"
+check_contains "missing dependency metadata cites SEC-05" "$out" "SEC-05"
+
+d="$(make_repo sec05-empty-verification-metadata)"
+write_wrapper "$d" "$GOOD_SHA"
+write_wrapper_jar "$d"
+printf '{}\n' > "$d/gradle/verification-metadata.xml"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "verification-metadata.xml with no components exits nonzero" "1" "$code"
+check_contains "component-less metadata is named" "$out" "no <components> section"
 
 d="$(make_repo sec05-no-sum)"
 write_wrapper "$d" ""

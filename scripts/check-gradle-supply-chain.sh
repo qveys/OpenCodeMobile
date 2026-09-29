@@ -3,7 +3,7 @@
 #
 # SEC-05 — CI gate: fail when the Gradle build toolchain is not integrity-pinned.
 #
-# Three controls, checked independently:
+# Four controls, checked independently:
 #   1. `distributionSha256Sum` is present in gradle/wrapper/gradle-wrapper.properties.
 #      Without it the wrapper downloads `gradle-<v>-bin.zip` over TLS and trusts
 #      whatever bytes arrive; the TLS channel protects the transfer but does not
@@ -13,10 +13,11 @@
 #   3. gradle/wrapper/gradle-wrapper.jar matches its committed SHA-256. The JAR
 #      is executable code that every build runs before Gradle even starts, and it
 #      is not covered by the distribution checksum.
-#
-# Dependency verification (gradle/verification-metadata.xml) is reported but NOT
-# enforced: it is currently absent, and a gate that requires a file nobody has
-# generated would block every build. See docs/SECURITY-REVIEW.md SEC-05.
+#   4. gradle/verification-metadata.xml is present, so every resolved artifact
+#      (including transitive OkHttp/Netty/etc.) is pinned to a SHA-256 and a
+#      substitution from Maven Central becomes detectable. It is committed and
+#      required; regenerating it needs a JDK and Maven Central access. See
+#      docs/SECURITY-REVIEW.md SEC-05.
 #
 # Deliberately independent of the Gradle build (no JDK required) so it can run on
 # every pull request.
@@ -77,13 +78,16 @@ else
   fi
 fi
 
-# --- Informational: dependency verification --------------------------------
+# --- 4. dependency verification metadata -----------------------------------
 
-if [ -f "gradle/verification-metadata.xml" ]; then
-  printf '  [ok] gradle/verification-metadata.xml is present; dependency verification metadata exists.\n'
+VERIFICATION_METADATA="gradle/verification-metadata.xml"
+
+if [ ! -f "$VERIFICATION_METADATA" ]; then
+  fail_with "Missing $VERIFICATION_METADATA; transitive dependency resolution is not pinned to checksums (SEC-05). Generate it with: ./gradlew --write-verification-metadata sha256 <task>"
+elif ! grep -q '<components>' "$VERIFICATION_METADATA"; then
+  fail_with "$VERIFICATION_METADATA has no <components> section; it does not pin any artifact checksums (SEC-05)."
 else
-  printf '  [note] gradle/verification-metadata.xml is absent. Transitive dependency resolution is not pinned to checksums (SEC-05, tracked).\n'
-  printf '         Generate it with: ./gradlew --write-verification-metadata sha256 help\n'
+  printf '  [ok] gradle/verification-metadata.xml is present and pins resolved dependency checksums.\n'
 fi
 
 if [ "$fail" -ne 0 ]; then
@@ -91,5 +95,5 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-printf 'OK: Gradle distribution, transport and wrapper JAR are integrity-pinned (SEC-05).\n'
+printf 'OK: Gradle distribution, transport, wrapper JAR and dependency checksums are integrity-pinned (SEC-05).\n'
 exit 0

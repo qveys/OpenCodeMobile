@@ -2,7 +2,7 @@
 
 Date: 2026-09-25 (initial review) · 2026-09-29 (re-verification at the landing commit)
 Origin: [OPE-8](/OPE/issues/OPE-8) · re-verification [OPE-78](/OPE/issues/OPE-78)
-Status: re-verified at the landed `main`. SEC-01…SEC-05 resolved or structurally enforced; SEC-06/SEC-07/SEC-08 remain open.
+Status: re-verified at the landed `main`, then completed the two deferred SEC-05 follow-ups. SEC-01…SEC-05 resolved; SEC-06/SEC-07/SEC-08 remain open.
 Threat model this review is measured against: [docs/THREAT-MODEL.md](/OPE/issues/OPE-7).
 
 ## 1. Reviewed baselines
@@ -46,11 +46,11 @@ Severity: Critical / High / Medium / Low / Info.
 - Because fixing one file leaves the next workflow free to reintroduce the hole, the control is now structural: `scripts/check-workflow-action-pinning.sh` fails the build when any `uses:` is not a full commit SHA, and runs as a step of the required `T4 static scan` job. Because that job is already a required status check, the gate is blocking on every pull request **without any branch-protection change** — a new job name would not be required until protection was edited, and would be advisory-only until then.
 - Verified: `scripts/tests/test-supply-chain-gates.sh` (27 assertions) covers floating tags, floating branch refs, 39- and 41-character SHAs, quoted refs, local `./` exemption, and a fail-closed vacuous scan. Replaying the real `architecture-tests.yml` through the gate fails on all 4 original floating refs at lines 40, 43, 50 and 62, while the real `main` tree passes with 10 pinned references.
 
-### SEC-05 — Resolved (with one deferred item): Gradle supply-chain hardening gaps
+### SEC-05 — Resolved: Gradle supply-chain hardening gaps
 - Was: `distributionUrl` was set with no `distributionSha256Sum`; there was no `gradle/verification-metadata.xml`, no dependency lockfiles, and `gradle-wrapper.jar` (SHA-256 `2db75c40…448046`) had no committed checksum.
-- Now: `gradle/wrapper/gradle-wrapper.properties` declares `distributionSha256Sum=31c55713e40233a8303827ceb42ca48a47267a0ad4bab9177123121e71524c26` for `gradle-8.10.2-bin.zip`; `gradle/wrapper/gradle-wrapper.jar.sha256` commits the wrapper-JAR digest; and `scripts/check-gradle-supply-chain.sh` gates all of it as a step of the required `T4 static scan` job, additionally rejecting an `http` `distributionUrl` downgrade.
-- Checksum provenance: Gradle's CDN (`services.gradle.org`, `gradle.org`) is not reachable from the review sandbox, so the digest was not read from the publisher. It was corroborated against three independent public sources that pin the same `gradle-8.10.2-bin.zip` (`govuk-one-login/mobile-android-ui`, `jordanconway/package-manager-hardening`, `maoude/concurrency-course`, `anzihenry/BiucingCLI`), all of which agree on `31c55713…24c26`. A wrong value fails loudly and immediately on the first `./gradlew` invocation rather than silently, and the committed wrapper-JAR digest matches the value independently recorded in the 2026-09-25 review. Re-verify against the publisher with `curl -sSL https://services.gradle.org/distributions/gradle-8.10.2-bin.zip.sha256` from a network that can reach it.
-- Deferred: Gradle **dependency verification** (`gradle/verification-metadata.xml`) is still absent, so transitive dependency resolution is not pinned to checksums. Generating it requires resolving the full dependency graph and recording a checksum per artifact, which needs a JDK and network access to Maven Central — neither is available in this sandbox, and committing a partial or fabricated metadata file would break every build. Rationale for deferral: the residual risk is limited to build-time supply-chain substitution from Maven Central over TLS; no CI signing secrets exist yet, so a substituted artifact cannot forge a release. The gate reports the absence explicitly so it stays visible. Owner: Engineer. Generate with `./gradlew --write-verification-metadata sha256 help`, then commit the result and make the gate require it.
+- Now: `gradle/wrapper/gradle-wrapper.properties` declares `distributionSha256Sum=31c55713e40233a8303827ceb42ca48a47267a0ad4bab9177123121e71524c26` for `gradle-8.10.2-bin.zip`; `gradle/wrapper/gradle-wrapper.jar.sha256` commits the wrapper-JAR digest; `gradle/verification-metadata.xml` pins a SHA-256 per resolved artifact (760 components, Android/JVM plus all three iOS targets); and `scripts/check-gradle-supply-chain.sh` gates all of it as a step of the required `T4 static scan` job, additionally rejecting an `http` `distributionUrl` downgrade and a missing or component-less verification-metadata file.
+- Checksum provenance: confirmed from the publisher. `services.gradle.org` is not directly reachable from the sandbox, but its `/distributions/gradle-8.10.2-bin.zip.sha256` is readable through the allowlisted JetBrains cache-redirector mirror and returns `31c55713…24c26`; independently, the official `gradle/gradle-distributions` v8.10.2 release archive (136,715,430 bytes) was downloaded and hashed locally to the same digest. A wrong value fails loudly on the first `./gradlew` invocation rather than silently, and the committed wrapper-JAR digest matches the value independently recorded in the 2026-09-25 review.
+- Dependency verification: resolved. `gradle/verification-metadata.xml` is committed with `<verify-metadata>true</verify-metadata>`; every artifact CI resolves is pinned, including the AGP/lint classpath POMs and the per-target Apple klib and Compose-resource artifacts. `./gradlew build`, `:androidApp:assembleDebug`/`assembleRelease`/`bundleRelease`, the shared-module unit tests and `:shared:security:assembleDebugAndroidTest` all pass under Gradle's strict dependency verification, and the gate now hard-fails if the metadata file is deleted or has no `<components>`. The Apple `linkDebugFramework*` tasks cannot execute on Linux, so their coverage was verified at dependency-resolution level (all iOS compile/test klib configurations resolve and pass strict verification). Pinning the resolved graph also unblocks a future resolved-graph advisory scan.
 - Kotlin re-check for SEC-06: `kotlin = "2.1.0"` is unchanged and still in the affected range `< 2.4.20-Beta1` for GHSA-r937-wjx7-w2jp. No patched release exists yet, so the upgrade is not actionable; SEC-06 remains open.
 
 ### SEC-06 — Low: build-tooling CVE in Kotlin 2.1.0
@@ -94,8 +94,8 @@ Severity: Critical / High / Medium / Low / Info.
 
 ## 5. Limitations
 
-- The Gradle distribution checksum was corroborated from third-party sources, not read from the publisher (see SEC-05). Re-verify from a network that can reach `services.gradle.org`.
-- No dependency lockfile and no `gradle/verification-metadata.xml` means the **resolved** dependency graph (including transitive OkHttp/Netty/etc.) still cannot be enumerated. The advisory re-scan below is therefore still catalog-level, not resolved-graph-level; this gap is the deferred part of SEC-05.
+- The Gradle distribution checksum is now confirmed from the publisher: the `.sha256` served on the `services.gradle.org` path (read through the sandbox's allowlisted JetBrains cache-redirector, which mirrors the publisher bytes) and the official `gradle/gradle-distributions` release archive both resolve to `31c55713…24c26` (see SEC-05).
+- `gradle/verification-metadata.xml` now pins the **resolved** dependency graph (including transitive OkHttp/Netty/etc.) to SHA-256 checksums, so substitution is detectable. The advisory re-scan in §6 remains a declared-catalog scan; enumerating and re-scanning the resolved graph against the advisory database is now possible and remains follow-up work (not required by SEC-05).
 - The Kotlin advisory (SEC-06) has no patched release, so the upgrade could not be actioned or disproven by upgrade.
 - T1, T2, T3, T5, T8 controls are design-only at this baseline or reviewed on their own branches; this report does not re-certify them.
 - Live GitHub settings were read on 2026-09-29; they can drift and are covered by the fixed verifier.
@@ -119,14 +119,14 @@ Re-queried the GitHub Advisory Database for every coordinate declared in `gradle
 | `com.android.tools.build:gradle` (AGP) | 8.7.2 | No advisories |
 | `org.jetbrains.compose:compose-gradle-plugin` | 1.7.1 | No advisories |
 
-No new advisory affects a declared version. The one open build-tool finding is SEC-06. This remains a declared-catalog scan; a resolved-graph scan stays blocked until dependency verification metadata or lockfiles exist (deferred SEC-05).
+No new advisory affects a declared version. The one open build-tool finding is SEC-06. This remains a declared-catalog scan; the committed dependency verification metadata (§SEC-05) now makes a resolved-graph scan possible, which remains follow-up work.
 
 ## 7. Disposition and next actions
 
 - SEC-01 / SEC-02: resolved and independently re-verified.
 - SEC-03: **resolved** — the required status check is configured, matches a real always-reporting job, and the verifier exits 0 live. No policy was weakened to achieve it.
 - SEC-04: **resolved** — all `main` workflows are SHA-pinned, and a required-check gate now prevents regression structurally.
-- SEC-05: **resolved except dependency verification**, which is explicitly deferred with rationale in the finding.
+- SEC-05: **resolved** — the distribution checksum is confirmed from the publisher, and `gradle/verification-metadata.xml` is committed and enforced by the `scripts/check-gradle-supply-chain.sh` gate.
 - SEC-06: open, not actionable (no patched Kotlin release). Build cache stays local; no remote build cache is configured, which is the documented mitigation.
 - SEC-07 / SEC-08: open, Info, unchanged and re-verified against `main`.
 - No operational repository policy was mutated during this re-verification; all GitHub API calls were read-only, and the verifier runs read-only by design.
