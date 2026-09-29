@@ -109,14 +109,14 @@ echo "== Emulator ready =="
 adb devices
 adb shell getprop ro.build.version.sdk
 
-echo "== Running T1 instrumented handshake tests =="
+echo "== Running T1 instrumented handshake tests and T3 cache instrumented tests =="
 export JAVA_HOME="${JAVA_HOME_21_X64:-${JAVA_HOME:-}}"
 chmod +x gradlew
-./gradlew :shared:security:connectedDebugAndroidTest --no-daemon --stacktrace
+./gradlew :shared:security:connectedDebugAndroidTest :shared:persistence:connectedDebugAndroidTest --no-daemon --stacktrace
 GRADLE_STATUS=$?
 
 echo "== Instrumented test result XML =="
-find shared/security/build/outputs/androidTest-results -name '*.xml' -print -exec cat {} \; 2>/dev/null || true
+find shared/security/build/outputs/androidTest-results shared/persistence/build/outputs/androidTest-results -name '*.xml' -print -exec cat {} \; 2>/dev/null || true
 
 if [ "$GRADLE_STATUS" -ne 0 ]; then
   echo "== Emulator log tail (for diagnosis) =="

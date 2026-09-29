@@ -61,8 +61,14 @@ public data class CachedDraft(
     public val updatedAt: Long = 0L,
 )
 
-/** A non-secret application preference (never used to store key material). */
+/**
+ * A non-secret, per-server preference (never used to store key material).
+ *
+ * Scoped by [serverId] so [SessionCacheWriter.wipeServer] drops it with the rest
+ * of a profile's cache, and guarded at write time by [CachePreferencePolicy].
+ */
 public data class CachedPreference(
+    public val serverId: String,
     public val key: String,
     public val value: String,
 )

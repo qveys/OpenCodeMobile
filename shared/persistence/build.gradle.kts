@@ -49,12 +49,16 @@ kotlin {
             }
         }
 
-        // On-device T3 proof: open the SQLCipher DB, write a marker, then read the
-        // raw bytes off disk and assert the marker is not present in cleartext.
+        // On-device T3 proof: open the SQLCipher DB with the real Keystore-backed
+        // passphrase store, write a marker, then read the raw bytes off disk and
+        // assert the marker is not present in cleartext.
         val androidInstrumentedTest by getting {
             dependencies {
                 implementation(libs.kotlin.test)
                 implementation(libs.sqlcipher.android)
+                // The Keystore-backed CacheKeyStore lives in shared/security; the
+                // instrumented test must exercise the real composition.
+                implementation(project(":shared:security"))
                 implementation("androidx.test.ext:junit:1.2.1")
                 implementation("androidx.test:runner:1.6.2")
             }

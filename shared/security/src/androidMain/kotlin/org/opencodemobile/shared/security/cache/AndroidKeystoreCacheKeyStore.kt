@@ -22,9 +22,9 @@ import org.opencodemobile.shared.domain.cache.CacheKeyStore
  * Android [CacheKeyStore] backed by the Android Keystore (B2).
  *
  * A random passphrase is generated once, encrypted with an AES/GCM key that
- * never leaves the Keystore, and the ciphertext is persisted in the app's
- * private preferences. The passphrase itself is only ever in the Keystore, never
- * in a plain preferences file (OPE-107 acceptance).
+ * never leaves the Keystore, and only the wrapped ciphertext is persisted in the
+ * app's private preferences. The passphrase is never stored in cleartext
+ * (OPE-107 acceptance).
  *
  * If the Keystore key is invalidated — common after a biometric re-enrollment —
  * decryption fails. That is a **cache miss, not a fatal error**: the stale entry

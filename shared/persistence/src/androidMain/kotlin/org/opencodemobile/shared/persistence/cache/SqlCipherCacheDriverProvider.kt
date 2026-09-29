@@ -14,10 +14,10 @@ import org.opencodemobile.shared.persistence.db.Cache
 /**
  * Android [CacheDriverProvider] over SQLCipher (T3 / OP2).
  *
- * The cache DB is encrypted with a random passphrase stored through the
- * Keystore-backed [CacheKeyStore] — the same `expect`/`actual` boundary used for
- * server credentials and identity pins (B2). The passphrase is never read from a
- * plain preferences file and never leaves the Keystore in cleartext.
+ * The cache DB is encrypted with a random passphrase wrapped by a
+ * Keystore-backed [CacheKeyStore] — the same secure-store boundary used for
+ * server credentials and identity pins (B2). The passphrase is never persisted
+ * in cleartext and the Keystore key never leaves the device.
  *
  * The SQLCipher native core ships inside the `sqlcipher-android` AAR but must be
  * loaded explicitly ([System.loadLibrary]).
@@ -47,10 +47,13 @@ public class SqlCipherCacheDriverProvider(
         driver
     }
 
-    override suspend fun deleteLocalCache(): Unit = withContext(ioDispatcher) {
+    override suspend fun deleteLocalCache(): Boolean = withContext(ioDispatcher) {
         val databaseFile: File = appContext.getDatabasePath(CACHE_DATABASE_NAME)
-        companionFiles(databaseFile).forEach { runCatching { it.delete() } }
-        runCatching { databaseFile.delete() }
+        val files = listOf(databaseFile) + companionFiles(databaseFile)
+        files.forEach { runCatching { it.delete() } }
+        // Report whether the wipe actually removed everything, so the caller
+        // does not reopen over a file it could not delete.
+        files.none { it.exists() }
     }
 
     private fun loadSqlCipher() {
