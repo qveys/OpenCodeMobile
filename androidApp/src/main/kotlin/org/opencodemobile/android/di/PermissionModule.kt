@@ -63,11 +63,11 @@ public val permissionModule: Module = module {
     single<PermissionNotifier> { AndroidPermissionNotifier(androidContext()) }
 
     single<PermissionPort> {
-        DeferredPermissionPort { getOrNull<PermissionConnection>()?.port }
+        DeferredPermissionPort { getOrNull<PermissionConnection>() }
     }
 
     single<PermissionEventDecoder> {
-        DeferredPermissionEventDecoder { getOrNull<PermissionConnection>()?.decoder }
+        DeferredPermissionEventDecoder { getOrNull<PermissionConnection>() }
     }
 
     single<PendingPermissionStore> {
