@@ -1,0 +1,134 @@
+name: iOS app (simulator)
+
+# OPE-169 — build the real iosApp Xcode host (ADR 0001 §4) and run OPE-153's
+# runtime acceptance on an iOS simulator.
+#
+# Until this job existed, the Swift shell (`iOSApp.swift`, `ContentView.swift`,
+# the Info.plist) and the Compose/Koin host in `:iosAppHost` were only
+# compile-checked as Kotlin frameworks; nothing built the app. This job:
+#   1. builds the per-module Kotlin/Native static frameworks (scripts/ios/
+#      build-frameworks.sh),
+#   2. generates `iosApp.xcodeproj` from its checked-in XcodeGen spec,
+#   3. builds the app for an iOS simulator,
+#   4. boots the simulator, installs and launches the app,
+#   5. runs `ConnectionScreenUITests` (opens the connection screen; scan/cancel
+#      returns; valid vs. non-import QR payloads).
+#
+# It runs on the company `mac` self-hosted runner (provisioned per
+# .github/workflows/provision-runner-toolchain.yml) because the acceptance
+# names that host. The org Actions allowlist permits only `actions/checkout@*`,
+# so every tool (JDK, Android SDK, Xcode, XcodeGen) is provisioned from shell
+# steps, not marketplace actions.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-app-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ios-app-simulator:
+    name: Build and smoke-test iosApp on iOS Simulator
+    runs-on: [self-hosted, mac]
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Toolchain diagnostics
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          echo "JAVA_HOME=${JAVA_HOME:-<unset>}"
+          java -version || true
+          xcodebuild -version
+          xcrun simctl list runtimes || true
+
+      - name: Install XcodeGen
+        run: |
+          set -euo pipefail
+          if command -v xcodegen >/dev/null 2>&1; then
+            echo "xcodegen already on PATH: $(command -v xcodegen)"
+          elif [ -x /opt/homebrew/bin/xcodegen ]; then
+            echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+          elif [ -x /usr/local/bin/xcodegen ]; then
+            echo "/usr/local/bin" >> "$GITHUB_PATH"
+          elif command -v brew >/dev/null 2>&1; then
+            brew install xcodegen
+          else
+            echo "XcodeGen absent and Homebrew unavailable; fetching the pinned release"
+            XCODEGEN_DIR="$RUNNER_TEMP/xcodegen"
+            mkdir -p "$XCODEGEN_DIR"
+            curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" \
+              https://github.com/yonaskolb/XcodeGen/releases/download/2.44.1/xcodegen.zip
+            unzip -q -o "$RUNNER_TEMP/xcodegen.zip" -d "$XCODEGEN_DIR"
+            echo "$XCODEGEN_DIR/xcodegen/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Verify XcodeGen
+        run: xcodegen --version
+
+      - name: Generate iosApp.xcodeproj
+        working-directory: iosApp
+        run: xcodegen generate --spec project.yml
+
+      - name: List schemes and targets
+        working-directory: iosApp
+        run: xcodebuild -list -project iosApp.xcodeproj
+
+      - name: Pick an available iPhone simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          UDID="$(bash scripts/ios/pick-simulator.sh)"
+          test -n "$UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "Using simulator $UDID"
+
+      - name: Build for testing (frameworks + app + UI test bundle)
+        working-directory: iosApp
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build/DerivedData \
+            build-for-testing
+
+      - name: Boot, install and launch the app
+        working-directory: iosApp
+        run: |
+          set -euo pipefail
+          UDID="${{ steps.sim.outputs.udid }}"
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
+          APP="$(find build/DerivedData/Build/Products -maxdepth 2 -name 'iosApp.app' -print -quit)"
+          test -n "$APP"
+          echo "Installing $APP"
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" org.opencodemobile.ios
+          sleep 5
+          echo "App launched into the connection screen (see the UI tests below for assertions)."
+
+      - name: Run the connection-screen acceptance UI tests
+        working-directory: iosApp
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build/DerivedData \
+            test-without-building

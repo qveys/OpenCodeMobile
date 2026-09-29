@@ -38,16 +38,39 @@ This module exists because the composition root cannot be a `features/*` module:
 feature from reaching `shared/networking`/`shared/security`. The deviation from the §5.1
 module list is recorded in `docs/adr/0006-ios-composition-root-module.md`.
 
-## What's here vs. what's deferred
+## The Xcode project (`project.yml`, generated `iosApp.xcodeproj`)
 
-This scaffold ships the Swift entry-point source (`iosApp/iOSApp.swift`, `ContentView.swift`),
-`Info.plist`, and the Kotlin `:iosAppHost` composition root. It does **not** ship a generated
-`.xcodeproj` — that file format needs Xcode (or `xcodegen`) to produce correctly, and the
-scaffolding pass ran in a Linux sandbox with no Xcode toolchain and no network access to
-Apple/CocoaPods infrastructure to validate one. Generating and committing the real Xcode
-project, and wiring the per-module `.framework` outputs (including `iosAppHost.framework`) into
-its "Link Binary With Libraries" build phase, is tracked as follow-up work (see
-`docs/adr/0001-monorepo-module-scaffold.md`) rather than attempted here.
+The Swift entry-point source (`iosApp/iOSApp.swift`, `ContentView.swift`), `Info.plist`, the
+Kotlin `:iosAppHost` composition root, and the Xcode host project are all in the repo. The
+project is described by [`project.yml`](project.yml) and generated with
+[XcodeGen](https://github.com/yonaskolb/XcodeGen):
+
+```bash
+cd iosApp && xcodegen generate        # writes iosApp.xcodeproj
+```
+
+`project.yml` (not a hand-edited `.xcodeproj`) is the source of truth, so the project stays
+reviewable and regenerable. The generated `iosApp.xcodeproj` is disposable and ignored by git
+except for `project.pbxproj`, which may be committed for convenience.
+
+The app target is iOS 16+, uses `iosApp/Info.plist` (with `NSCameraUsageDescription`), and
+links the per-module **static** Kotlin/Native frameworks directly — no umbrella framework
+(ADR 0001 §3): `iosAppHost`, `featuresConnection`, `designSystem`, `sharedDomain`,
+`sharedApplication`, `sharedSecurity`. Modules without a framework binary
+(`shared/networking`, `shared/tls-test-support`) are compiled into the frameworks that depend
+on them.
+
+A `Build Kotlin frameworks` run-script build phase runs
+[`scripts/ios/build-frameworks.sh`](../scripts/ios/build-frameworks.sh) before Swift
+compilation. It derives the Kotlin/Native target from Xcode's `PLATFORM_NAME`/`ARCHS` and the
+Gradle variant from `CONFIGURATION`, builds the module frameworks, and stages them in
+`iosApp/build/frameworks`, where `FRAMEWORK_SEARCH_PATHS` points.
+
+`.github/workflows/ios-app.yml` builds the app for an iOS simulator on the company `mac`
+self-hosted runner, launches it, and runs `iosAppUITests/ConnectionScreenUITests.swift`, which
+checks the OPE-153 runtime acceptance (connection screen opens; scan/cancel returns; valid vs.
+non-import QR payloads). The QR payload is injected through the debug-only
+`-OPEQRPayload <value>` launch argument because the simulator has no camera.
 
 ## Platform actuals
 

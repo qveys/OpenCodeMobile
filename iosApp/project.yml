@@ -1,0 +1,104 @@
+# XcodeGen spec for the iOS host (ADR 0001 §4, OPE-169).
+#
+# `iosApp/` is a native Xcode project, not a Gradle module (see iosApp/README.md).
+# This spec is the source of truth for that project; the generated
+# `iosApp.xcodeproj` is disposable and can be regenerated at any time with:
+#
+#   cd iosApp && xcodegen generate
+#
+# The app target links the per-module Kotlin/Native **static** frameworks
+# directly — there is no umbrella framework (ADR 0001 §3). The "Build Kotlin
+# frameworks" pre-build phase runs before Swift compilation and stages them in
+# `iosApp/build/frameworks`, which is where FRAMEWORK_SEARCH_PATHS points.
+#
+# Only the framework-producing modules the app actually reaches are listed:
+#   iosAppHost -> featuresConnection -> designSystem
+#             -> sharedDomain, sharedApplication, sharedSecurity
+# (shared/networking and shared/tls-test-support declare no framework binary and
+# are compiled into the frameworks that depend on them.)
+name: iosApp
+
+options:
+  bundleIdPrefix: org.opencodemobile
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+  minimumXcodeGenVersion: "2.35.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    # The framework-staging run-script phase writes into iosApp/build/, which is
+    # outside Xcode's script sandbox; disable the sandbox so it may do so.
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+    # Static Kotlin/Native frameworks staged by scripts/ios/build-frameworks.sh.
+    FRAMEWORK_SEARCH_PATHS:
+      - "$(inherited)"
+      - "$(SRCROOT)/build/frameworks"
+    # Static archives are linked with explicit -framework flags; the frameworks
+    # are staged just before the link phase, so they are not file references in
+    # the generated project.
+    OTHER_LDFLAGS:
+      - "$(inherited)"
+      - "-framework"
+      - "iosAppHost"
+      - "-framework"
+      - "featuresConnection"
+      - "-framework"
+      - "designSystem"
+      - "-framework"
+      - "sharedDomain"
+      - "-framework"
+      - "sharedApplication"
+      - "-framework"
+      - "sharedSecurity"
+
+targets:
+  iosApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: iosApp
+        excludes:
+          - "Info.plist"
+    settings:
+      base:
+        PRODUCT_NAME: iosApp
+        PRODUCT_BUNDLE_IDENTIFIER: org.opencodemobile.ios
+        INFOPLIST_FILE: iosApp/Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    preBuildScripts:
+      - name: "Build Kotlin frameworks"
+        shell: /bin/bash
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          "$SRCROOT/../scripts/ios/build-frameworks.sh"
+
+  iosAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: iosAppUITests
+    dependencies:
+      - target: iosApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.opencodemobile.ios.uitests
+        GENERATE_INFOPLIST_FILE: "YES"
+        TEST_TARGET_NAME: iosApp
+
+schemes:
+  iosApp:
+    build:
+      targets:
+        iosApp: all
+        iosAppUITests: [test]
+    test:
+      targets:
+        - iosAppUITests
+      gatherCoverageData: false

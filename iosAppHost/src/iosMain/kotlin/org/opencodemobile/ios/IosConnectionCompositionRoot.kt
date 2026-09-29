@@ -15,6 +15,7 @@ import kotlinx.coroutines.SupervisorJob
 import org.koin.compose.koinInject
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
+import org.koin.mp.KoinPlatform
 import org.koin.dsl.module
 import org.opencodemobile.features.connection.ConnectionModule
 import org.opencodemobile.features.connection.ConnectionSetupController
@@ -126,4 +127,20 @@ public fun connectionSetupViewController(): UIViewController = ComposeUIViewCont
             ConnectionSetupScreen(controller = controller, scanner = scanner)
         }
     }
+}
+
+/**
+ * Acceptance-only seam (OPE-169, used by `ConnectionScreenUITests`).
+ *
+ * Drives [ConnectionSetupController.submitScannedPayload] with a payload the
+ * simulator cannot supply through the camera, so the QR import path can be
+ * exercised end to end. The Swift shell calls it only when the
+ * `-OPEQRPayload <value>` launch argument is present (and only in `DEBUG`), so
+ * a production launch can never reach it. It reuses the process-wide Koin
+ * controller, so the Compose screen observes exactly the state the real scanner
+ * would produce.
+ */
+public fun submitScannedPayloadForAcceptance(payload: String) {
+    startIosKoin()
+    KoinPlatform.getKoin().get<ConnectionSetupController>().submitScannedPayload(payload)
 }
