@@ -1,15 +1,4 @@
-package org.opencodemobile.shared.application.cache
-
-import org.opencodemobile.shared.domain.cache.CacheMutationNotAllowedException
-import org.opencodemobile.shared.domain.cache.CachedDraft
-import org.opencodemobile.shared.domain.cache.CachedPreference
-import org.opencodemobile.shared.domain.cache.CachedProject
-import org.opencodemobile.shared.domain.cache.CachedServerConfig
-import org.opencodemobile.shared.domain.cache.CachedSession
-import org.opencodemobile.shared.domain.cache.CachedSyncMetadata
-import org.opencodemobile.shared.domain.cache.CachedTranscriptMessage
-import org.opencodemobile.shared.domain.cache.MutationGate
-import org.opencodemobile.shared.domain.cache.SessionCacheWriter
+package org.opencodemobile.shared.domain.cache
 
 /**
  * D8 enforcement point for the cache: a [SessionCacheWriter] that refuses every
@@ -17,9 +6,13 @@ import org.opencodemobile.shared.domain.cache.SessionCacheWriter
  *
  * The cache is written only from server events and snapshots; wrapping the
  * writer with this decorator makes the offline read-only rule structural rather
- * than a convention. The event/snapshot pipeline takes this gated writer, so an
- * offline caller fails fast with [CacheMutationNotAllowedException] and nothing
- * is queued (there is no outbox).
+ * than a convention. It lives in `shared/domain` next to the [MutationGate] port
+ * and [CacheMutationNotAllowedException] so the persistence layer, which may only
+ * depend on the domain, can hand out an already-gated writer
+ * (`CacheDatabase.writer(gate)`) and no consumer ever sees an ungated one.
+ *
+ * An offline caller fails fast with [CacheMutationNotAllowedException] and
+ * nothing is queued (there is no outbox).
  */
 public class GatedSessionCacheWriter(
     private val gate: MutationGate,

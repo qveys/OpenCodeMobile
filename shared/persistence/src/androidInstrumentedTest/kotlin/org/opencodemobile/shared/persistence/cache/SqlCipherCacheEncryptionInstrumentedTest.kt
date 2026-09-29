@@ -9,6 +9,8 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.opencodemobile.shared.domain.cache.CachedTranscriptMessage
+import org.opencodemobile.shared.domain.cache.ConnectionState
+import org.opencodemobile.shared.domain.cache.ConnectivityMutationGate
 import org.opencodemobile.shared.security.cache.AndroidKeystoreCacheKeyStore
 
 /**
@@ -40,9 +42,9 @@ class SqlCipherCacheEncryptionInstrumentedTest {
         provider.deleteLocalCache()
 
         val database = CacheDatabase(provider, Dispatchers.IO)
-        val cache = database.open()
+        val writer = database.writer(ConnectivityMutationGate(ConnectionState.Online))
         val marker = "S3CR3T-TRANSCRIPT-MARKER-${System.nanoTime()}"
-        cache.putTranscriptMessage(
+        writer.putTranscriptMessage(
             CachedTranscriptMessage("s1", "p1", "sess1", 1L, "user", marker, 1L),
             keepLast = 100,
         )
@@ -78,7 +80,7 @@ class SqlCipherCacheEncryptionInstrumentedTest {
         firstProvider.deleteLocalCache()
 
         val firstDatabase = CacheDatabase(firstProvider, Dispatchers.IO)
-        firstDatabase.open().putTranscriptMessage(
+        firstDatabase.writer(ConnectivityMutationGate(ConnectionState.Online)).putTranscriptMessage(
             CachedTranscriptMessage("s1", "p1", "sess1", 1L, "user", "before", 1L),
             keepLast = 100,
         )

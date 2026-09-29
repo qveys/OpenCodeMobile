@@ -1,20 +1,10 @@
-package org.opencodemobile.shared.application.cache
+package org.opencodemobile.shared.domain.cache
 
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
-import org.opencodemobile.shared.domain.cache.CacheMutationNotAllowedException
-import org.opencodemobile.shared.domain.cache.CachedDraft
-import org.opencodemobile.shared.domain.cache.CachedPreference
-import org.opencodemobile.shared.domain.cache.CachedProject
-import org.opencodemobile.shared.domain.cache.CachedServerConfig
-import org.opencodemobile.shared.domain.cache.CachedSession
-import org.opencodemobile.shared.domain.cache.CachedSyncMetadata
-import org.opencodemobile.shared.domain.cache.CachedTranscriptMessage
-import org.opencodemobile.shared.domain.cache.ConnectionState
-import org.opencodemobile.shared.domain.cache.SessionCacheWriter
 
 /**
  * D8: while offline, the gated writer must refuse every mutation and must not
