@@ -201,7 +201,26 @@ data class ApiModelInfo(
 data class ApiProvider(
     val id: String,
     val name: String? = null,
-    val models: List<ApiModelInfo> = emptyList()
+    // GET /provider models is a JSON object keyed by model id, not an array.
+    val models: Map<String, ApiModelInfo> = emptyMap()
+)
+
+/** `GET /provider` response: the spec object holding all providers, default model ids and connected ids. */
+@Serializable
+data class ApiProviderList(
+    val all: List<ApiProvider> = emptyList(),
+    val default: Map<String, String> = emptyMap(),
+    val connected: List<String> = emptyList()
+)
+
+/** One entry of `GET /agent`. Only the fields the mobile client renders are mapped. */
+@Serializable
+data class ApiAgent(
+    val name: String,
+    val description: String? = null,
+    val mode: String? = null,
+    val native: Boolean? = null,
+    val hidden: Boolean? = null
 )
 
 @Serializable
@@ -442,11 +461,23 @@ class OpenCodeApiClient(
     }}
 
     /**
-     * List providers and models (GET /provider).
+     * List providers and their models (GET /provider).
+     * Returns the spec object holding all providers, default model ids and connected ids.
      */
-    suspend fun listProviders(): List<ApiProvider> {{
+    suspend fun listProviders(directory: String? = null): ApiProviderList {{
         return httpClient.get("$baseUrl/provider") {{
             applyAuth()
+            if (directory != null) parameter("directory", directory)
+        }}.body()
+    }}
+
+    /**
+     * List the available agents (GET /agent).
+     */
+    suspend fun listAgents(directory: String? = null): List<ApiAgent> {{
+        return httpClient.get("$baseUrl/agent") {{
+            applyAuth()
+            if (directory != null) parameter("directory", directory)
         }}.body()
     }}
 }}

@@ -60,6 +60,7 @@ timings, stream shapes and fixture sizes are injectable via `MockOpenCodeStreamC
 | `UnsupportedVersion` | normal stream | `GET /global/health` reports an old version |
 | `SlowNetwork` | streams `slowNetworkSseEvents()` with `slowNetworkDelayMillis` between events | all nominal routes |
 | `LongTranscript` | streams `longTranscriptSseEvents(longTranscriptPartCount)` | all nominal routes |
+| `NoCatalog` | normal stream | `GET /provider`, `GET /agent` and `GET /question` answer with empty payloads (V1-09 empty-state) |
 | `AuthenticationFailure` | – | every route returns `401` |
 | `ServerError` | – | every route returns `500` with a typed body |
 
@@ -134,5 +135,15 @@ left out; it is the one optional item of OPE-131 that is not covered.
 
 `GET /permission` and `GET /question` return the pinned pending decision shapes from
 `OpenCodeFixtures`, and the reply/reject routes accept the exact user decision (the body is
-parsed and captured in `server.permissionReplies` / `server.questionReplies`). This unblocks
-the V1-06 permission flow (OPE-110) and the V1-07 pending-question flow (OPE-111).
+parsed and captured in `server.permissionReplies` / `server.questionReplies`, including the
+question `answers`). This unblocks the V1-06 permission flow (OPE-110) and the V1-07
+pending-question flow (OPE-111).
+
+## Model / agent fixtures (V1-09)
+
+`GET /provider` returns the pinned spec object (`all` providers, each with a model map keyed
+by model id, plus `default` and `connected`), and `GET /agent` returns the pinned `Agent`
+list. `MockOpenCodeScenario.NoCatalog` makes both routes (and `GET /question`) answer with
+empty payloads, so a client can prove it renders an empty list with a reason instead of a
+hard-coded catalog. The `OpenCodeV2Adapter` interaction integration test
+(`InteractionGatewayAdapterTest`) drives these routes end to end (OPE-111).

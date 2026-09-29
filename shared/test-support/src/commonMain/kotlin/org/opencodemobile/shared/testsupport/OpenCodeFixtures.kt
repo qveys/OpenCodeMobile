@@ -313,4 +313,70 @@ public object OpenCodeFixtures {
             data = """{"type":"message.part.updated","properties":{"part":""",
         ),
     )
+
+    // --- V1-09: server-exposed models and agents ---
+
+    /** Provider id of the first fixture model provider (`GET /provider`). */
+    public const val PROVIDER_ID: String = "anthropic"
+
+    /** Model id of the first fixture model. */
+    public const val MODEL_ID: String = "claude-sonnet-4"
+
+    /** Agent name of the first fixture agent (`GET /agent`). */
+    public const val AGENT_NAME: String = "build"
+
+    /**
+     * `GET /provider` body in the pinned spec shape: an object with `all`
+     * (providers, each holding a model map keyed by model id), `default`
+     * (provider id -> default model id) and `connected`.
+     */
+    public fun providersJson(): String = buildJsonObject {
+        putJsonArray("all") {
+            add(providerObject(PROVIDER_ID, "Anthropic", MODEL_ID, "Claude Sonnet 4"))
+            add(providerObject("openai", "OpenAI", "gpt-5", "GPT-5"))
+        }
+        putJsonObject("default") { put(PROVIDER_ID, MODEL_ID) }
+        putJsonArray("connected") { add(PROVIDER_ID) }
+    }.toString()
+
+    /** `GET /provider` body for a server that exposes no provider at all. */
+    public fun emptyProvidersJson(): String = buildJsonObject {
+        putJsonArray("all") { }
+        putJsonObject("default") { }
+        putJsonArray("connected") { }
+    }.toString()
+
+    private fun providerObject(
+        providerId: String,
+        providerName: String,
+        modelId: String,
+        modelName: String,
+    ): JsonObject = buildJsonObject {
+        put("id", providerId)
+        put("name", providerName)
+        putJsonObject("models") {
+            putJsonObject(modelId) {
+                put("id", modelId)
+                put("name", modelName)
+                put("providerID", providerId)
+            }
+        }
+    }
+
+    /** `GET /agent` body: two primary agents in the pinned `Agent` shape. */
+    public fun agentsJson(): String = buildJsonArray {
+        add(agentObject(AGENT_NAME, "Default primary agent"))
+        add(agentObject("plan", "Read-only planning agent"))
+    }.toString()
+
+    private fun agentObject(name: String, description: String): JsonObject = buildJsonObject {
+        put("name", name)
+        put("description", description)
+        put("mode", "primary")
+        put("native", true)
+        put("hidden", false)
+        put("permission", buildJsonObject { })
+        put("options", buildJsonObject { })
+    }
 }
+

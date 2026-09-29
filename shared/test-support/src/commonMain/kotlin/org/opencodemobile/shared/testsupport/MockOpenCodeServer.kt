@@ -26,6 +26,7 @@ import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -40,6 +41,8 @@ public data class MockPermissionReply(
 public data class MockQuestionReply(
     public val requestID: String,
     public val decision: String,
+    /** The `answers` array parsed off the reply body, when the request was a reply. */
+    public val answers: List<List<String>>? = null,
 )
 
 /**
@@ -230,7 +233,11 @@ public class MockOpenCodeServer(
 
             method == HttpMethod.Post && path.startsWith("$QUESTION_PATH/") && path.endsWith("/reply") -> {
                 val requestID = path.removePrefix("$QUESTION_PATH/").removeSuffix("/reply")
-                questionReplyLog += MockQuestionReply(requestID, decision = "reply")
+                questionReplyLog += MockQuestionReply(
+                    requestID = requestID,
+                    decision = "reply",
+                    answers = parseQuestionAnswers(readBodyText(request.body)),
+                )
                 jsonResponse("true", HttpStatusCode.OK, callContext)
             }
 
@@ -239,6 +246,14 @@ public class MockOpenCodeServer(
                 questionReplyLog += MockQuestionReply(requestID, decision = "reject")
                 jsonResponse("true", HttpStatusCode.OK, callContext)
             }
+
+            // --- V1-09: server-exposed models and agents ---
+
+            method == HttpMethod.Get && path == PROVIDER_PATH ->
+                jsonResponse(catalogProvidersJson(), HttpStatusCode.OK, callContext)
+
+            method == HttpMethod.Get && path == AGENT_PATH ->
+                jsonResponse(catalogAgentsJson(), HttpStatusCode.OK, callContext)
 
             else -> notFoundJson(callContext)
         }
@@ -262,6 +277,20 @@ public class MockOpenCodeServer(
             OpenCodeFixtures.questionsJson()
         } else {
             "[]"
+        }
+
+    private fun catalogProvidersJson(): String =
+        if (scenario == MockOpenCodeScenario.NoCatalog) {
+            OpenCodeFixtures.emptyProvidersJson()
+        } else {
+            OpenCodeFixtures.providersJson()
+        }
+
+    private fun catalogAgentsJson(): String =
+        if (scenario == MockOpenCodeScenario.NoCatalog) {
+            "[]"
+        } else {
+            OpenCodeFixtures.agentsJson()
         }
 
     private fun nextSession(): MockSession {
@@ -405,6 +434,16 @@ public class MockOpenCodeServer(
         return reply to message
     }
 
+    /** Parses `{ "answers": [[label, ...], ...] }`, or null when the body is not a reply. */
+    private fun parseQuestionAnswers(text: String?): List<List<String>>? {
+        if (text.isNullOrBlank()) return null
+        val obj = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject ?: return null
+        val answers = obj["answers"] as? JsonArray ?: return null
+        return answers.map { question ->
+            (question as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }
+        }
+    }
+
     private fun jsonResponse(
         body: String,
         status: HttpStatusCode,
@@ -433,6 +472,8 @@ public class MockOpenCodeServer(
         public const val EVENT_PATH: String = "/event"
         public const val PERMISSION_PATH: String = "/permission"
         public const val QUESTION_PATH: String = "/question"
+        public const val PROVIDER_PATH: String = "/provider"
+        public const val AGENT_PATH: String = "/agent"
 
         private const val ERROR_JSON: String =
             """{"error":{"type":"server_error","message":"scripted mock server failure"}}"""

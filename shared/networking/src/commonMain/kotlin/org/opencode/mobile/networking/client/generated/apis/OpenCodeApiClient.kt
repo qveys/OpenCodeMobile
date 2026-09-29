@@ -232,11 +232,23 @@ class OpenCodeApiClient(
     }
 
     /**
-     * List providers and models (GET /provider).
+     * List providers and their models (GET /provider).
+     * Returns the spec object holding all providers, default model ids and connected ids.
      */
-    suspend fun listProviders(): List<ApiProvider> {
+    suspend fun listProviders(directory: String? = null): ApiProviderList {
         return httpClient.get("$baseUrl/provider") {
             applyAuth()
+            if (directory != null) parameter("directory", directory)
+        }.body()
+    }
+
+    /**
+     * List the available agents (GET /agent).
+     */
+    suspend fun listAgents(directory: String? = null): List<ApiAgent> {
+        return httpClient.get("$baseUrl/agent") {
+            applyAuth()
+            if (directory != null) parameter("directory", directory)
         }.body()
     }
 }

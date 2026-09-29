@@ -56,8 +56,18 @@ public enum class MockOpenCodeScenario {
     /** `/event` streams the default script with a configurable, assertable inter-event delay. */
     SlowNetwork,
 
-    /** `/event` streams a large fixture (hundreds of `message.part.updated` events). */
+    /**
+     * `/event` streams a large fixture (hundreds of `message.part.updated` events).
+     */
     LongTranscript,
+
+    /**
+     * `GET /provider` and `GET /agent` answer with empty lists, and `GET /question`
+     * answers `[]`: a server that exposes no catalog and no pending interaction.
+     * Used by V1-09 to prove the screen stays empty with a reason instead of
+     * falling back to a hard-coded catalog.
+     */
+    NoCatalog,
 
     /** Every route returns `401 Unauthorized`, regardless of headers. */
     AuthenticationFailure,
