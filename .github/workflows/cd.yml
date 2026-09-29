@@ -1,0 +1,244 @@
+name: CD
+
+# OPE-161 — Land the deployment (CD) workflow. This is the workflow OPE-19
+# specified but never landed on `main`, and it is the workflow named by
+# `.github/workflows/smoke-test.yml` (OPE-20):
+#
+#     on:
+#       workflow_run:
+#         workflows: ["CD"]
+#         types: [completed]
+#
+# GitHub does NOT error when a `workflow_run` names a workflow that does not
+# exist — it simply never fires. The `name:` above MUST stay exactly `CD`.
+#
+# Trigger model:
+#   - push to `main`        -> deploy to `staging` (Play internal / TestFlight internal)
+#   - push a `v*` tag       -> deploy to `production`
+#   - `workflow_dispatch`   -> explicit environment / track / dry-run
+#
+# Toolchain policy (repo Actions allowlist): the repository allows only
+# `actions/checkout@*` to run; every other action (`actions/setup-java`,
+# `actions/upload-artifact`, `google-github-actions/auth`, ...) is rejected with
+# `startup_failure` before the job starts. This workflow therefore uses ONLY
+# `actions/checkout` plus shell steps, and relies on the JDK / Android SDK /
+# curl / python3 that GitHub-hosted runners already provide (`JAVA_HOME_21_X64`
+# on ubuntu, same convention as `.github/workflows/build.yml`).
+#
+# A consequence of that allowlist: build outputs cannot be shared between jobs
+# (no `upload-artifact`/`download-artifact`), so each platform job builds and
+# deploys its own artifact in a single job.
+#
+# Bootstrap behaviour: no Google Play / App Store Connect credentials exist yet
+# and no `SMOKE_BASE_URL` deployment target is configured. When no credential is
+# present the deploy scripts skip the store upload with a notice and the run
+# still succeeds, so the post-deployment smoke test (OPE-20) is wired and will
+# start guarding the moment a real target exists. The heavy release build is
+# likewise skipped on a plain `main` push until there is something to deploy;
+# configure the store credential (or dispatch with `dry_run: true`) to exercise
+# it.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target deployment environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: 'staging'
+      track:
+        description: 'Google Play track (internal, alpha, beta, production)'
+        required: false
+        type: string
+        default: 'internal'
+      dry_run:
+        description: 'Build and validate packaging/secrets without store upload'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      target_env: ${{ steps.determine.outputs.target_env }}
+      play_track: ${{ steps.determine.outputs.play_track }}
+      dry_run: ${{ steps.determine.outputs.dry_run }}
+      version_tag: ${{ steps.determine.outputs.version_tag }}
+    steps:
+      - name: Determine deployment parameters
+        id: determine
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            ENV='${{ inputs.environment }}'
+            TRACK='${{ inputs.track }}'
+            DRY_RUN='${{ inputs.dry_run }}'
+            TAG=''
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            ENV='production'
+            TRACK='production'
+            DRY_RUN='false'
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            ENV='staging'
+            TRACK='internal'
+            DRY_RUN='false'
+            TAG=''
+          fi
+          {
+            echo "target_env=${ENV}"
+            echo "play_track=${TRACK}"
+            echo "dry_run=${DRY_RUN}"
+            echo "version_tag=${TAG}"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::Deploy parameters resolved: Environment=${ENV}, PlayTrack=${TRACK}, DryRun=${DRY_RUN}, VersionTag=${TAG}"
+
+  deploy-android:
+    name: Deploy Android (${{ needs.prepare.outputs.target_env }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: prepare
+    environment:
+      name: ${{ needs.prepare.outputs.target_env }}
+      url: https://play.google.com/console
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Build Android release bundle
+        id: package
+        env:
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PLAY_CONSOLE_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_CONSOLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+
+          write_bootstrap_manifest() {
+            mkdir -p build/outputs/bootstrap
+            printf '{\n  "version": "%s",\n  "gitSha": "%s",\n  "environment": "%s",\n  "status": "bootstrap_placeholder"\n}\n' \
+              "${VERSION_TAG:-0.1.0-bootstrap}" "${GITHUB_SHA}" "${TARGET_ENV}" \
+              > build/outputs/bootstrap/build-manifest.json
+            echo "::notice::Bootstrap build manifest written; there is no Android release bundle yet."
+          }
+
+          VERSION_TAG='${{ needs.prepare.outputs.version_tag }}'
+          TARGET_ENV='${{ needs.prepare.outputs.target_env }}'
+
+          if [ ! -f ./gradlew ]; then
+            echo "::notice::No Gradle project checked in yet (bootstrap phase)."
+            write_bootstrap_manifest
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          have_target=false
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] \
+            || [ -n "${PLAY_CONSOLE_SERVICE_ACCOUNT_JSON:-}" ] \
+            || [ "${DRY_RUN}" = "true" ] \
+            || [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            have_target=true
+          fi
+
+          if [ "${have_target}" != "true" ]; then
+            echo "::notice::No Google Play upload credentials configured for environment '${TARGET_ENV}'. Skipping the release build until a deployment target exists."
+            echo "::notice::Set ANDROID_KEYSTORE_BASE64 and/or PLAY_CONSOLE_SERVICE_ACCOUNT_JSON (scoped to the '${TARGET_ENV}' environment), or dispatch this workflow with dry_run=true."
+            write_bootstrap_manifest
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          chmod +x ./gradlew
+          java -version
+          ./gradlew :androidApp:assembleRelease :androidApp:bundleRelease --no-daemon --stacktrace
+
+          # The allowlist forbids upload-artifact, so hand the bundle to the
+          # deploy script in-place.
+          mkdir -p build/outputs
+          find androidApp/build/outputs -name '*.aab' -exec cp {} build/outputs/ \;
+          find androidApp/build/outputs -name '*.apk' -exec cp {} build/outputs/ \;
+          find build/outputs -maxdepth 1 -type f -print -exec sha256sum {} \;
+          echo "built=true" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to Google Play
+        env:
+          TARGET_ENV: ${{ needs.prepare.outputs.target_env }}
+          PLAY_TRACK: ${{ needs.prepare.outputs.play_track }}
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          GRADLE_PROJECT_EXISTS: "true"
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # GitHub-hosted OIDC/WIF needs `google-github-actions/auth`, which the
+          # Actions allowlist rejects today; the service-account fallback is used
+          # until that action is allowlisted.
+          PLAY_CONSOLE_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_CONSOLE_SERVICE_ACCOUNT_JSON }}
+        run: bash scripts/deploy/deploy-play-store.sh
+
+      - name: Clean up signing credentials
+        if: always()
+        run: rm -f /tmp/release.keystore /tmp/release.jks /tmp/gcp-sa.json
+
+  deploy-ios:
+    name: Deploy iOS (${{ needs.prepare.outputs.target_env }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: prepare
+    environment:
+      name: ${{ needs.prepare.outputs.target_env }}
+      url: https://appstoreconnect.apple.com
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Deploy to Apple TestFlight / App Store Connect
+        env:
+          TARGET_ENV: ${{ needs.prepare.outputs.target_env }}
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          GRADLE_PROJECT_EXISTS: "true"
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+        run: bash scripts/deploy/deploy-testflight.sh
+
+      - name: Clean up iOS credentials
+        if: always()
+        run: rm -f /tmp/AuthKey_*.p8
+
+  smoke-test:
+    name: Post-deploy check (${{ needs.prepare.outputs.target_env }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [prepare, deploy-android, deploy-ios]
+    # Run whenever at least the Android deploy leg succeeded, so a flaky iOS leg
+    # does not hide a working Android deployment. `scripts/deploy/smoke-test.sh`
+    # is the bootstrap pipeline check; the real end-to-end health/version smoke
+    # test is `.github/workflows/smoke-test.yml` (OPE-20), which this workflow
+    # triggers through `workflow_run`.
+    if: >-
+      always() && !cancelled() &&
+      needs.deploy-android.result == 'success' &&
+      (needs.deploy-ios.result == 'success' || needs.deploy-ios.result == 'skipped')
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Run post-deploy pipeline check
+        env:
+          TARGET_ENV: ${{ needs.prepare.outputs.target_env }}
+          PLAY_TRACK: ${{ needs.prepare.outputs.play_track }}
+        run: bash scripts/deploy/smoke-test.sh

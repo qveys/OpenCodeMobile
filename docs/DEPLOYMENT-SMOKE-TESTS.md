@@ -22,9 +22,11 @@ and alerts when either check fails.
 ## When it runs
 
 - **After each deployment.** The workflow listens for `workflow_run` completion
-  of the `CD` workflow (`.github/workflows/cd.yml`, OPE-19) and runs when that
-  run succeeded and was triggered by a `push` or manual CD dispatch. It checks
-  out the exact revision CD deployed.
+  of the `CD` workflow (`.github/workflows/cd.yml`, landed by OPE-161) and runs
+  when that run succeeded and was triggered by a `push` or manual CD dispatch.
+  It checks out the exact revision CD deployed. The `CD` workflow name is the
+  contract between the two files: GitHub silently never fires a `workflow_run`
+  whose referenced workflow name does not exist.
 - **On demand.** `workflow_dispatch` takes a `base_url` and an optional
   `expected_version`.
 - **On PRs touching the smoke scripts.** The `self-test` job keeps the smoke
