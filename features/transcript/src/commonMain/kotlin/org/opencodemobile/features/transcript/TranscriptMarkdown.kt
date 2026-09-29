@@ -17,12 +17,15 @@ import com.mikepenz.markdown.m3.Markdown
  * wrapped in a [SelectionContainer] so code (and prose) is selectable and
  * copyable with the platform selection menu.
  *
- * **Version note.** ADR 0006 pinned `0.45.0`, but that release is compiled with
- * Kotlin 2.4 metadata and cannot be read by this repo's Kotlin 2.1.0 compiler.
- * `0.35.0` is the newest release whose metadata is Kotlin 2.1.x; it keeps the
- * same `-code` highlighting. Its code fence has no built-in language header or
- * copy button yet, so selection is provided here via [SelectionContainer] and
- * the explicit copy affordance is a follow-up gated on a Kotlin upgrade.
+ * **Version note.** ADR 0006 pinned `0.45.0`, which cannot be used here: that
+ * release is compiled with Kotlin 2.4 metadata and is unreadable by this repo's
+ * Kotlin 2.1.0 compiler. `0.35.0` is readable, but its iOS klib links Compose
+ * `ui-backhandler` (a CMP 1.8+ artifact) that this repo's CMP 1.7.1 does not
+ * ship, so the iOS framework link fails. `0.33.0` is the newest release
+ * compatible with both constraints and still ships the Highlights `-code`
+ * module. Its code fence has no built-in language header or copy button, so
+ * selection is provided here via [SelectionContainer]; the explicit copy
+ * affordance is a follow-up gated on a Kotlin/Compose upgrade.
  *
  * This is the single wrapper the ADR asks for: the library stays swappable
  * behind one composable. No image transformer is wired, so a remote image in
