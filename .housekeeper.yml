@@ -15,3 +15,16 @@ handlers:
     enabled: true
   require-up-to-date:
     enabled: true
+  pr-comment:
+    enabled: true
+  sync-labels:
+    enabled: true
+  # OpenCodeMobile has no CODEOWNERS / PR template / security policy yet, so
+  # check the governance files that do exist instead of the handler defaults
+  # (which would fail every PR until those files exist).
+  required-checks:
+    enabled: true
+    requiredFiles:
+      - README.md
+      - ROADMAP.md
+      - LICENSE
