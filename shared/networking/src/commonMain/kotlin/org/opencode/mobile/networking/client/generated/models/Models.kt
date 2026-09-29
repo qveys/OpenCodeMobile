@@ -51,6 +51,11 @@ data class ApiForkSessionRequest(
 )
 
 @Serializable
+data class ApiUpdateSessionRequest(
+    val title: String? = null
+)
+
+@Serializable
 data class ApiSessionStatus(
     val type: String,
     val attempt: Int? = null,

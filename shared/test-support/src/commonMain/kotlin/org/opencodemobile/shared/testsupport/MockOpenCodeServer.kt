@@ -81,11 +81,19 @@ public class MockOpenCodeServer(
     public val scenario: MockOpenCodeScenario = MockOpenCodeScenario.Default,
     private val requiredBearerToken: String? = null,
     public val streamConfig: MockOpenCodeStreamConfig = MockOpenCodeStreamConfig(),
+    /**
+     * When true, the bound client throws on non-2xx responses, matching the
+     * app's real client (`OpenCodeHttpClient.create`). The default stays false
+     * so the existing streaming/routing tests keep reading error bodies.
+     */
+    private val expectSuccess: Boolean = false,
 ) {
     public val baseUrl: String = BASE_URL
 
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val createdSessions: MutableList<MockSession> = mutableListOf()
+    private val sessionOverrides: MutableMap<String, MockSession> = mutableMapOf()
+    private val deletedSessionIds: MutableSet<String> = mutableSetOf()
     private val requestLog: MutableList<String> = mutableListOf()
     private val permissionReplyLog: MutableList<MockPermissionReply> = mutableListOf()
     private val questionReplyLog: MutableList<MockQuestionReply> = mutableListOf()
@@ -121,7 +129,7 @@ public class MockOpenCodeServer(
         val engine = Engine()
         engineRef = engine
         httpClient = HttpClient(engine) {
-            expectSuccess = false
+            expectSuccess = this@MockOpenCodeServer.expectSuccess
             install(ContentNegotiation) { json(json) }
         }
         return this
@@ -134,6 +142,8 @@ public class MockOpenCodeServer(
         httpClient = null
         engineRef = null
         createdSessions.clear()
+        sessionOverrides.clear()
+        deletedSessionIds.clear()
         requestLog.clear()
         permissionReplyLog.clear()
         questionReplyLog.clear()
@@ -188,6 +198,17 @@ public class MockOpenCodeServer(
                 jsonResponse(OpenCodeFixtures.healthJson(version), HttpStatusCode.OK, callContext)
             }
 
+            // The server's own published surface: capability detection reads this
+            // instead of assuming a feature set (V1-04).
+            method == HttpMethod.Get && path == DOC_PATH ->
+                jsonResponse(
+                    OpenCodeFixtures.serverDocumentJson(
+                        forkAvailable = scenario != MockOpenCodeScenario.NoFork,
+                    ),
+                    HttpStatusCode.OK,
+                    callContext,
+                )
+
             method == HttpMethod.Get && path == SESSION_PATH ->
                 jsonResponse(sessionsJson(), HttpStatusCode.OK, callContext)
 
@@ -195,8 +216,48 @@ public class MockOpenCodeServer(
                 jsonResponse(sessionStatusJson(), HttpStatusCode.OK, callContext)
 
             method == HttpMethod.Post && path == SESSION_PATH -> {
-                val created = nextSession()
+                val body = readBodyText(request.body)
+                val created = nextSession(
+                    title = parseTitle(body),
+                    directory = parseDirectory(body),
+                )
                 jsonResponse(OpenCodeFixtures.sessionJson(created), HttpStatusCode.Created, callContext)
+            }
+
+            method == HttpMethod.Post && path.startsWith("$SESSION_PATH/") && path.endsWith("/fork") -> {
+                if (scenario == MockOpenCodeScenario.NoFork) {
+                    notFoundJson(callContext)
+                } else {
+                    val id = path.removePrefix("$SESSION_PATH/").removeSuffix("/fork")
+                    val parent = allSessions().firstOrNull { it.id == id }
+                    if (parent == null) {
+                        notFoundJson(callContext)
+                    } else {
+                        val forked = nextForkedSession(parent)
+                        jsonResponse(OpenCodeFixtures.sessionJson(forked), HttpStatusCode.Created, callContext)
+                    }
+                }
+            }
+
+            method == HttpMethod.Patch && path.startsWith("$SESSION_PATH/") -> {
+                val id = path.removePrefix("$SESSION_PATH/")
+                val existing = allSessions().firstOrNull { it.id == id }
+                val title = parseTitle(readBodyText(request.body))
+                when {
+                    existing == null -> notFoundJson(callContext)
+                    title == null -> badRequestJson(callContext)
+                    else -> {
+                        val renamed = existing.copy(title = title, updated = existing.updated + 1L)
+                        sessionOverrides[id] = renamed
+                        jsonResponse(OpenCodeFixtures.sessionJson(renamed), HttpStatusCode.OK, callContext)
+                    }
+                }
+            }
+
+            method == HttpMethod.Delete && path.startsWith("$SESSION_PATH/") -> {
+                val id = path.removePrefix("$SESSION_PATH/")
+                deletedSessionIds += id
+                jsonResponse("true", HttpStatusCode.OK, callContext)
             }
 
             method == HttpMethod.Get && path.startsWith("$SESSION_PATH/") -> {
@@ -259,7 +320,10 @@ public class MockOpenCodeServer(
         }
     }
 
-    private fun allSessions(): List<MockSession> = OpenCodeFixtures.sessions + createdSessions
+    private fun allSessions(): List<MockSession> =
+        (OpenCodeFixtures.sessions + createdSessions)
+            .map { session -> sessionOverrides[session.id] ?: session }
+            .filterNot { session -> session.id in deletedSessionIds }
 
     private fun sessionsJson(): String = OpenCodeFixtures.sessionsJson(allSessions())
 
@@ -293,18 +357,41 @@ public class MockOpenCodeServer(
             OpenCodeFixtures.agentsJson()
         }
 
-    private fun nextSession(): MockSession {
+    private fun nextSession(
+        title: String? = null,
+        directory: String? = null,
+    ): MockSession {
         sessionSequence += 1
         val sequence = sessionSequence
         val session = MockSession(
             id = "ses_mock_${1000 + sequence}",
-            title = "Created mock session $sequence",
-            directory = OpenCodeFixtures.DIRECTORY,
+            title = title ?: "Created mock session $sequence",
+            directory = directory ?: OpenCodeFixtures.DIRECTORY,
             created = OpenCodeFixtures.BASE_TIME + sequence,
             updated = OpenCodeFixtures.BASE_TIME + sequence,
         )
         createdSessions += session
         return session
+    }
+
+    /**
+     * A session created by `POST /session/{id}/fork`: a new id, the parent id
+     * carried in `parentID`, and a title derived from the parent so the list
+     * shows the relationship.
+     */
+    private fun nextForkedSession(parent: MockSession): MockSession {
+        sessionSequence += 1
+        val sequence = sessionSequence
+        val forked = MockSession(
+            id = "ses_mock_${1000 + sequence}",
+            title = "${parent.title} (fork)",
+            directory = parent.directory,
+            created = OpenCodeFixtures.BASE_TIME + sequence,
+            updated = OpenCodeFixtures.BASE_TIME + sequence,
+            parentId = parent.id,
+        )
+        createdSessions += forked
+        return forked
     }
 
     private fun isUnauthorized(request: HttpRequestData): Boolean {
@@ -434,6 +521,20 @@ public class MockOpenCodeServer(
         return reply to message
     }
 
+    /** Parses `{ "title": "..." }` off a `PATCH /session/{id}` body, or null. */
+    private fun parseTitle(text: String?): String? {
+        if (text.isNullOrBlank()) return null
+        val obj = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject ?: return null
+        return (obj["title"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+    }
+
+    /** Parses the optional `directory` off a `POST /session` body, or null. */
+    private fun parseDirectory(text: String?): String? {
+        if (text.isNullOrBlank()) return null
+        val obj = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject ?: return null
+        return (obj["directory"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+    }
+
     /** Parses `{ "answers": [[label, ...], ...] }`, or null when the body is not a reply. */
     private fun parseQuestionAnswers(text: String?): List<List<String>>? {
         if (text.isNullOrBlank()) return null
@@ -464,9 +565,17 @@ public class MockOpenCodeServer(
             callContext,
         )
 
+    private fun badRequestJson(callContext: CoroutineContext): HttpResponseData =
+        jsonResponse(
+            """{"error":{"type":"bad_request","message":"invalid request body"}}""",
+            HttpStatusCode.BadRequest,
+            callContext,
+        )
+
     public companion object {
         public const val BASE_URL: String = "http://mock.opencode.test"
         public const val HEALTH_PATH: String = "/global/health"
+        public const val DOC_PATH: String = "/doc"
         public const val SESSION_PATH: String = "/session"
         public const val SESSION_STATUS_PATH: String = "/session/status"
         public const val EVENT_PATH: String = "/event"

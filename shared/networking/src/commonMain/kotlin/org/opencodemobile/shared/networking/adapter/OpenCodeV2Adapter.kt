@@ -1,13 +1,20 @@
 package org.opencodemobile.shared.networking.adapter
 
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.ClientRequestException
+import io.ktor.http.HttpStatusCode
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import org.opencode.mobile.networking.client.generated.apis.OpenCodeApiClient
 import org.opencode.mobile.networking.client.generated.models.ApiAgent
+import org.opencode.mobile.networking.client.generated.models.ApiCreateSessionRequest
 import org.opencode.mobile.networking.client.generated.models.ApiProvider
 import org.opencode.mobile.networking.client.generated.models.ApiQuestionReplyRequest
 import org.opencode.mobile.networking.client.generated.models.ApiQuestionRequest
+import org.opencode.mobile.networking.client.generated.models.ApiSession
+import org.opencode.mobile.networking.client.generated.models.ApiUpdateSessionRequest
 import org.opencodemobile.shared.domain.connection.ConnectionHandshake
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerCredential
@@ -24,6 +31,13 @@ import org.opencodemobile.shared.domain.interaction.ProviderModels
 import org.opencodemobile.shared.domain.interaction.QuestionItem
 import org.opencodemobile.shared.domain.interaction.QuestionOption
 import org.opencodemobile.shared.domain.interaction.ServerCatalog
+import org.opencodemobile.shared.domain.session.ServerUnavailableException
+import org.opencodemobile.shared.domain.session.SessionCapabilities
+import org.opencodemobile.shared.domain.session.SessionGateway
+import org.opencodemobile.shared.domain.session.SessionNotConnectedException
+import org.opencodemobile.shared.domain.session.SessionNotFoundException
+import org.opencodemobile.shared.domain.session.SessionRejectedException
+import org.opencodemobile.shared.domain.session.SessionSummary
 import org.opencodemobile.shared.security.identity.ServerIdentityAuthorization
 import org.opencodemobile.shared.security.identity.ServerIdentityGate
 import org.opencodemobile.shared.security.identity.ServerIdentityPinController
@@ -57,7 +71,7 @@ public class OpenCodeV2Adapter(
     private val httpClient: HttpClient,
     private val identityGate: ServerIdentityGate,
     private val identityPin: ServerIdentityPinController,
-) : OpenCodeGateway, OpenCodeInteractionGateway {
+) : OpenCodeGateway, OpenCodeInteractionGateway, SessionGateway {
 
     @Volatile
     private var credentialPermit: ServerCredential? = null
@@ -191,6 +205,80 @@ public class OpenCodeV2Adapter(
         )
     }
 
+    // --- V1-04: session list, create, resume, rename, delete, fork ---
+
+    override suspend fun listSessions(directory: String?): List<SessionSummary> =
+        sessionCall { requireActiveClient().listSessions(directory).map { it.toDomain() } }
+
+    override suspend fun getSession(sessionId: String): SessionSummary =
+        sessionCall(sessionId) { requireActiveClient().getSession(sessionId).toDomain() }
+
+    override suspend fun createSession(directory: String?, title: String?): SessionSummary =
+        sessionCall {
+            requireActiveClient()
+                .createSession(ApiCreateSessionRequest(directory = directory, title = title))
+                .toDomain()
+        }
+
+    override suspend fun renameSession(sessionId: String, title: String): SessionSummary =
+        sessionCall(sessionId) {
+            requireActiveClient()
+                .updateSession(sessionId, ApiUpdateSessionRequest(title = title))
+                .toDomain()
+        }
+
+    override suspend fun deleteSession(sessionId: String) {
+        sessionCall(sessionId) { requireActiveClient().deleteSession(sessionId) }
+    }
+
+    override suspend fun forkSession(sessionId: String): SessionSummary =
+        sessionCall(sessionId) { requireActiveClient().forkSession(sessionId).toDomain() }
+
+    /**
+     * Reads the capability surface from the server's own published document
+     * (`GET /doc`). A server that does not publish the fork route reports
+     * [SessionCapabilities.Unknown] (fork unavailable); an unreadable surface
+     * degrades to a hidden action rather than an error, which is what the
+     * V1-04 "no rejected call" criterion requires.
+     */
+    override suspend fun sessionCapabilities(directory: String?): SessionCapabilities =
+        try {
+            val document = requireActiveClient().getServerDocument()
+            SessionCapabilities(forkAvailable = ServerSurface.supportsFork(document))
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            SessionCapabilities.Unknown
+        }
+
+    /**
+     * Runs a session call and maps every failure to a typed
+     * [org.opencodemobile.shared.domain.session.SessionFailure], so a raw status
+     * code or generated error type never escapes the adapter. Cancellation is
+     * always propagated.
+     */
+    private suspend fun <T> sessionCall(
+        sessionId: String? = null,
+        block: suspend () -> T,
+    ): T =
+        try {
+            block()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (notConnected: InteractionNotConnectedException) {
+            throw SessionNotConnectedException()
+        } catch (clientError: ClientRequestException) {
+            if (clientError.response.status == HttpStatusCode.NotFound) {
+                throw SessionNotFoundException(sessionId = sessionId ?: "", cause = clientError)
+            }
+            throw SessionRejectedException(
+                message = clientError.message ?: "The server refused the session request",
+                cause = clientError,
+            )
+        } catch (failure: Throwable) {
+            throw ServerUnavailableException(cause = failure)
+        }
+
     /**
      * Fails closed when there is no verified active connection: the credential
      * permit is released only after the T1 identity check, so without it there
@@ -245,3 +333,36 @@ private fun ApiAgent.toDomain(): AgentDescriptor = AgentDescriptor(
     mode = mode,
     hidden = hidden ?: false,
 )
+
+private fun ApiSession.toDomain(): SessionSummary = SessionSummary(
+    id = id,
+    // A session the server has not titled falls back to its id so the list
+    // never renders a blank row.
+    title = title?.takeIf { it.isNotBlank() } ?: id,
+    directory = directory,
+    projectId = projectID,
+    parentSessionId = parentID,
+    createdAt = time?.created ?: 0L,
+    updatedAt = time?.updated ?: time?.created ?: 0L,
+)
+
+/**
+ * Reads optional capabilities off the server's published OpenAPI document.
+ *
+ * Capability detection is deliberately based on the surface the server
+ * *publishes at runtime*, not on a hard-coded feature catalog: a server build
+ * that does not expose `POST /session/{sessionID}/fork` simply omits the path.
+ */
+private object ServerSurface {
+    private const val FORK_PATH = "/session/{sessionID}/fork"
+
+    private val json: Json = Json { ignoreUnknownKeys = true }
+
+    fun supportsFork(document: String): Boolean {
+        val root = runCatching { json.parseToJsonElement(document) }.getOrNull() as? JsonObject
+            ?: return false
+        val paths = root["paths"] as? JsonObject ?: return false
+        return paths.containsKey(FORK_PATH)
+    }
+}
+

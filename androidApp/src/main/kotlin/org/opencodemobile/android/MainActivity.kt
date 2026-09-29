@@ -30,6 +30,8 @@ import org.opencodemobile.features.permissions.PermissionBanner
 import org.opencodemobile.features.permissions.PermissionConfirmationScreen
 import org.opencodemobile.features.permissions.PermissionDeepLink
 import org.opencodemobile.features.permissions.PermissionsPresenter
+import org.opencodemobile.features.sessions.SessionsPresenter
+import org.opencodemobile.features.sessions.SessionsScreen
 
 /**
  * The Android host for the permission surface (OPE-173 / V1-06).
@@ -63,11 +65,13 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         requestNotificationPermission()
         consumePermissionIntent(intent)
+        val sessionsPresenter = sessionsPresenterOrNull()
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     PermissionHost(
                         presenter = presenterOrNull(),
+                        sessionsPresenter = sessionsPresenter,
                         requestedConfirmationId = requestedConfirmation,
                         onConfirmationRequestHandled = { requestedConfirmation = null },
                     )
@@ -121,16 +125,26 @@ class MainActivity : FragmentActivity() {
      */
     private fun presenterOrNull(): PermissionsPresenter? =
         runCatching { GlobalContext.getOrNull()?.get<PermissionsPresenter>() }.getOrNull()
+
+    /**
+     * The sessions graph is only present once the cache/connection composition
+     * roots are wired; until then the host renders the placeholder shell. It is
+     * the V1-04 home surface: it lists, creates, opens, renames, deletes and
+     * forks sessions through the application controller.
+     */
+    private fun sessionsPresenterOrNull(): SessionsPresenter? =
+        runCatching { GlobalContext.getOrNull()?.get<SessionsPresenter>() }.getOrNull()
 }
 
 @Composable
 private fun PermissionHost(
     presenter: PermissionsPresenter?,
+    sessionsPresenter: SessionsPresenter?,
     requestedConfirmationId: String?,
     onConfirmationRequestHandled: () -> Unit,
 ) {
     if (presenter == null) {
-        PermissionPlaceholder()
+        HomeContent(sessionsPresenter)
         return
     }
     val state = presenter.state.collectAsState().value
@@ -157,7 +171,7 @@ private fun PermissionHost(
                 },
             )
         } else {
-            PermissionPlaceholder()
+            HomeContent(sessionsPresenter)
             if (banner != null) {
                 PermissionBanner(
                     model = banner,
@@ -170,11 +184,23 @@ private fun PermissionHost(
     }
 }
 
+/**
+ * The V1-04 home surface: the sessions list. Until the connection/onboarding
+ * composition root lands, an unwired graph renders the placeholder shell.
+ *
+ * Opening a session navigates to the session/transcript screen, which lands with
+ * OPE-109 (V1-05); the list itself is fully wired.
+ */
 @Composable
-private fun PermissionPlaceholder() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        // Real navigation host wiring the features/* screens together lands with the
-        // connection/projects/sessions feature work.
-        Text("OpenCode Mobile")
+private fun HomeContent(sessionsPresenter: SessionsPresenter?) {
+    if (sessionsPresenter == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("OpenCode Mobile")
+        }
+        return
     }
+    SessionsScreen(
+        presenter = sessionsPresenter,
+        onOpenSession = { /* The session screen lands with OPE-109 (V1-05). */ },
+    )
 }

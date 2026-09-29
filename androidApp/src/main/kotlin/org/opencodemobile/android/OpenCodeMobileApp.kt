@@ -10,6 +10,7 @@ import org.opencodemobile.android.cache.CacheWriteRuntime
 import org.opencodemobile.android.di.PERMISSION_SCOPE_QUALIFIER
 import org.opencodemobile.android.di.cacheModule
 import org.opencodemobile.android.di.permissionModule
+import org.opencodemobile.android.di.sessionsModule
 import org.opencodemobile.android.permission.PermissionRuntime
 
 class OpenCodeMobileApp : Application() {
@@ -19,7 +20,7 @@ class OpenCodeMobileApp : Application() {
             androidContext(this@OpenCodeMobileApp)
             // Per-module Koin modules (shared/*, features/*) are added here as each
             // layer is implemented; D12 keeps shared/domain free of Koin entirely.
-            modules(cacheModule, permissionModule)
+            modules(cacheModule, permissionModule, sessionsModule)
         }
         startPermissionSurface()
         startCacheWritePath()

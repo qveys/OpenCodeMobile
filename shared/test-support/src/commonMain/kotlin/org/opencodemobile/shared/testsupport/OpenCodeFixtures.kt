@@ -15,6 +15,8 @@ public data class MockSession(
     public val directory: String,
     public val created: Long,
     public val updated: Long,
+    /** Server-issued parent session id when this session was forked, else null. */
+    public val parentId: String? = null,
 )
 
 /**
@@ -83,6 +85,9 @@ public object OpenCodeFixtures {
             put("directory", session.directory)
             put("title", session.title)
             put("version", SERVER_VERSION)
+            if (session.parentId != null) {
+                put("parentID", session.parentId)
+            }
             putJsonObject("time") {
                 put("created", session.created)
                 put("updated", session.updated)
@@ -96,6 +101,32 @@ public object OpenCodeFixtures {
     public fun sessionsJson(sessions: List<MockSession> = this.sessions): String =
         buildJsonArray {
             sessions.forEach { session -> add(sessionObject(session)) }
+        }.toString()
+
+    /**
+     * `GET /doc` body: the server's own published surface, used to detect
+     * optional capabilities at runtime. When [forkAvailable] is false the fork
+     * route is absent, exactly like a server build that never exposed it.
+     */
+    public fun serverDocumentJson(forkAvailable: Boolean = true): String =
+        buildJsonObject {
+            put("openapi", "3.1.0")
+            putJsonObject("paths") {
+                putJsonObject("/session") {
+                    putJsonObject("get") { }
+                    putJsonObject("post") { }
+                }
+                putJsonObject("/session/{sessionID}") {
+                    putJsonObject("get") { }
+                    putJsonObject("patch") { }
+                    putJsonObject("delete") { }
+                }
+                if (forkAvailable) {
+                    putJsonObject("/session/{sessionID}/fork") {
+                        putJsonObject("post") { }
+                    }
+                }
+            }
         }.toString()
 
     /**

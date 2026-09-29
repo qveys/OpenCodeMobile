@@ -1,7 +1,9 @@
 package org.opencodemobile.shared.testsupport
 
 import io.ktor.client.plugins.skipSavingBody
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.prepareGet
 import io.ktor.client.request.setBody
@@ -454,6 +456,77 @@ class MockOpenCodeServerTest {
             assertEquals(script.map { it.id }, delivered.distinct())
         } finally {
             server.stop()
+        }
+    }
+
+    @Test
+    fun sessionMutationRoutesAreReflectedInTheListAndInTheDocumentSurface() = runTest {
+        server.start()
+
+        // create (honours the requested title)
+        server.client.post("${server.baseUrl}${MockOpenCodeServer.SESSION_PATH}") {
+            contentType(ContentType.Application.Json)
+            setBody(TextContent("""{"title":"Titled session"}""", ContentType.Application.Json))
+        }
+        // rename
+        val renamed = server.client.patch(
+            "${server.baseUrl}${MockOpenCodeServer.SESSION_PATH}/ses_mock_1001",
+        ) {
+            contentType(ContentType.Application.Json)
+            setBody(TextContent("""{"title":"Renamed session"}""", ContentType.Application.Json))
+        }
+        assertEquals(200, renamed.status.value)
+        // delete
+        assertEquals(
+            200,
+            server.client.delete("${server.baseUrl}${MockOpenCodeServer.SESSION_PATH}/ses_mock_0002").status.value,
+        )
+        // fork
+        val forked = server.client.post(
+            "${server.baseUrl}${MockOpenCodeServer.SESSION_PATH}/ses_mock_0001/fork",
+        )
+        assertEquals(201, forked.status.value)
+
+        val sessions = Json.parseToJsonElement(
+            server.client.get("${server.baseUrl}${MockOpenCodeServer.SESSION_PATH}").bodyAsText(),
+        ).jsonArray
+        assertTrue(sessions.any { it.jsonObject["id"]?.jsonPrimitive?.content == "ses_mock_1001" })
+        assertTrue(
+            sessions.none { it.jsonObject["id"]?.jsonPrimitive?.content == "ses_mock_0002" },
+            "the deleted session must leave the list",
+        )
+        val forkedObject = sessions.single {
+            it.jsonObject["parentID"]?.jsonPrimitive?.content == "ses_mock_0001"
+        }
+        assertEquals(
+            "Renamed session",
+            sessions.single { it.jsonObject["id"]?.jsonPrimitive?.content == "ses_mock_1001" }
+                .jsonObject["title"]?.jsonPrimitive?.content,
+        )
+        assertTrue(forkedObject.jsonObject["id"]!!.jsonPrimitive.content.startsWith("ses_"))
+
+        val document = Json.parseToJsonElement(
+            server.client.get("${server.baseUrl}${MockOpenCodeServer.DOC_PATH}").bodyAsText(),
+        ).jsonObject
+        assertTrue(document["paths"]!!.jsonObject.containsKey("/session/{sessionID}/fork"))
+    }
+
+    @Test
+    fun noForkScenarioOmitsForkFromTheDocumentAndAnswers404() = runTest {
+        val noFork = MockOpenCodeServer(MockOpenCodeScenario.NoFork).start()
+        try {
+            val document = Json.parseToJsonElement(
+                noFork.client.get("${noFork.baseUrl}${MockOpenCodeServer.DOC_PATH}").bodyAsText(),
+            ).jsonObject
+            assertFalse(document["paths"]!!.jsonObject.containsKey("/session/{sessionID}/fork"))
+
+            val response = noFork.client.post(
+                "${noFork.baseUrl}${MockOpenCodeServer.SESSION_PATH}/ses_mock_0001/fork",
+            )
+            assertEquals(404, response.status.value)
+            assertFalse(noFork.requests.any { it.endsWith("/fork") && it.startsWith("GET") })
+        } finally {
+            noFork.stop()
         }
     }
 

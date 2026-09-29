@@ -61,12 +61,28 @@ timings, stream shapes and fixture sizes are injectable via `MockOpenCodeStreamC
 | `SlowNetwork` | streams `slowNetworkSseEvents()` with `slowNetworkDelayMillis` between events | all nominal routes |
 | `LongTranscript` | streams `longTranscriptSseEvents(longTranscriptPartCount)` | all nominal routes |
 | `NoCatalog` | normal stream | `GET /provider`, `GET /agent` and `GET /question` answer with empty payloads (V1-09 empty-state) |
+| `NoFork` | normal stream | `GET /doc` omits `POST /session/{sessionID}/fork`, and that route answers `404` (V1-04 capability detection) |
 | `AuthenticationFailure` | – | every route returns `401` |
 | `ServerError` | – | every route returns `500` with a typed body |
 
 `MockOpenCodeStreamConfig` also carries the OPE-131 coverage knobs used by the
 kill → polling → resume line: `disconnectConnections`, `replayFromEventId`, `tailEvents`,
 `tailDelayMillis` and `keepOpenMillis`. Each is exercised by a dedicated test in the module.
+
+### Session CRUD and the published surface (V1-04)
+
+The mock mutates real state so the session routes behave like a server rather than a
+fixed fixture:
+
+- `POST /session` honours the request `title`/`directory` and appends the session;
+- `PATCH /session/{id}` renames it and the change is visible on the next `GET /session`;
+- `DELETE /session/{id}` removes it from the list;
+- `POST /session/{id}/fork` creates a child carrying `parentID`.
+
+`GET /doc` returns the server's published OpenAPI document. Capability detection reads
+this surface: the `normal` scenario advertises the fork path, while `NoFork` omits it and
+answers `404` on the fork route, so the app can disable the action without sending a call
+the server would reject.
 
 ## Disconnect / reconnect semantics (consistency with OPE-106)
 

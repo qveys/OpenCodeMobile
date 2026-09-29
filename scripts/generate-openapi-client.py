@@ -88,6 +88,11 @@ data class ApiForkSessionRequest(
 )
 
 @Serializable
+data class ApiUpdateSessionRequest(
+    val title: String? = null
+)
+
+@Serializable
 data class ApiSessionStatus(
     val type: String,
     val attempt: Int? = null,
@@ -244,8 +249,10 @@ import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import org.opencode.mobile.networking.client.generated.models.*
@@ -279,6 +286,18 @@ class OpenCodeApiClient(
             applyAuth()
         }}.body()
     }}
+
+    /**
+     * Fetch the server's published API document (GET /doc).
+     *
+     * This is the server's own description of the surface it exposes. The
+     * adapter reads it to detect optional capabilities (for example session
+     * forking) at runtime instead of assuming a hard-coded feature set.
+     */
+    suspend fun getServerDocument(): String =
+        httpClient.get("$baseUrl/doc") {{
+            applyAuth()
+        }}.bodyAsText()
 
     // --- Sessions ---
 
@@ -317,6 +336,17 @@ class OpenCodeApiClient(
      */
     suspend fun forkSession(sessionID: String, request: ApiForkSessionRequest = ApiForkSessionRequest()): ApiSession {{
         return httpClient.post("$baseUrl/session/$sessionID/fork") {{
+            applyAuth()
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }}.body()
+    }}
+
+    /**
+     * Update session properties, e.g. the title (PATCH /session/{{sessionID}}).
+     */
+    suspend fun updateSession(sessionID: String, request: ApiUpdateSessionRequest): ApiSession {{
+        return httpClient.patch("$baseUrl/session/$sessionID") {{
             applyAuth()
             contentType(ContentType.Application.Json)
             setBody(request)

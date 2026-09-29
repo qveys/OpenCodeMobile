@@ -69,6 +69,14 @@ public enum class MockOpenCodeScenario {
      */
     NoCatalog,
 
+    /**
+     * A server whose published surface (`GET /doc`) does not include
+     * `POST /session/{sessionID}/fork`, and whose fork route answers 404.
+     * Used by V1-04 to prove the fork action is disabled from the server
+     * surface with no rejected call, instead of assuming a hard-coded catalog.
+     */
+    NoFork,
+
     /** Every route returns `401 Unauthorized`, regardless of headers. */
     AuthenticationFailure,
 
