@@ -27,8 +27,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 
 /** A decision sent to `POST /permission/{requestID}/reply`, captured for assertions. */
 public data class MockPermissionReply(
@@ -43,6 +48,17 @@ public data class MockQuestionReply(
     public val decision: String,
     /** The `answers` array parsed off the reply body, when the request was a reply. */
     public val answers: List<List<String>>? = null,
+)
+
+/**
+ * A prompt received on `POST /session/{sessionID}/prompt_async`, captured for assertions.
+ *
+ * The count per session is the D9 proof: a reconnecting client must never send
+ * the same prompt twice.
+ */
+public data class MockPrompt(
+    public val sessionId: String,
+    public val text: String,
 )
 
 /**
@@ -97,6 +113,7 @@ public class MockOpenCodeServer(
     private val requestLog: MutableList<String> = mutableListOf()
     private val permissionReplyLog: MutableList<MockPermissionReply> = mutableListOf()
     private val questionReplyLog: MutableList<MockQuestionReply> = mutableListOf()
+    private val promptLog: MutableList<MockPrompt> = mutableListOf()
     private var sessionSequence: Int = 0
     private var eventCursor: Int = 0
     private var eventStreamConnectionCount: Int = 0
@@ -118,6 +135,13 @@ public class MockOpenCodeServer(
     /** Decisions received on the question reply/reject routes, in arrival order. */
     public val questionReplies: List<MockQuestionReply>
         get() = questionReplyLog.toList()
+
+    /**
+     * Prompts received on `POST /session/{id}/prompt_async`, in arrival order.
+     * The count is the D9 proof: a reconnect must not replay a prompt.
+     */
+    public val prompts: List<MockPrompt>
+        get() = promptLog.toList()
 
     /** Number of `GET /event` connections served since the last [start]. */
     public val eventStreamConnections: Int
@@ -147,6 +171,7 @@ public class MockOpenCodeServer(
         requestLog.clear()
         permissionReplyLog.clear()
         questionReplyLog.clear()
+        promptLog.clear()
         sessionSequence = 0
         eventCursor = 0
         eventStreamConnectionCount = 0
@@ -214,6 +239,24 @@ public class MockOpenCodeServer(
 
             method == HttpMethod.Get && path == SESSION_STATUS_PATH ->
                 jsonResponse(sessionStatusJson(), HttpStatusCode.OK, callContext)
+
+            // --- V1-05: transcript + async prompt ---
+
+            // Declared before the generic `GET /session/{id}` route: `/message` is
+            // a sub-resource, not a session id.
+            method == HttpMethod.Get && path.startsWith("$SESSION_PATH/") && path.endsWith("/message") -> {
+                val id = path.removePrefix("$SESSION_PATH/").removeSuffix("/message")
+                jsonResponse(transcriptJson(id), HttpStatusCode.OK, callContext)
+            }
+
+            // The async prompt is recorded and answered immediately; the reply is
+            // streamed on `GET /event`, exactly like a real server.
+            method == HttpMethod.Post && path.startsWith("$SESSION_PATH/") && path.endsWith("/prompt_async") -> {
+                val id = path.removePrefix("$SESSION_PATH/").removeSuffix("/prompt_async")
+                val text = parsePromptText(readBodyText(request.body))
+                promptLog += MockPrompt(sessionId = id, text = text.orEmpty())
+                jsonResponse("""{"messageID":"msg_user_mock"}""", HttpStatusCode.OK, callContext)
+            }
 
             method == HttpMethod.Post && path == SESSION_PATH -> {
                 val body = readBodyText(request.body)
@@ -506,6 +549,57 @@ public class MockOpenCodeServer(
             OpenCodeFixtures.longTranscriptSseEvents(streamConfig.longTranscriptPartCount)
         MockOpenCodeScenario.PermissionRequest -> OpenCodeFixtures.permissionSseEvents()
         else -> OpenCodeFixtures.defaultSseEvents()
+    }
+
+    /**
+     * `GET /session/{id}/message`: the user prompts recorded on `prompt_async`,
+     * followed by the assistant messages derived from the scenario's SSE script,
+     * so the stream and the reconciling transcript cannot drift apart.
+     */
+    private fun transcriptJson(sessionId: String): String {
+        val assistant = assistantMessages(sessionId)
+        val users = promptLog.filter { it.sessionId == sessionId }
+        return buildJsonArray {
+            users.forEachIndexed { index, prompt ->
+                add(OpenCodeFixtures.userMessageObject(index + 1, prompt.text, sessionId))
+            }
+            assistant.forEach { add(it) }
+        }.toString()
+    }
+
+    /** Groups the scenario's `message.part.updated` parts into assistant messages. */
+    private fun assistantMessages(sessionId: String): List<JsonObject> {
+        val partsByMessage = linkedMapOf<String, MutableList<JsonElement>>()
+        scriptFor(scenario)
+            .filter { it.type == "message.part.updated" }
+            .forEach { event ->
+                val root = runCatching { json.parseToJsonElement(event.data) }.getOrNull() as? JsonObject
+                    ?: return@forEach
+                val properties = root["properties"] as? JsonObject ?: return@forEach
+                if ((properties["sessionID"] as? JsonPrimitive)?.contentOrNull != sessionId) return@forEach
+                val messageId = (properties["messageID"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
+                val part = properties["part"] as? JsonObject ?: return@forEach
+                partsByMessage.getOrPut(messageId) { mutableListOf() }.add(part)
+            }
+        return partsByMessage.map { (messageId, parts) ->
+            buildJsonObject {
+                put("id", messageId)
+                put("sessionID", sessionId)
+                put("role", "assistant")
+                put("parts", buildJsonArray { parts.forEach { add(it) } })
+            }
+        }
+    }
+
+    /** Joins the `text` of every part of a `prompt_async` body. */
+    private fun parsePromptText(text: String?): String? {
+        if (text.isNullOrBlank()) return null
+        val obj = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject ?: return null
+        val parts = obj["parts"] as? JsonArray ?: return null
+        return parts
+            .mapNotNull { part -> ((part as? JsonObject)?.get("text") as? JsonPrimitive)?.contentOrNull }
+            .joinToString(separator = "")
+            .ifBlank { null }
     }
 
     private suspend fun readBodyText(content: OutgoingContent): String? = when (content) {

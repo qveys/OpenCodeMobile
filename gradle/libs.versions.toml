@@ -39,6 +39,9 @@ androidx-biometric = "1.1.0"
 # Architecture tests
 konsist = "0.17.3"
 
+# V1-05 / ADR 0006: Markdown rendering + syntax highlighting (CMP Android + iOS)
+markdown-renderer = "0.35.0"
+
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
@@ -81,6 +84,11 @@ androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "a
 
 konsist = { module = "com.lemonapp.konsist:konsist", version.ref = "konsist" }
 konsist-test = { module = "com.lemonapp.konsist:konsist-test", version.ref = "konsist" }
+
+# V1-05 / ADR 0006: the transcript renderer and its Highlights-backed code module.
+markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer", version.ref = "markdown-renderer" }
+markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown-renderer" }
+markdown-renderer-code = { module = "com.mikepenz:multiplatform-markdown-renderer-code", version.ref = "markdown-renderer" }
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

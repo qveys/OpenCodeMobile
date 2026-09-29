@@ -7,8 +7,11 @@ import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import org.koin.core.qualifier.named
 import org.opencodemobile.android.cache.CacheWriteRuntime
+import org.opencodemobile.android.chat.ChatRuntime
+import org.opencodemobile.android.di.CHAT_SCOPE_QUALIFIER
 import org.opencodemobile.android.di.PERMISSION_SCOPE_QUALIFIER
 import org.opencodemobile.android.di.cacheModule
+import org.opencodemobile.android.di.chatModule
 import org.opencodemobile.android.di.permissionModule
 import org.opencodemobile.android.di.sessionsModule
 import org.opencodemobile.android.permission.PermissionRuntime
@@ -20,10 +23,26 @@ class OpenCodeMobileApp : Application() {
             androidContext(this@OpenCodeMobileApp)
             // Per-module Koin modules (shared/*, features/*) are added here as each
             // layer is implemented; D12 keeps shared/domain free of Koin entirely.
-            modules(cacheModule, permissionModule, sessionsModule)
+            modules(cacheModule, permissionModule, sessionsModule, chatModule)
         }
         startPermissionSurface()
         startCacheWritePath()
+        startChatSurface()
+    }
+
+    /**
+     * Starts the V1-05 chat realtime bridge: assistant `message.*` events feed
+     * the open transcript, and every transition into `Live` reconciles it from
+     * the server. It is inert until a connection composition root binds a
+     * `ChatConnection`; that root calls `ChatRuntime.start()` again once it has.
+     */
+    private fun startChatSurface() {
+        val koin = GlobalContext.getOrNull() ?: return
+        val runtime = runCatching { koin.get<ChatRuntime>() }.getOrNull() ?: return
+        val scope = runCatching {
+            koin.get<CoroutineScope>(named(CHAT_SCOPE_QUALIFIER))
+        }.getOrNull() ?: return
+        runtime.start(scope)
     }
 
     /**

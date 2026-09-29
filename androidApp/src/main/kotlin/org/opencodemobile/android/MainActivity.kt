@@ -8,30 +8,50 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 import org.opencodemobile.android.permission.PermissionHostActivity
+import org.opencodemobile.design.system.LocalOpenCodeColors
+import org.opencodemobile.design.system.OpenCodeContext
+import org.opencodemobile.design.system.OpenCodeMetrics
+import org.opencodemobile.design.system.OpenCodeSpacing
+import org.opencodemobile.design.system.OpenCodeTheme
+import org.opencodemobile.design.system.OpenCodeType
+import org.opencodemobile.features.composer.ComposerBar
+import org.opencodemobile.features.composer.ComposerPresenter
 import org.opencodemobile.features.permissions.PermissionBanner
 import org.opencodemobile.features.permissions.PermissionConfirmationScreen
 import org.opencodemobile.features.permissions.PermissionDeepLink
 import org.opencodemobile.features.permissions.PermissionsPresenter
 import org.opencodemobile.features.sessions.SessionsPresenter
 import org.opencodemobile.features.sessions.SessionsScreen
+import org.opencodemobile.features.transcript.TranscriptPresenter
+import org.opencodemobile.features.transcript.TranscriptScreen
+import org.opencodemobile.shared.domain.session.SessionSummary
 
 /**
  * The Android host for the permission surface (OPE-173 / V1-06).
@@ -66,12 +86,16 @@ class MainActivity : FragmentActivity() {
         requestNotificationPermission()
         consumePermissionIntent(intent)
         val sessionsPresenter = sessionsPresenterOrNull()
+        val transcriptPresenter = transcriptPresenterOrNull()
+        val composerPresenter = composerPresenterOrNull()
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     PermissionHost(
                         presenter = presenterOrNull(),
                         sessionsPresenter = sessionsPresenter,
+                        transcriptPresenter = transcriptPresenter,
+                        composerPresenter = composerPresenter,
                         requestedConfirmationId = requestedConfirmation,
                         onConfirmationRequestHandled = { requestedConfirmation = null },
                     )
@@ -134,17 +158,31 @@ class MainActivity : FragmentActivity() {
      */
     private fun sessionsPresenterOrNull(): SessionsPresenter? =
         runCatching { GlobalContext.getOrNull()?.get<SessionsPresenter>() }.getOrNull()
+
+    /**
+     * The V1-05 chat graph is only present once the connection composition root
+     * is wired; until then the host renders the sessions list and never opens a
+     * session screen. Resolution is defensive so a missing dependency cannot
+     * crash the app at launch.
+     */
+    private fun transcriptPresenterOrNull(): TranscriptPresenter? =
+        runCatching { GlobalContext.getOrNull()?.get<TranscriptPresenter>() }.getOrNull()
+
+    private fun composerPresenterOrNull(): ComposerPresenter? =
+        runCatching { GlobalContext.getOrNull()?.get<ComposerPresenter>() }.getOrNull()
 }
 
 @Composable
 private fun PermissionHost(
     presenter: PermissionsPresenter?,
     sessionsPresenter: SessionsPresenter?,
+    transcriptPresenter: TranscriptPresenter?,
+    composerPresenter: ComposerPresenter?,
     requestedConfirmationId: String?,
     onConfirmationRequestHandled: () -> Unit,
 ) {
     if (presenter == null) {
-        HomeContent(sessionsPresenter)
+        AppContent(sessionsPresenter, transcriptPresenter, composerPresenter)
         return
     }
     val state = presenter.state.collectAsState().value
@@ -171,7 +209,7 @@ private fun PermissionHost(
                 },
             )
         } else {
-            HomeContent(sessionsPresenter)
+            AppContent(sessionsPresenter, transcriptPresenter, composerPresenter)
             if (banner != null) {
                 PermissionBanner(
                     model = banner,
@@ -185,14 +223,30 @@ private fun PermissionHost(
 }
 
 /**
- * The V1-04 home surface: the sessions list. Until the connection/onboarding
- * composition root lands, an unwired graph renders the placeholder shell.
+ * The app's two surfaces: the V1-04 sessions list, and the V1-05 session screen
+ * (transcript + composer) it navigates to.
  *
- * Opening a session navigates to the session/transcript screen, which lands with
- * OPE-109 (V1-05); the list itself is fully wired.
+ * Until the connection/onboarding composition root lands, an unwired chat graph
+ * falls back to the sessions list and a session cannot be opened.
  */
 @Composable
-private fun HomeContent(sessionsPresenter: SessionsPresenter?) {
+private fun AppContent(
+    sessionsPresenter: SessionsPresenter?,
+    transcriptPresenter: TranscriptPresenter?,
+    composerPresenter: ComposerPresenter?,
+) {
+    var openSession by remember { mutableStateOf<SessionSummary?>(null) }
+    val session = openSession
+    if (session != null && transcriptPresenter != null && composerPresenter != null) {
+        SessionContent(
+            session = session,
+            transcriptPresenter = transcriptPresenter,
+            composerPresenter = composerPresenter,
+            onBack = { openSession = null },
+        )
+        return
+    }
+
     if (sessionsPresenter == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("OpenCode Mobile")
@@ -201,6 +255,72 @@ private fun HomeContent(sessionsPresenter: SessionsPresenter?) {
     }
     SessionsScreen(
         presenter = sessionsPresenter,
-        onOpenSession = { /* The session screen lands with OPE-109 (V1-05). */ },
+        onOpenSession = { opened -> openSession = opened },
     )
+}
+
+/**
+ * The V1-05 session screen: the streamed transcript and the prompt composer.
+ *
+ * It renders both presenters and forwards intents; every gate (D2 reconciliation,
+ * D8 offline, D9 single send, §8.1 draft) lives in the application controllers.
+ * `docs/DESIGN-SYSTEM.md`: session context, monospace transcript, no bubbles.
+ */
+@Composable
+private fun SessionContent(
+    session: SessionSummary,
+    transcriptPresenter: TranscriptPresenter,
+    composerPresenter: ComposerPresenter,
+    onBack: () -> Unit,
+) {
+    val transcript by transcriptPresenter.state.collectAsState()
+    val composer by composerPresenter.state.collectAsState()
+
+    LaunchedEffect(session.id) {
+        transcriptPresenter.open(session.id)
+        composerPresenter.open(session.id)
+    }
+    DisposableEffect(session.id) {
+        onDispose {
+            transcriptPresenter.close()
+            composerPresenter.close()
+        }
+    }
+
+    OpenCodeTheme(context = OpenCodeContext.Session) {
+        val colors = LocalOpenCodeColors.current
+        Surface(modifier = Modifier.fillMaxSize(), color = colors.bg, contentColor = colors.text) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = OpenCodeSpacing.x3, vertical = OpenCodeSpacing.x2),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onBack) {
+                        Text("Back", style = OpenCodeType.control)
+                    }
+                    Text(
+                        text = session.title,
+                        style = OpenCodeType.section,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                HorizontalDivider(color = colors.line, thickness = OpenCodeMetrics.hairline)
+                TranscriptScreen(
+                    state = transcript,
+                    modifier = Modifier.weight(1f),
+                )
+                HorizontalDivider(color = colors.line, thickness = OpenCodeMetrics.hairline)
+                ComposerBar(
+                    state = composer,
+                    onDraftChange = composerPresenter::updateDraft,
+                    onSend = composerPresenter::send,
+                    enabled = true,
+                )
+            }
+        }
+    }
 }

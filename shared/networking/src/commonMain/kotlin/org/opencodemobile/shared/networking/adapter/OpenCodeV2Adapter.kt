@@ -6,15 +6,30 @@ import io.ktor.http.HttpStatusCode
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import org.opencode.mobile.networking.client.generated.apis.OpenCodeApiClient
 import org.opencode.mobile.networking.client.generated.models.ApiAgent
 import org.opencode.mobile.networking.client.generated.models.ApiCreateSessionRequest
+import org.opencode.mobile.networking.client.generated.models.ApiMessage
+import org.opencode.mobile.networking.client.generated.models.ApiMessagePart
+import org.opencode.mobile.networking.client.generated.models.ApiModelRef
+import org.opencode.mobile.networking.client.generated.models.ApiPromptAsyncRequest
+import org.opencode.mobile.networking.client.generated.models.ApiPromptPartInput
 import org.opencode.mobile.networking.client.generated.models.ApiProvider
 import org.opencode.mobile.networking.client.generated.models.ApiQuestionReplyRequest
 import org.opencode.mobile.networking.client.generated.models.ApiQuestionRequest
 import org.opencode.mobile.networking.client.generated.models.ApiSession
 import org.opencode.mobile.networking.client.generated.models.ApiUpdateSessionRequest
+import org.opencodemobile.shared.domain.chat.ChatEvent
+import org.opencodemobile.shared.domain.chat.ChatEventDecoder
+import org.opencodemobile.shared.domain.chat.ChatPrompt
+import org.opencodemobile.shared.domain.chat.OpenCodeChatGateway
+import org.opencodemobile.shared.domain.chat.TranscriptMessage
+import org.opencodemobile.shared.domain.chat.TranscriptPart
+import org.opencodemobile.shared.domain.chat.TranscriptRole
 import org.opencodemobile.shared.domain.connection.ConnectionHandshake
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerCredential
@@ -71,7 +86,10 @@ public class OpenCodeV2Adapter(
     private val httpClient: HttpClient,
     private val identityGate: ServerIdentityGate,
     private val identityPin: ServerIdentityPinController,
-) : OpenCodeGateway, OpenCodeInteractionGateway, SessionGateway {
+) : OpenCodeGateway, OpenCodeInteractionGateway, SessionGateway, OpenCodeChatGateway, ChatEventDecoder {
+
+    /** Payload decoding for the chat surface only; the domain stays JSON-free. */
+    private val chatJson: Json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     @Volatile
     private var credentialPermit: ServerCredential? = null
@@ -256,6 +274,65 @@ public class OpenCodeV2Adapter(
             SessionCapabilities.Unknown
         }
 
+    // --- V1-05: chat transcript + prompt ---
+
+    override suspend fun transcript(sessionId: String): List<TranscriptMessage> =
+        requireActiveClient().listMessages(sessionId).map { it.toDomain() }
+
+    override suspend fun sendPrompt(sessionId: String, prompt: ChatPrompt) {
+        requireActiveClient().sendPromptAsync(
+            sessionID = sessionId,
+            request = ApiPromptAsyncRequest(
+                agent = prompt.agent,
+                model = prompt.model?.let { ApiModelRef(providerID = it.providerId, modelID = it.modelId) },
+                parts = listOf(ApiPromptPartInput(type = "text", text = prompt.text)),
+            ),
+        )
+    }
+
+    override fun decode(type: String, payload: String): ChatEvent? {
+        val root = runCatching { chatJson.parseToJsonElement(payload) }.getOrNull() as? JsonObject
+            ?: return null
+        val declaredType = root.stringOrNull("type") ?: type
+        val properties = root["properties"] as? JsonObject
+            ?: root["data"] as? JsonObject
+            ?: return null
+        return when (declaredType) {
+            "message.part.updated" -> decodePartUpdated(properties)
+            "message.updated" -> decodeMessageUpdated(properties)
+            "message.removed" -> decodeMessageRemoved(properties)
+            else -> null
+        }
+    }
+
+    private fun decodePartUpdated(properties: JsonObject): ChatEvent? {
+        val messageId = properties.stringOrNull("messageID") ?: return null
+        val part = (properties["part"] as? JsonObject)?.toTranscriptPartOrNull() ?: return null
+        return ChatEvent.PartUpdated(
+            messageId = messageId,
+            sessionId = properties.stringOrNull("sessionID"),
+            part = part,
+        )
+    }
+
+    private fun decodeMessageUpdated(properties: JsonObject): ChatEvent? {
+        val info = properties["info"] as? JsonObject
+            ?: properties["message"] as? JsonObject
+            ?: return null
+        val message = info.toTranscriptMessageOrNull() ?: return null
+        return ChatEvent.MessageUpdated(message)
+    }
+
+    private fun decodeMessageRemoved(properties: JsonObject): ChatEvent? {
+        val messageId = properties.stringOrNull("messageID")
+            ?: properties.stringOrNull("id")
+            ?: return null
+        return ChatEvent.MessageRemoved(
+            messageId = messageId,
+            sessionId = properties.stringOrNull("sessionID"),
+        )
+    }
+
     /**
      * Runs a session call and maps every failure to a typed
      * [org.opencodemobile.shared.domain.session.SessionFailure], so a raw status
@@ -350,6 +427,43 @@ private fun ApiSession.toDomain(): SessionSummary = SessionSummary(
     createdAt = time?.created ?: 0L,
     updatedAt = time?.updated ?: time?.created ?: 0L,
 )
+
+private fun ApiMessage.toDomain(): TranscriptMessage = TranscriptMessage(
+    id = id,
+    sessionId = sessionID,
+    role = TranscriptRole.fromWire(role),
+    parts = parts.mapNotNull { it.toDomain() },
+)
+
+private fun ApiMessagePart.toDomain(): TranscriptPart? {
+    val partId = id ?: return null
+    return TranscriptPart(id = partId, type = type, text = text.orEmpty())
+}
+
+private fun JsonObject.toTranscriptPartOrNull(): TranscriptPart? {
+    val partId = stringOrNull("id") ?: return null
+    return TranscriptPart(
+        id = partId,
+        type = stringOrNull("type") ?: "text",
+        text = stringOrNull("text").orEmpty(),
+        language = stringOrNull("language"),
+    )
+}
+
+private fun JsonObject.toTranscriptMessageOrNull(): TranscriptMessage? {
+    val messageId = stringOrNull("id") ?: return null
+    val parts = (this["parts"] as? JsonArray).orEmpty()
+        .mapNotNull { (it as? JsonObject)?.toTranscriptPartOrNull() }
+    return TranscriptMessage(
+        id = messageId,
+        sessionId = stringOrNull("sessionID").orEmpty(),
+        role = TranscriptRole.fromWire(stringOrNull("role")),
+        parts = parts,
+    )
+}
+
+private fun JsonObject.stringOrNull(key: String): String? =
+    (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
 
 /**
  * Reads optional capabilities off the server's published OpenAPI document.

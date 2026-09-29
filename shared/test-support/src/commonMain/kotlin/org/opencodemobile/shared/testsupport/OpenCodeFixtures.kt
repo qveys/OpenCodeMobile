@@ -248,6 +248,71 @@ public object OpenCodeFixtures {
     public fun longTranscriptSseEvents(partCount: Int = 600): List<MockSseEvent> =
         listOf(sessionUpdatedEvent()) + (1..partCount).map { partUpdatedEvent(it) }
 
+    // --- V1-05: transcript messages (`GET /session/{id}/message`) ---
+
+    /**
+     * One `ApiMessage` object for a user prompt recorded on
+     * `POST /session/{id}/prompt_async`, in the pinned spec shape.
+     */
+    public fun userMessageObject(
+        index: Int,
+        text: String,
+        sessionID: String = sessions.first().id,
+    ): JsonObject {
+        val suffix = index.toString().padStart(4, '0')
+        return buildJsonObject {
+            put("id", "msg_user_$suffix")
+            put("sessionID", sessionID)
+            put("role", "user")
+            putJsonArray("parts") {
+                add(
+                    buildJsonObject {
+                        put("id", "prt_user_$suffix")
+                        put("type", "text")
+                        put("text", text)
+                    },
+                )
+            }
+        }
+    }
+
+    /**
+     * One assistant `ApiMessage` derived from a scripted `message.part.updated`
+     * part, so the SSE stream and `GET /session/{id}/message` stay consistent.
+     */
+    public fun assistantMessageObject(
+        index: Int,
+        sessionID: String = sessions.first().id,
+    ): JsonObject {
+        val suffix = index.toString().padStart(4, '0')
+        return buildJsonObject {
+            put("id", "msg_mock_$suffix")
+            put("sessionID", sessionID)
+            put("role", "assistant")
+            putJsonArray("parts") {
+                add(
+                    buildJsonObject {
+                        put("id", "prt_mock_$suffix")
+                        put("type", "text")
+                        put("text", "streamed chunk $index")
+                    },
+                )
+            }
+        }
+    }
+
+    /** `GET /session/{id}/message` body: user prompts first, then assistant messages. */
+    public fun transcriptJson(
+        assistantIndices: List<Int>,
+        userPrompts: List<String> = emptyList(),
+        sessionID: String = sessions.first().id,
+    ): String = buildJsonArray {
+        userPrompts.forEachIndexed { index, text ->
+            add(userMessageObject(index + 1, text, sessionID))
+        }
+        assistantIndices.forEach { add(assistantMessageObject(it, sessionID)) }
+    }.toString()
+
     /**
      * `GET /event` script for [MockOpenCodeScenario.PermissionRequest]: a session update, a
      * `permission.asked` event and a `question.asked` event, so both the V1-06 permission flow
