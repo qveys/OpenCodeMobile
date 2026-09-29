@@ -13,6 +13,8 @@ import org.opencodemobile.shared.domain.connection.ServerProfile
 import org.opencodemobile.shared.security.identity.ServerIdentityGate
 import org.opencodemobile.shared.security.identity.ServerIdentityPinController
 import org.opencodemobile.shared.security.identity.TofuServerIdentityCoordinator
+import org.opencode.mobile.networking.client.generated.apis.OpenCodeApiClient
+import org.opencode.mobile.networking.client.generated.models.ApiSessionStatus
 import org.opencodemobile.shared.testsupport.MockOpenCodeServer
 import org.opencodemobile.shared.testsupport.OpenCodeFixtures
 
@@ -63,6 +65,30 @@ class MockOpenCodeServerAdapterTest {
             assertEquals(ServerIdentityCheck.PlaintextHttp, handshake.identity)
             assertTrue(server.requests.contains("GET /global/health"))
             assertTrue(adapter.isCredentialPermitActive())
+        } finally {
+            server.stop()
+        }
+    }
+
+    /**
+     * OPE-131 point 4: the generated client must decode `GET /session/status` into a non-empty
+     * `Map<String, ApiSessionStatus>`. Before this fixture the route answered `{}`, so fallback
+     * polling (the reconciliation step in `docs/ARCHITECTURE.md` §3.2) had no state to read.
+     */
+    @Test
+    fun generatedClientDecodesTheSessionStatusFixture() = runTest {
+        val server = MockOpenCodeServer().start()
+        try {
+            val api = OpenCodeApiClient(server.baseUrl, server.client)
+            val statuses: Map<String, ApiSessionStatus> = api.getSessionStatus()
+
+            assertEquals(OpenCodeFixtures.sessions.size, statuses.size)
+            val active = statuses.getValue(OpenCodeFixtures.sessions.first().id)
+            assertEquals("retry", active.type)
+            assertEquals(OpenCodeFixtures.SESSION_STATUS_RETRY_ATTEMPT, active.attempt)
+            assertEquals(OpenCodeFixtures.SESSION_STATUS_RETRY_MESSAGE, active.message)
+            assertEquals(OpenCodeFixtures.SESSION_STATUS_RETRY_NEXT, active.next)
+            assertEquals("idle", statuses.getValue(OpenCodeFixtures.sessions[1].id).type)
         } finally {
             server.stop()
         }

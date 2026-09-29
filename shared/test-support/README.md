@@ -47,14 +47,14 @@ Request/response routes share the same engine, so every fixture comes from one p
 
 `MockOpenCodeScenario` enumerates the nine mandatory MVP scenarios plus the original
 baseline failure cases. All are injectable via the `MockOpenCodeServer(scenario)` constructor;
-timings and fixture sizes are injectable via `MockOpenCodeStreamConfig`.
+timings, stream shapes and fixture sizes are injectable via `MockOpenCodeStreamConfig`.
 
 | Scenario | `/event` behaviour | Routes |
 | --- | --- | --- |
 | `Default` (`normal`) | streams `defaultSseEvents()` and ends | all nominal routes |
 | `Streaming` | streams `streamingSseEvents()` one event per flush, `streamingDelayMillis` between events | all nominal routes |
-| `Disconnect` | streams only the first `disconnectAfterEvents` events, then ends the body | all nominal routes |
-| `Reconnect` | first connection truncated like `Disconnect`; the next connection resumes the script | all nominal routes |
+| `Disconnect` | streams only the first `disconnectAfterEvents` events, then ends the body; repeats for `disconnectConnections` connections | all nominal routes |
+| `Reconnect` | first `disconnectConnections` connections truncated like `Disconnect`; the next connection resumes the script | all nominal routes |
 | `PermissionRequest` | streams `session.updated`, `permission.asked`, `question.asked` | `GET /permission`, `POST /permission/{id}/reply`, `GET /question`, `POST /question/{id}/reply`, `POST /question/{id}/reject` |
 | `MalformedEvent` | one valid event then one truncated `data:` payload | nominal routes |
 | `UnsupportedVersion` | normal stream | `GET /global/health` reports an old version |
@@ -62,6 +62,10 @@ timings and fixture sizes are injectable via `MockOpenCodeStreamConfig`.
 | `LongTranscript` | streams `longTranscriptSseEvents(longTranscriptPartCount)` | all nominal routes |
 | `AuthenticationFailure` | – | every route returns `401` |
 | `ServerError` | – | every route returns `500` with a typed body |
+
+`MockOpenCodeStreamConfig` also carries the OPE-131 coverage knobs used by the
+kill → polling → resume line: `disconnectConnections`, `replayFromEventId`, `tailEvents`,
+`tailDelayMillis` and `keepOpenMillis`. Each is exercised by a dedicated test in the module.
 
 ## Disconnect / reconnect semantics (consistency with OPE-106)
 
@@ -79,16 +83,52 @@ on stream loss:
 ```
 
 The mock's event script advances monotonically across `/event` connections (a live
-broadcast does not replay history to a new subscriber), so a reconnecting client receives
-only events that occur after it reconnects. Already-delivered events are never replayed, and
-the test `reconnectScenarioResumesWithoutReplayingConsumedEvents` proves it. The mock does
-**not** invent a resumption parameter on `/event`: `/event` in the pinned spec has no resume
-parameter, and reconciliation against the snapshot is the client's job.
+broadcast does not replay history to a new subscriber), so a reconnecting client normally
+receives only events that occur after it reconnects. The test
+`reconnectScenarioResumesWithoutReplayingConsumedEvents` proves the no-replay baseline. The
+mock does **not** invent a resumption parameter on `/event`: `/event` in the pinned spec has
+no resume parameter, and reconciliation against the snapshot is the client's job.
+
+### Staying down vs. resuming
+
+`disconnectConnections` (default `1`) selects how many consecutive `/event` connections are
+truncated before the script resumes. Set it above `1` with `disconnectAfterEvents = 0` to model
+a server that stays down: every attempt returns an empty body, then the connection after the
+last one delivers the full script.
+`stayingDownServerFailsConsecutiveAttemptsBeforeResuming` asserts N empty attempts followed by
+the resumed script, which is what the backoff-with-a-floor requirement needs.
+
+### Replay and dedup by server id
+
+A live server may replay the backlog when a client resubscribes. `replayFromEventId`, when set,
+makes a reconnecting client receive the events from that id up to the current cursor again
+before the new events. `replayedEventIdIsDeliveredAgainForDeduplication` shows the same id
+arriving twice and asserts that deduping by server-issued id yields the script exactly once —
+the `drop replayed/duplicate events` line of §3.2 (OPE-106 `EventProcessor`).
+
+### Resume live (the body stays open)
+
+By default the body ends as soon as the script is exhausted, so a client cannot distinguish a
+healthy but idle server from a server stuck in a reconnect loop. `tailEvents` are written after
+the script (after `tailDelayMillis`) on the connection that exhausts it, and `keepOpenMillis`
+keeps the body open afterwards.
+`reconnectingClientReceivesTailEventsOnANonClosingConnection` proves a reconnect drains the
+remaining backlog and then receives an event emitted later on the still-open channel;
+`keepOpenMillisKeepsTheEventBodyOpenAfterTheScript` proves the body does not end early.
+
+### Session status fixture
+
+`GET /session/status` returns `OpenCodeFixtures.sessionStatusJson()`: a non-empty
+`Map<String, ApiSessionStatus>` keyed by session id (the first session reports `retry` with
+`attempt`/`message`/`next`, the rest `idle`). `MockOpenCodeServerAdapterTest` decodes it through
+the generated `OpenCodeApiClient`, so fallback polling has a reconciliation fixture.
 
 No transport exception is simulated: at the SSE layer a server-side close and a network
 reset both terminate the body, and the `EventProcessor` contract reacts to stream loss the
 same way. Tests that need to observe the cut read the body as a channel and assert the
-stream ends before the last scripted event.
+stream ends before the last scripted event. A `disconnectMode: EndOfBody | ChannelFailure`
+knob that would surface a socket reset as an `IOException` on the read side is deliberately
+left out; it is the one optional item of OPE-131 that is not covered.
 
 ## Permission / question fixtures
 

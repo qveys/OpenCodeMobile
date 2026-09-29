@@ -189,7 +189,7 @@ public class MockOpenCodeServer(
                 jsonResponse(sessionsJson(), HttpStatusCode.OK, callContext)
 
             method == HttpMethod.Get && path == SESSION_STATUS_PATH ->
-                jsonResponse("{}", HttpStatusCode.OK, callContext)
+                jsonResponse(sessionStatusJson(), HttpStatusCode.OK, callContext)
 
             method == HttpMethod.Post && path == SESSION_PATH -> {
                 val created = nextSession()
@@ -248,6 +248,8 @@ public class MockOpenCodeServer(
 
     private fun sessionsJson(): String = OpenCodeFixtures.sessionsJson(allSessions())
 
+    private fun sessionStatusJson(): String = OpenCodeFixtures.sessionStatusJson(allSessions())
+
     private fun permissionsJson(): String =
         if (scenario == MockOpenCodeScenario.PermissionRequest) {
             OpenCodeFixtures.permissionsJson()
@@ -285,26 +287,41 @@ public class MockOpenCodeServer(
      * Serves `GET /event`.
      *
      * The scripted event list advances monotonically across connections ([eventCursor]) so a
-     * reconnecting client receives only events that occur after it reconnects — already
-     * delivered events are never replayed. [MockOpenCodeScenario.Disconnect] and
-     * [MockOpenCodeScenario.Reconnect] truncate the **first** connection after
+     * reconnecting client normally receives only events that occur after it reconnects.
+     * [MockOpenCodeScenario.Disconnect] and [MockOpenCodeScenario.Reconnect] truncate the first
+     * [MockOpenCodeStreamConfig.disconnectConnections] connections after
      * [MockOpenCodeStreamConfig.disconnectAfterEvents] events and end the body there, which is
-     * how the client observes a dropped SSE connection; the next connection resumes the script.
-     * A flush is issued after every event so the body is readable progressively.
+     * how the client observes a dropped SSE connection; the following connection resumes the
+     * script. A flush is issued after every event so the body is readable progressively.
+     *
+     * Three extra knobs make the harder lines of `docs/ARCHITECTURE.md` §3.2 expressible:
+     * [MockOpenCodeStreamConfig.disconnectConnections] > 1 models a server that stays down for
+     * several attempts; [MockOpenCodeStreamConfig.replayFromEventId] re-delivers already
+     * consumed ids so dedup by server id can be asserted; [MockOpenCodeStreamConfig.tailEvents]
+     * (with `tailDelayMillis` / `keepOpenMillis`) emits activity later on a connection that
+     * stays open ("resume live") instead of ending the body as soon as the script is empty.
      */
     private fun eventStreamResponse(callContext: CoroutineContext): HttpResponseData {
         val script = scriptFor(scenario)
         val start = eventCursor
         val remaining = script.drop(start)
-        val truncating = scenario == MockOpenCodeScenario.Disconnect || scenario == MockOpenCodeScenario.Reconnect
-        val take = if (truncating && eventStreamConnectionCount == 0) {
+        val truncating = scenario.isDisconnecting() &&
+            eventStreamConnectionCount < streamConfig.disconnectConnections
+        val take = if (truncating) {
             minOf(streamConfig.disconnectAfterEvents, remaining.size)
         } else {
             remaining.size
         }
-        val slice = remaining.take(take)
-        eventCursor = start + slice.size
+        val fresh = remaining.take(take)
+        val replayed = replayPrefix(script, start)
+        val slice = replayed + fresh
+        eventCursor = start + fresh.size
         eventStreamConnectionCount += 1
+
+        // "Resume live": only the connection that actually exhausts the script stays open and
+        // may emit later activity. A truncated connection never does.
+        val exhaustsNow = !truncating && start < script.size && eventCursor >= script.size
+        val tails = if (exhaustsNow) streamConfig.tailEvents else emptyList()
 
         val delayMillis = when (scenario) {
             MockOpenCodeScenario.Streaming -> streamConfig.streamingDelayMillis
@@ -318,6 +335,14 @@ public class MockOpenCodeServer(
                 channel.writeStringUtf8(event.encode())
                 channel.flush()
             }
+            if (tails.isNotEmpty()) {
+                if (streamConfig.tailDelayMillis > 0L) delay(streamConfig.tailDelayMillis)
+                tails.forEach { event ->
+                    channel.writeStringUtf8(event.encode())
+                    channel.flush()
+                }
+            }
+            if (streamConfig.keepOpenMillis > 0L) delay(streamConfig.keepOpenMillis)
         }
 
         return HttpResponseData(
@@ -328,6 +353,22 @@ public class MockOpenCodeServer(
             body = writerJob.channel,
             callContext = callContext,
         )
+    }
+
+    private fun MockOpenCodeScenario.isDisconnecting(): Boolean =
+        this == MockOpenCodeScenario.Disconnect || this == MockOpenCodeScenario.Reconnect
+
+    /**
+     * The already-consumed tail of the script that
+     * [MockOpenCodeStreamConfig.replayFromEventId] asks the server to replay on resubscribe.
+     * Empty unless the configured id was delivered before the current cursor.
+     */
+    private fun replayPrefix(script: List<MockSseEvent>, cursor: Int): List<MockSseEvent> {
+        val fromId = streamConfig.replayFromEventId ?: return emptyList()
+        if (cursor <= 0) return emptyList()
+        val from = script.indexOfFirst { it.id == fromId }
+        if (from < 0 || from >= cursor) return emptyList()
+        return script.subList(from, cursor)
     }
 
     private fun scriptFor(scenario: MockOpenCodeScenario): List<MockSseEvent> = when (scenario) {

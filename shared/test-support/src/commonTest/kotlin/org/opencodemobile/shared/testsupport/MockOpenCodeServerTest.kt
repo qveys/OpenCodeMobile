@@ -25,9 +25,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 
 /**
  * End-to-end example that proves the [MockOpenCodeServer] harness works.
@@ -319,6 +321,139 @@ class MockOpenCodeServerTest {
             assertFailsWith<SerializationException> { Json.parseToJsonElement(events[1].data) }
         } finally {
             malformed.stop()
+        }
+    }
+
+    @Test
+    fun sessionStatusRouteReturnsThePinnedStatusMap() = runTest {
+        server.start()
+        val body = server.client.get("${server.baseUrl}${MockOpenCodeServer.SESSION_STATUS_PATH}").bodyAsText()
+        val statuses = Json.parseToJsonElement(body).jsonObject
+
+        assertEquals(OpenCodeFixtures.sessions.size, statuses.size)
+        val active = statuses.getValue(OpenCodeFixtures.sessions.first().id).jsonObject
+        assertEquals("retry", active["type"]?.jsonPrimitive?.content)
+        assertEquals(OpenCodeFixtures.SESSION_STATUS_RETRY_ATTEMPT, active["attempt"]?.jsonPrimitive?.int)
+        assertEquals(OpenCodeFixtures.SESSION_STATUS_RETRY_MESSAGE, active["message"]?.jsonPrimitive?.content)
+        assertEquals(OpenCodeFixtures.SESSION_STATUS_RETRY_NEXT, active["next"]?.jsonPrimitive?.long)
+
+        val idle = statuses.getValue(OpenCodeFixtures.sessions[1].id).jsonObject
+        assertEquals("idle", idle["type"]?.jsonPrimitive?.content)
+        assertTrue(server.requests.contains("GET ${MockOpenCodeServer.SESSION_STATUS_PATH}"))
+    }
+
+    @Test
+    fun stayingDownServerFailsConsecutiveAttemptsBeforeResuming() = runTest {
+        val config = MockOpenCodeStreamConfig(disconnectAfterEvents = 0, disconnectConnections = 3)
+        val down = MockOpenCodeServer(MockOpenCodeScenario.Reconnect, streamConfig = config).start()
+        try {
+            val script = OpenCodeFixtures.disconnectSseEvents()
+            repeat(config.disconnectConnections) { attempt ->
+                val events = readEvents(
+                    down.client
+                        .get("${down.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
+                        .bodyAsChannel(),
+                )
+                assertTrue(events.isEmpty(), "down attempt ${attempt + 1} must deliver no events")
+            }
+
+            val resumed = readEvents(
+                down.client
+                    .get("${down.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
+                    .bodyAsChannel(),
+            )
+            assertEquals(script.map { it.id }, resumed.map { it.id })
+            assertEquals(config.disconnectConnections + 1, down.eventStreamConnections)
+        } finally {
+            down.stop()
+        }
+    }
+
+    @Test
+    fun reconnectingClientReceivesTailEventsOnANonClosingConnection() = runTest {
+        val tail = OpenCodeFixtures.liveTailSseEvents()
+        val config = MockOpenCodeStreamConfig(
+            disconnectAfterEvents = 2,
+            tailEvents = tail,
+            tailDelayMillis = 30L,
+            keepOpenMillis = 200L,
+        )
+        val server = MockOpenCodeServer(MockOpenCodeScenario.Reconnect, streamConfig = config).start()
+        try {
+            val script = OpenCodeFixtures.disconnectSseEvents()
+            val truncated = readEvents(
+                server.client
+                    .get("${server.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
+                    .bodyAsChannel(),
+            )
+            assertEquals(config.disconnectAfterEvents, truncated.size)
+
+            server.client
+                .prepareGet("${server.baseUrl}${MockOpenCodeServer.EVENT_PATH}")
+                .execute { response ->
+                    val channel = response.bodyAsChannel()
+                    // The reconnect first drains the remaining backlog...
+                    assertEquals(script[2].id, readEvent(channel)?.id)
+                    assertEquals(script[3].id, readEvent(channel)?.id)
+                    // ...the tail event is emitted later, on a channel that stays open.
+                    assertNull(withTimeoutOrNull(10) { readEvent(channel) })
+                    assertEquals(tail.single().id, readEvent(channel)?.id)
+                }
+            assertEquals(2, server.eventStreamConnections)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun keepOpenMillisKeepsTheEventBodyOpenAfterTheScript() = runTest {
+        val config = MockOpenCodeStreamConfig(keepOpenMillis = 120L)
+        val server = MockOpenCodeServer(MockOpenCodeScenario.Default, streamConfig = config).start()
+        try {
+            val started = TimeSource.Monotonic.markNow()
+            val raw = server.client
+                .get("${server.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
+                .bodyAsText()
+            val elapsed = started.elapsedNow().inWholeMilliseconds
+
+            assertEquals(OpenCodeFixtures.defaultSseEvents().size, MockSseCodec.decode(raw).size)
+            assertTrue(
+                elapsed >= config.keepOpenMillis,
+                "expected the body to stay open ${config.keepOpenMillis}ms, ended after ${elapsed}ms",
+            )
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun replayedEventIdIsDeliveredAgainForDeduplication() = runTest {
+        val script = OpenCodeFixtures.disconnectSseEvents()
+        val replayedId = script[1].id
+        val config = MockOpenCodeStreamConfig(disconnectAfterEvents = 2, replayFromEventId = replayedId)
+        val server = MockOpenCodeServer(MockOpenCodeScenario.Reconnect, streamConfig = config).start()
+        try {
+            val first = readEvents(
+                server.client
+                    .get("${server.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
+                    .bodyAsChannel(),
+            )
+            val consumed = first.map { it.id }.toSet()
+            val second = readEvents(
+                server.client
+                    .get("${server.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
+                    .bodyAsChannel(),
+            )
+
+            assertEquals(replayedId, second.first().id)
+            assertTrue(second.first().id in consumed, "the replayed id must already have been consumed")
+
+            val delivered = (first + second).map { it.id }
+            assertEquals(script.size + 1, delivered.size, "the server must replay exactly one consumed id")
+            // OPE-106 EventProcessor contract: drop replayed/duplicate events by server-issued id.
+            assertEquals(script.map { it.id }, delivered.distinct())
+        } finally {
+            server.stop()
         }
     }
 
