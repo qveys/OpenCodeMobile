@@ -16,7 +16,10 @@ name: Build
 #   `android-actions/setup-android`, `actions/upload-artifact`) is rejected with
 #   `startup_failure` before the job starts. This workflow therefore uses ONLY
 #   `actions/checkout` and relies on the JDK / Gradle / Android SDK / Xcode that
-#   GitHub-hosted runners already provide. Reproducibility across environments
+#   the runner image already provides: the build jobs run on GitHub-hosted
+#   runners, while the OPE-17 test jobs run on the company self-hosted pool
+#   (see the test-job comment below and docs/CI-RUNNER-STRATEGY.md).
+#   Reproducibility across environments
 #   comes from the checked-in pinning instead:
 #     - Gradle 8.10.2, pinned by gradle/wrapper/gradle-wrapper.properties
 #     - Kotlin / AGP / Compose Multiplatform, pinned in gradle/libs.versions.toml
@@ -103,18 +106,22 @@ jobs:
   # cannot build an in-process TLS server. Without those servers the full iOS
   # suite fails with "could not connect to the server".
   #
-  # Toolchain policy is identical to the build jobs: only `actions/checkout`,
-  # with the JDK 21 / Gradle wrapper already present on the runner.
+  # Runner policy (docs/CI-RUNNER-STRATEGY.md §2): the test jobs run on the
+  # company self-hosted pool, not GitHub-hosted runners —
+  #   - test-android -> [self-hosted, hostinger] (JDK 21 + Android SDK)
+  #   - test-ios     -> [self-hosted, mac]       (Xcode + JDK 21)
+  # Each test step sources scripts/ci/runner-toolchain-env.sh (OPE-98) to
+  # resolve JAVA_HOME / ANDROID_HOME; the allowlist permits only `actions/checkout`.
   test-android:
     name: Test Android (JVM unit tests)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run Android/JVM unit tests
         run: |
           set -euo pipefail
-          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          . scripts/ci/runner-toolchain-env.sh
           chmod +x gradlew
           java -version
           CI=1 bash scripts/test.sh android -- --continue
@@ -124,14 +131,14 @@ jobs:
 
   test-ios:
     name: Test iOS simulator (Kotlin/Native)
-    runs-on: macos-latest
+    runs-on: [self-hosted, mac]
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run iOS simulator tests
         run: |
           set -euo pipefail
-          export JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-$JAVA_HOME}}"
+          . scripts/ci/runner-toolchain-env.sh
           chmod +x gradlew
           java -version
           CI=1 bash scripts/ci/with-t1-tls-servers.sh bash scripts/test.sh apple -- --continue

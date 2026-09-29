@@ -17,7 +17,7 @@
 #
 #   --root DIR   directory to scan (default: repository root)
 #
-# Requires: python3 (present on the GitHub-hosted runners used by build.yml).
+# Requires: python3 (skips the report when python3 is absent).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
