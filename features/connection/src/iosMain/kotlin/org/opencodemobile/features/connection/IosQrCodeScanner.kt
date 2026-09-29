@@ -33,6 +33,7 @@ import platform.UIKit.UIModalPresentationFullScreen
 import platform.UIKit.UIViewController
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
+import platform.darwin.dispatch_queue_create
 
 /**
  * iOS [QrCodeScanner] over an AVFoundation `AVCaptureMetadataOutput` QR capture
@@ -58,7 +59,7 @@ public class IosQrCodeScanner(
             return@suspendCancellableCoroutine
         }
 
-        val controller = QrScannerViewController { payload ->
+        val controller = QrScannerViewController(host = host) { payload ->
             if (continuation.isActive) continuation.resume(payload)
         }
         // Full screen disables the interactive swipe-to-dismiss, so every exit
@@ -83,11 +84,17 @@ public class IosQrCodeScanner(
  * It owns the session lifecycle and reports exactly one result.
  */
 private class QrScannerViewController(
+    /** The controller that presented this scanner; used to dismiss even if the
+     * presentation relationship is not established yet when the scan resolves. */
+    private val host: UIViewController,
     private val onResult: (String?) -> Unit,
 ) : UIViewController(nibName = null, bundle = null),
     AVCaptureMetadataOutputObjectsDelegateProtocol {
 
     private val session = AVCaptureSession()
+    // A private serial queue for AVCaptureSession start/stop (null label avoids
+    // depending on the cinterop `const char*` overload).
+    private val sessionQueue = dispatch_queue_create(null, null)
     private var previewLayer: AVCaptureVideoPreviewLayer? = null
     private var handled = false
 
@@ -146,7 +153,10 @@ private class QrScannerViewController(
         previewLayer = preview
 
         installCancelButton()
-        session.startRunning()
+        // `startRunning()` blocks: on a camera-less simulator it can stall for a
+        // long time and freeze the main thread (and therefore the whole UI).
+        // AVFoundation requires it off the main queue.
+        dispatch_async(sessionQueue) { session.startRunning() }
     }
 
     private fun installCancelButton() {
@@ -182,19 +192,21 @@ private class QrScannerViewController(
     private fun complete(payload: String?) {
         if (handled) return
         handled = true
-        if (session.running) session.stopRunning()
+        dispatch_async(sessionQueue) {
+            if (session.running) session.stopRunning()
+        }
         // Leave the full-screen capture surface before handing the result back,
         // so both the scanned and cancelled paths return to the entry/review
         // screen behind it. The dismissal is deferred to the next main-loop turn:
-        // on the permission-denied path `complete` runs inside `viewDidLoad`,
-        // before the presentation finishes, so `presentingViewController` can
-        // still be null and an immediate dismiss would no-op, leaving the black
-        // capture on top with no cancel control. `handled` keeps this
-        // single-shot and `onResult` stays on the main queue.
+        // on the camera-unavailable and permission-denied paths `complete` runs
+        // inside `viewDidLoad`, before the presentation finishes, so
+        // `presentingViewController` can still be null and a self-dismiss would
+        // no-op, leaving the black capture on top. Fall back to the host that
+        // presented us. `handled` keeps this single-shot and `onResult` stays on
+        // the main queue.
         dispatch_async(dispatch_get_main_queue()) {
-            if (presentingViewController != null) {
-                dismissViewControllerAnimated(true, completion = null)
-            }
+            val presenter = presentingViewController ?: host
+            presenter.dismissViewControllerAnimated(true, completion = null)
             onResult(payload)
         }
     }
