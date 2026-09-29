@@ -123,16 +123,21 @@ Rules that hold across all of them:
 ### 2.4 Enforced dependency rules
 
 The architecture specification fixes the edges below.
-`architecture-tests/ModuleBoundaryTest.kt` (PR #14, ADR 0004) encodes them and
-fails CI on any violation:
+`architecture-tests/ModuleBoundaryTest.kt` (ADR 0004) encodes them as Konsist
+assertions and `.github/workflows/architecture-tests.yml` runs
+`./gradlew :architecture-tests:test` on every pull request and push to `main`,
+failing the job on any violation. (A red job only *blocks* merge once the
+`Architecture tests` context is listed in the `main` ruleset's required status
+checks; see ADR 0004 §Verification for the current state.)
 
 1. `shared/domain` depends only on the Kotlin stdlib.
 2. `shared/application` may depend only on `shared/domain` and
    `kotlinx.coroutines`.
 3. `shared/data` may depend on `shared/domain`, `shared/networking`,
    `shared/realtime`, `shared/persistence`, and `shared/security`.
-4. `shared/networking` may depend only on `shared/domain` and Ktor. It
-   exclusively owns the generated OpenAPI client.
+4. `shared/networking` may depend on `shared/domain` and `shared/security` (the
+   T1 identity seam, §3.1), plus Ktor and serialization. It exclusively owns the
+   generated OpenAPI client.
 5. `shared/realtime` may depend only on `shared/domain` and
    `shared/networking`.
 6. `shared/persistence` may depend only on `shared/domain` and SQLDelight.
