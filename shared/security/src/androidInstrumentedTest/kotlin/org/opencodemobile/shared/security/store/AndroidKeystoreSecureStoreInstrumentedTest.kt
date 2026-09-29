@@ -23,9 +23,11 @@ class AndroidKeystoreSecureStoreInstrumentedTest {
     private val keyAlias = "opencodemobile.securestore.$namespace"
 
     @AfterTest
-    fun tearDown() = runBlocking {
-        AndroidKeystoreSecureStore(context, namespace).destroy()
-        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE).edit().clear().commit()
+    fun tearDown() {
+        runBlocking {
+            AndroidKeystoreSecureStore(context, namespace).destroy()
+            context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE).edit().clear().commit()
+        }
     }
 
     @Test

@@ -52,9 +52,16 @@ public interface SecureStore {
 public sealed class SecureStoreException(message: String, cause: Throwable? = null) :
     IllegalStateException(message, cause) {
 
-    /** The dedicated key could not be created or read. */
-    public class KeyUnavailable(message: String, cause: Throwable? = null) :
-        SecureStoreException(message, cause)
+    /**
+     * The dedicated key could not be created or read, or the platform keystore
+     * refused the operation. [osStatus] carries the raw platform status when
+     * one is available (iOS `OSStatus`), for diagnostics only.
+     */
+    public class KeyUnavailable(
+        message: String,
+        cause: Throwable? = null,
+        public val osStatus: Int? = null,
+    ) : SecureStoreException(message, cause)
 
     /** An entry exists but cannot be decrypted or parsed (tampered or foreign data). */
     public class CorruptedEntry(public val key: String, message: String, cause: Throwable? = null) :

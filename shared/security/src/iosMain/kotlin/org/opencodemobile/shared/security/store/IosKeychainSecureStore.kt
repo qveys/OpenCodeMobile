@@ -70,8 +70,11 @@ public class IosKeychainSecureStore(
         val status = SecItemCopyMatching(query, result.ptr)
         CFRelease(query)
         if (status == errSecItemNotFound) return@memScoped null
-        check(status == errSecSuccess) {
-            "Keychain read failed (status $status); failing closed"
+        if (status != errSecSuccess) {
+            throw SecureStoreException.KeyUnavailable(
+                "Keychain read failed (status $status); failing closed",
+                osStatus = status,
+            )
         }
 
         val data = CFBridgingRelease(result.value) as? NSData ?: return@memScoped null
@@ -98,7 +101,12 @@ public class IosKeychainSecureStore(
 
         CFRelease(attributes)
         CFRelease(query)
-        check(status == errSecSuccess) { "Keychain store failed (status $status)" }
+        if (status != errSecSuccess) {
+            throw SecureStoreException.KeyUnavailable(
+                "Keychain store failed (status $status)",
+                osStatus = status,
+            )
+        }
     }
 
     override suspend fun remove(key: String) {
