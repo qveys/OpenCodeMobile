@@ -10,10 +10,8 @@ import org.opencodemobile.features.connection.ConnectionSetupController
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerIdentityStore
 import org.opencodemobile.shared.domain.connection.ServerIdentityVerifier
+import org.opencodemobile.shared.networking.adapter.OpenCodeHttpClient
 import org.opencodemobile.shared.networking.adapter.OpenCodeV2Adapter
-import org.opencodemobile.shared.networking.adapter.createOpenCodeHttpClient
-import org.opencodemobile.shared.networking.adapter.installHttpMethodPolicy
-import org.opencodemobile.shared.networking.logging.installSanitizingLogging
 import org.opencodemobile.shared.security.identity.AndroidKeystoreServerIdentityStore
 import org.opencodemobile.shared.security.identity.AndroidServerIdentityVerifier
 import org.opencodemobile.shared.security.identity.ServerIdentityGate
@@ -51,12 +49,11 @@ public val connectionCompositionModule: Module = module {
 
     // One HttpClient per process, sharing the same pin controller as the
     // adapter so the engine-side pin backstop cannot silently disappear.
-    single {
-        createOpenCodeHttpClient(get()) {
-            installSanitizingLogging()
-            installHttpMethodPolicy()
-        }
-    }
+    // `OpenCodeHttpClient.create` is the sanctioned factory: it installs the
+    // JSON ContentNegotiation the generated client's `body()` calls need, plus
+    // redaction-safe logging; the platform factory behind it applies the
+    // outbound transport policy (method allowlist, no redirect following).
+    single { OpenCodeHttpClient.create(get()) }
     single<OpenCodeGateway> { OpenCodeV2Adapter(get(), get(), get()) }
 
     single {
