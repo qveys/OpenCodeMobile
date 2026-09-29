@@ -131,8 +131,12 @@ jobs:
           echo "Installing $APP"
           xcrun simctl install "$UDID" "$APP"
           xcrun simctl launch "$UDID" org.opencodemobile.ios
-          sleep 5
-          echo "App launched into the connection screen (see the UI tests below for assertions)."
+          sleep 8
+          if xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q opencodemobile; then
+            echo "App launched into the connection screen (see the UI tests below for assertions)."
+          else
+            echo "::warning::the app process is not alive 8s after launch; it may have crashed on startup"
+          fi
 
       - name: Run the connection-screen acceptance UI tests
         working-directory: iosApp
@@ -146,6 +150,30 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -derivedDataPath build/DerivedData \
             test-without-building
+
+      # No actions/upload-artifact is permitted, so on any failure dump the
+      # simulator crash report and app log straight into the job log.
+      - name: Collect crash diagnostics
+        if: always()
+        run: |
+          set -uo pipefail
+          UDID="${{ steps.sim.outputs.udid }}"
+          echo "=== host DiagnosticReports ==="
+          ls -t "$HOME/Library/Logs/DiagnosticReports" 2>/dev/null | head -20 || true
+          for f in $(ls -t "$HOME/Library/Logs/DiagnosticReports"/iosApp* 2>/dev/null | head -3); do
+            echo "----- $f -----"
+            sed -n '1,300p' "$f"
+          done
+          echo "=== simulator CrashReporter ==="
+          CRASH_DIR="$HOME/Library/Developer/CoreSimulator/Devices/$UDID/data/Library/Logs/CrashReporter"
+          ls -t "$CRASH_DIR" 2>/dev/null | head -20 || true
+          for f in $(ls -t "$CRASH_DIR"/iosApp* 2>/dev/null | head -3); do
+            echo "----- $f -----"
+            sed -n '1,300p' "$f"
+          done
+          echo "=== simulator log for iosApp (last 10m) ==="
+          xcrun simctl spawn "$UDID" log show --last 10m --style compact \
+            --predicate 'process == "iosApp"' 2>/dev/null | tail -200 || true
 
   # The company `mac` runner is shared and can sit behind a long provisioning
   # job. This leg runs the identical steps on a GitHub-hosted macOS runner (the
