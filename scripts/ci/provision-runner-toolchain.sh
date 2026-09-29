@@ -381,15 +381,6 @@ ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS:-35.0.0}"
 SDK_HOME_FINAL=""
 
 install_android_sdk() {
-  if [ -n "${ANDROID_HOME:-}" ] \
-     && [ -d "$ANDROID_HOME/platforms/$ANDROID_PLATFORM" ] \
-     && [ -d "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS" ]; then
-    info "Android SDK already present: $ANDROID_HOME"
-    SDK_HOME_FINAL="$ANDROID_HOME"
-    return 0
-  fi
-  log "Installing Android SDK command-line tools + $ANDROID_PLATFORM"
-
   local os_seg sdk
   case "$OS" in
     Linux)
@@ -403,8 +394,22 @@ install_android_sdk() {
       ;;
     *) warn "unsupported OS: $OS"; return 1 ;;
   esac
-  # Reuse an existing (possibly partial) SDK if one is already configured.
+  # Prefer an explicitly configured SDK; otherwise use the per-OS default.
   if [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME" ]; then sdk="$ANDROID_HOME"; fi
+
+  # Fast path with zero network: the SDK already has the pinned packages. A
+  # pre-installed runner (the board's OPE-100 decision) and every re-run hit
+  # this and skip all downloads, whatever ANDROID_HOME is set to.
+  if [ -x "$sdk/cmdline-tools/latest/bin/sdkmanager" ] \
+     && [ -d "$sdk/platform-tools" ] \
+     && [ -d "$sdk/platforms/$ANDROID_PLATFORM" ] \
+     && [ -d "$sdk/build-tools/$ANDROID_BUILD_TOOLS" ]; then
+    info "Android SDK already present: $sdk"
+    SDK_HOME_FINAL="$sdk"
+    return 0
+  fi
+
+  log "Installing Android SDK command-line tools + $ANDROID_PLATFORM"
 
   if [ "$CAN_ROOT" -eq 1 ] && [ "$sdk" = "/opt/android-sdk" ]; then
     run_root mkdir -p "$sdk/cmdline-tools"
