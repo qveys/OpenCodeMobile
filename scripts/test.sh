@@ -4,7 +4,8 @@
 # Runs the shared/module test suites from a single revision so one commit is
 # verified on both target families:
 #   - Android (JVM-hosted) unit tests: Gradle `testDebugUnitTest`
-#   - Apple (Kotlin/Native iOS simulator): Gradle `iosSimulatorArm64Test`
+#   - Apple (Kotlin/Native iOS simulator): `iosSimulatorArm64Test` on an
+#     Apple Silicon host, `iosX64Test` on an Intel host (see `apple` below)
 #   - JVM + all-native aggregate: Gradle `allTests`
 #
 # Every KMP module declares `commonTest.dependencies { implementation(kotlin-test) }`,
@@ -99,8 +100,24 @@ case "$MODE" in
         run_gradle testDebugUnitTest "$@"
         ;;
     apple)
-        # Runnable iOS simulator target (Apple Silicon host).
-        run_gradle iosSimulatorArm64Test "$@"
+        # The runnable iOS simulator target must match the host architecture.
+        # Kotlin/Native silently SKIPS the simulator test task whose
+        # architecture cannot run on the host, which would make this job pass
+        # with zero tests. The company self-hosted Mac (`macbook-openclaw`) is
+        # Intel (x86_64), so it runs `iosX64Test`; an Apple Silicon host runs
+        # `iosSimulatorArm64Test`.
+        case "$(uname -m)" in
+            arm64) SIM_TASK=iosSimulatorArm64Test ;;
+            *) SIM_TASK=iosX64Test ;;
+        esac
+        run_gradle "$SIM_TASK" "$@"
+        # Fail loudly if Kotlin/Native skipped the task: without this the job
+        # would be a false green (BUILD SUCCESSFUL with zero tests executed).
+        if [ -z "$(find . -path "*/build/test-results/$SIM_TASK/*.xml" -print -quit)" ]; then
+            echo "error: '$SIM_TASK' produced no JUnit reports on $(uname -m);" >&2
+            echo "the iOS simulator tests were skipped, so the suite did not run." >&2
+            exit 1
+        fi
         ;;
     all)
         run_gradle testDebugUnitTest "$@"
