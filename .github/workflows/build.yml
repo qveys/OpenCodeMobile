@@ -1,6 +1,7 @@
 name: Build
 
-# OPE-18 — Build step.
+# OPE-18 — Build step (jobs: build-android, build-ios).
+# OPE-17 — Test step (jobs: test-android, test-ios, further down).
 #
 # Compiles/bundles the application into deployable artifacts for BOTH target
 # families from the SAME revision (one workflow run => one github.sha):
@@ -83,3 +84,51 @@ jobs:
           test -n "$(find . -path '*/build/bin/iosArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/security/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/domain/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
+
+  # OPE-17 — Test step. Runs the full KMP test suite from the SAME revision as
+  # the build jobs above (one workflow run => one github.sha):
+  #   - test-android: Android/JVM unit tests (`testDebugUnitTest`) on Linux.
+  #   - test-ios: Apple Kotlin/Native `iosSimulatorArm64Test` on macOS.
+  #
+  # Both jobs delegate the Gradle task list to scripts/test.sh (OPE-16), the
+  # single test entry point. `--continue` makes every module report its failures
+  # in one run instead of stopping at the first one, and the always-run
+  # `Report test results` step inlines the failing tests (name, message, stack
+  # trace) into the job log via scripts/ci/report-test-results.sh, because the
+  # org Actions allowlist has no `actions/upload-artifact` to download reports.
+  #
+  # Toolchain policy is identical to the build jobs: only `actions/checkout`,
+  # with the JDK 21 / Gradle wrapper already present on the runner.
+  test-android:
+    name: Test Android (JVM unit tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Run Android/JVM unit tests
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          chmod +x gradlew
+          java -version
+          CI=1 bash scripts/test.sh android -- --continue
+      - name: Report test results
+        if: always()
+        run: bash scripts/ci/report-test-results.sh
+
+  test-ios:
+    name: Test iOS simulator (Kotlin/Native)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Run iOS simulator tests
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-$JAVA_HOME}}"
+          chmod +x gradlew
+          java -version
+          CI=1 bash scripts/test.sh apple -- --continue
+      - name: Report test results
+        if: always()
+        run: bash scripts/ci/report-test-results.sh
