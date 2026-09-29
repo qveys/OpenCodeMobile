@@ -1,5 +1,6 @@
 package org.opencodemobile.shared.application.chat
 
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -33,9 +34,15 @@ import org.opencodemobile.shared.testsupport.MockOpenCodeServer
 class ChatContractTest {
 
     private val sessionId = "ses_mock_0001"
+    private val servers = mutableListOf<MockOpenCodeServer>()
+
+    @AfterTest
+    fun tearDown() {
+        servers.forEach { it.stop() }
+    }
 
     private fun decoder(): OpenCodeV2Adapter {
-        val server = MockOpenCodeServer().start()
+        val server = MockOpenCodeServer().start().also { servers += it }
         return OpenCodeV2Adapter(
             httpClient = server.client,
             identityGate = ServerIdentityGate(

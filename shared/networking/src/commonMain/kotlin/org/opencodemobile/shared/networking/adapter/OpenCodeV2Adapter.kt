@@ -13,7 +13,6 @@ import kotlinx.serialization.json.contentOrNull
 import org.opencode.mobile.networking.client.generated.apis.OpenCodeApiClient
 import org.opencode.mobile.networking.client.generated.models.ApiAgent
 import org.opencode.mobile.networking.client.generated.models.ApiCreateSessionRequest
-import org.opencode.mobile.networking.client.generated.models.ApiMessage
 import org.opencode.mobile.networking.client.generated.models.ApiMessageEnvelope
 import org.opencode.mobile.networking.client.generated.models.ApiMessagePart
 import org.opencode.mobile.networking.client.generated.models.ApiModelRef
