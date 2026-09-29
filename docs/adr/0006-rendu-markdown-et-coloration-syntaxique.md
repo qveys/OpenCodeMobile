@@ -95,7 +95,7 @@ This ADR covers the **Markdown→Compose rendering library** and the **syntax-hi
 | `com.mikepenz:multiplatform-markdown-renderer` (+ `-m3`, `-code`) | 0.45.0 | Apache-2.0 (forked portions MIT) | Permissive; OK for Play and App Store |
 | `org.jetbrains:markdown` (transitive) | current | Apache-2.0 | Permissive; OK |
 | `dev.snipme:highlights` | 1.1.0 | Apache-2.0 | Permissive; OK |
-| `com.slack.eithernet` / extended-spans (transitive, if any) | — | Apache-2.0 | Permissive; OK |
+| extended-spans (Saket Narayan; bundled by the renderer) | — | Apache-2.0 | Permissive; OK |
 | Compose Multiplatform (already in use) | 1.7.1 | Apache-2.0 | OK |
 
 **Obligations.** Apache-2.0 requires preserving copyright and license notices and including the license text in the app's open-source-licenses screen (L6). There is no copyleft, so static linking into the iOS framework is permitted.
