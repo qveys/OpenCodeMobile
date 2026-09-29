@@ -2,13 +2,16 @@ package org.opencodemobile.shared.security.store
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import java.io.IOException
 import java.security.GeneralSecurityException
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
+import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -52,11 +55,18 @@ public class AndroidKeystoreSecureStore(
 
     private val mutex = Mutex()
 
-    override val keyDescriptor: SecureKeyDescriptor = SecureKeyDescriptor(
-        alias = keyAlias,
-        algorithm = TRANSFORMATION,
-        hardwareBacked = true,
-    )
+    /**
+     * The dedicated key is created on first write, so the hardware-backing
+     * report is derived from the Keystore on every read rather than asserted at
+     * construction time. Before the key exists there is nothing to inspect and
+     * the descriptor reports `hardwareBacked = false`.
+     */
+    override val keyDescriptor: SecureKeyDescriptor
+        get() = SecureKeyDescriptor(
+            alias = keyAlias,
+            algorithm = TRANSFORMATION,
+            hardwareBacked = isHardwareBacked(),
+        )
 
     override suspend fun get(key: String): String? = withContext(ioDispatcher) {
         mutex.withLock {
@@ -120,11 +130,53 @@ public class AndroidKeystoreSecureStore(
         }
     }
 
+    /**
+     * Reads the dedicated key from the Keystore without creating it. Returns
+     * `null` when the alias is absent; a genuine Keystore failure propagates as
+     * a [GeneralSecurityException] so callers can fail closed.
+     */
+    private fun readSecretKey(): SecretKey? {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        return (keyStore.getEntry(keyAlias, null) as? KeyStore.SecretKeyEntry)?.secretKey
+    }
+
+    /**
+     * Reports whether the dedicated key is held by hardware-backed storage, as
+     * the platform [KeyInfo] sees it. A software Keystore answers `false`; a
+     * missing key or an unreadable descriptor also answers `false` rather than
+     * asserting a protection the key may not have.
+     *
+     * `minSdk` is 31, so `securityLevel` is preferred over the deprecated
+     * `isInsideSecureHardware` / `isStrongBoxBacked` pair (both deprecated in
+     * API 31) and reports the TEE and StrongBox cases alike.
+     */
+    private fun isHardwareBacked(): Boolean {
+        val key = try {
+            readSecretKey()
+        } catch (failure: GeneralSecurityException) {
+            null
+        } catch (failure: IOException) {
+            null
+        } ?: return false
+
+        return try {
+            val factory = SecretKeyFactory.getInstance(key.algorithm, ANDROID_KEYSTORE)
+            val keyInfo = factory.getKeySpec(key, KeyInfo::class.java) as KeyInfo
+            when (keyInfo.securityLevel) {
+                KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT,
+                KeyProperties.SECURITY_LEVEL_STRONGBOX -> true
+                else -> false
+            }
+        } catch (failure: GeneralSecurityException) {
+            false
+        } catch (failure: IllegalArgumentException) {
+            false
+        }
+    }
+
     private fun secretKey(createIfMissing: Boolean): SecretKey {
         return try {
-            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-            val existing = keyStore.getEntry(keyAlias, null) as? KeyStore.SecretKeyEntry
-            if (existing != null) return existing.secretKey
+            readSecretKey()?.let { return it }
             if (!createIfMissing) {
                 throw SecureStoreException.KeyUnavailable(
                     "The dedicated key '$keyAlias' is missing; the stored entry is unrecoverable",

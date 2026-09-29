@@ -1,8 +1,11 @@
 package org.opencodemobile.shared.security.store
 
 import android.content.Context
+import android.security.keystore.KeyInfo
+import android.security.keystore.KeyProperties
 import androidx.test.core.app.ApplicationProvider
 import java.security.KeyStore
+import javax.crypto.SecretKeyFactory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -81,6 +84,34 @@ class AndroidKeystoreSecureStoreInstrumentedTest {
         assertFalse(androidKeyStore().containsAlias(keyAlias))
     }
 
+    /**
+     * The advisory on OPE-155: `hardwareBacked` must come from the platform
+     * [KeyInfo], not from a hardcoded literal. No key exists yet, so there is
+     * nothing hardware-backed to report.
+     */
+    @Test
+    fun keyDescriptorReportsNotHardwareBackedBeforeTheKeyExists() = runBlocking {
+        AndroidKeystoreSecureStore(context, namespace).destroy()
+
+        val store = AndroidKeystoreSecureStore(context, namespace)
+
+        assertFalse(store.keyDescriptor.hardwareBacked)
+    }
+
+    /**
+     * Reads the platform's own security level for the generated key. On a
+     * software Keystore (the emulator) this asserts `false`; on a TEE/StrongBox
+     * device it asserts `true`. Either way a hardcoded `true` would fail the
+     * comparison.
+     */
+    @Test
+    fun keyDescriptorMirrorsThePlatformHardwareBackingFlag() = runBlocking {
+        val store = AndroidKeystoreSecureStore(context, namespace)
+        store.put("token", "value")
+
+        assertEquals(platformHardwareBacked(), store.keyDescriptor.hardwareBacked)
+    }
+
     @Test
     fun namespacesAreIsolated() = runBlocking {
         val first = AndroidKeystoreSecureStore(context, namespace)
@@ -96,4 +127,13 @@ class AndroidKeystoreSecureStoreInstrumentedTest {
 
     private fun androidKeyStore(): KeyStore =
         KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+
+    /** The platform's own answer, read independently from the production store. */
+    private fun platformHardwareBacked(): Boolean {
+        val entry = androidKeyStore().getEntry(keyAlias, null) as KeyStore.SecretKeyEntry
+        val factory = SecretKeyFactory.getInstance(entry.secretKey.algorithm, "AndroidKeyStore")
+        val keyInfo = factory.getKeySpec(entry.secretKey, KeyInfo::class.java) as KeyInfo
+        return keyInfo.securityLevel == KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT ||
+            keyInfo.securityLevel == KeyProperties.SECURITY_LEVEL_STRONGBOX
+    }
 }
