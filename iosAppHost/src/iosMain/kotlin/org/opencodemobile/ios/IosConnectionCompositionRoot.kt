@@ -127,10 +127,10 @@ public fun connectionSetupViewController(
     accessibilitySyncAlways: Boolean = false,
 ): UIViewController = ComposeUIViewController(
     configure = {
-        accessibilitySyncOptions = if (accessibilitySyncAlways) {
-            AccessibilitySyncOptions.Always
-        } else {
-            AccessibilitySyncOptions.WhenRequiredByAccessibilityServices
+        if (accessibilitySyncAlways) {
+            // Leave the production default (WhenRequiredByAccessibilityServices)
+            // untouched otherwise.
+            accessibilitySyncOptions = AccessibilitySyncOptions.Always(null)
         }
     },
 ) {
