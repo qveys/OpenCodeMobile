@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  T3 / OP2 — the cache DB and its -wal/-shm companions must never enter an
+  Android cloud backup or device transfer, independent of the DB's own
+  encryption (docs/ARCHITECTURE.md §"Local cache encryption at rest").
+
+  Kept in sync with CACHE_DATABASE_NAME in shared/persistence
+  (org.opencodemobile.shared.persistence.cache).
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" path="opencodemobile_cache.db" />
+        <exclude domain="database" path="opencodemobile_cache.db-wal" />
+        <exclude domain="database" path="opencodemobile_cache.db-shm" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="database" path="opencodemobile_cache.db" />
+        <exclude domain="database" path="opencodemobile_cache.db-wal" />
+        <exclude domain="database" path="opencodemobile_cache.db-shm" />
+    </device-transfer>
+</data-extraction-rules>
