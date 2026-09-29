@@ -520,8 +520,8 @@ the sole path by which an imported profile is persisted, and it enforces:
   separate, distinctly labeled confirmation from "add new." A profile is
   never replaced as a side effect of importing a link with the same name or
   ID alone.
-  This applies uniformly regardless of the open decision on single- vs.
-  multi-profile support (see `docs/THREAT-MODEL.md` §1); in either mode,
+  This applies uniformly regardless of the single- vs. multi-profile
+  decision (ADR 0005, OP3; see `docs/THREAT-MODEL.md` §1); in either mode,
   every existing profile is subject to the same no-silent-overwrite rule.
   V1 stores exactly **one** profile (OP3, ADR 0005), so an import that would
   create a second profile must be rejected with an explicit message rather
@@ -966,16 +966,18 @@ ADR, per the specification's own rule.
 
 ## 9. Open decisions
 
-All five V1 open decisions are **closed** by
-[ADR 0005](adr/0005-v1-open-decisions-op1-op5.md) (2026-09-29). The register is
-empty; the table is kept as the traceability index, not as a work list.
+All five V1 open decisions are **decided** by
+[ADR 0005](adr/0005-v1-open-decisions-op1-op5.md) (2026-09-29). OP2 is closed on
+Android and accepted-with-residual-risk on iOS (see §"Local cache encryption at
+rest"); no decision is left open. The table is kept as the traceability index,
+not as a work list.
 
 | # | Decision | Decision taken | Binding design |
 |---|---|---|---|
 | OP1 | Liquid Glass vs. pure Compose Multiplatform on iOS | Pure CMP UI in V1, no native Liquid Glass. iOS POC still required in L1. | [ADR 0003](adr/0003-liquid-glass-vs-pure-cmp-ios.md) |
-| OP2 | Local cache encryption | Encrypted at rest. Android SQLCipher + Keystore-held passphrase; iOS Data Protection as the V1 bar, SQLCipher-for-iOS deferred. Lands with the cache in L2. | §"Local cache encryption at rest" above, T3 |
-| OP3 | Single vs. multiple server profiles in V1 | **One** stored profile. `ServerId` is kept in the Domain model, and the cache stays scoped `ServerId → ProjectId → SessionId`, so multi-profile remains a data-layer change. No profile-management UI in V1; multi-profile is Post-V1 P1. | ADR 0005 §2, §3.4, T8 |
-| OP4 | Approving permissions from a lock-screen notification | **Not offered in V1.** Notifications are a read-only surface; approval requires the foregrounded, authenticated confirmation screen. | §"Permission approval confirmation" above, T2 |
+| OP2 | Local cache encryption | Encrypted at rest. Android SQLCipher + Keystore-held passphrase (**closed**); iOS Data Protection as the V1 bar, SQLCipher-for-iOS deferred — **accepted residual risk** (not covered: sandbox malware, unlocked stolen device). Lands with the cache in L2. | §"Local cache encryption at rest" above, T3 |
+| OP3 | Single vs. multiple server profiles in V1 | **One** stored profile. `ServerId` is kept in the Domain model, and the cache stays scoped `ServerId → ProjectId → SessionId`, so multi-profile remains a data-layer change. No profile-management UI in V1; multi-profile is Post-V1 P1. | ADR 0005 §2 ; ARCHITECTURE §3.4 ; T8 |
+| OP4 | Approving permissions from a lock-screen notification | **Not offered in V1.** Notifications are a read-only surface for approvals — at most a "Deny" action, never "Approve"; approval requires the foregrounded, authenticated confirmation screen. | §"Permission approval confirmation (foreground + authenticated)" above, T2 |
 | OP5 | `PROPOSED`-only requirements in the specification | No bulk validation. Each `PROPOSÉ` item keeps its status until an explicit individual decision. V1-07 (agent questions) and V1-08 (abort) are in the MVP cut **by explicit decision**, not by bulk validation. | ADR 0005 §2, §4 |
 
 ## 10. Known gaps
