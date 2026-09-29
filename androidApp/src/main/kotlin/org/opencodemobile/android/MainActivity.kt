@@ -151,7 +151,9 @@ private fun PermissionHost(
             PermissionConfirmationScreen(
                 model = banner,
                 onDecision = { decision ->
-                    scope.launch { presenter.approve(banner.requestId, decision) }
+                    scope.launch {
+                        presenter.approve(banner.requestId, decision, banner.contentFingerprint)
+                    }
                 },
             )
         } else {

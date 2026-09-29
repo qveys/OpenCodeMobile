@@ -8,12 +8,12 @@ import org.koin.core.module.Module
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import org.opencodemobile.android.permission.AndroidPermissionNotifier
-import org.opencodemobile.android.permission.InMemoryPendingPermissionStore
-import org.opencodemobile.android.permission.NoOpPermissionEventDecoder
+import org.opencodemobile.android.permission.DeferredPendingPermissionStore
+import org.opencodemobile.android.permission.DeferredPermissionEventDecoder
+import org.opencodemobile.android.permission.DeferredPermissionPort
 import org.opencodemobile.android.permission.PermissionConnection
 import org.opencodemobile.android.permission.PermissionHostActivity
 import org.opencodemobile.android.permission.PermissionRuntime
-import org.opencodemobile.android.permission.UnavailablePermissionPort
 import org.opencodemobile.features.permissions.PermissionsPresenter
 import org.opencodemobile.shared.application.permission.PermissionCoordinator
 import org.opencodemobile.shared.application.permission.PermissionRealtimeBridge
@@ -63,21 +63,23 @@ public val permissionModule: Module = module {
     single<PermissionNotifier> { AndroidPermissionNotifier(androidContext()) }
 
     single<PermissionPort> {
-        getOrNull<PermissionConnection>()?.port ?: UnavailablePermissionPort
+        DeferredPermissionPort { getOrNull<PermissionConnection>()?.port }
     }
 
     single<PermissionEventDecoder> {
-        getOrNull<PermissionConnection>()?.decoder ?: NoOpPermissionEventDecoder
+        DeferredPermissionEventDecoder { getOrNull<PermissionConnection>()?.decoder }
     }
 
     single<PendingPermissionStore> {
-        val connection = getOrNull<PermissionConnection>()
-        val cache = getOrNull<SessionCache>()
-        val cacheStack = getOrNull<CacheStack>()
-        if (connection != null && cache != null && cacheStack != null) {
-            DeferredCachePendingPermissionStore(cache, cacheStack::writer, connection.serverId)
-        } else {
-            InMemoryPendingPermissionStore()
+        DeferredPendingPermissionStore {
+            val connection = getOrNull<PermissionConnection>()
+            val cache = getOrNull<SessionCache>()
+            val cacheStack = getOrNull<CacheStack>()
+            if (connection != null && cache != null && cacheStack != null) {
+                DeferredCachePendingPermissionStore(cache, cacheStack::writer, connection.serverId)
+            } else {
+                null
+            }
         }
     }
 
@@ -88,12 +90,13 @@ public val permissionModule: Module = module {
 
     single {
         val coordinator = runCatching { getOrNull<PermissionCoordinator>() }.getOrNull()
-        val connection = getOrNull<PermissionConnection>()
-        val bridge = if (coordinator != null && connection != null) {
-            PermissionRealtimeBridge(connection.source, connection.decoder, coordinator)
-        } else {
-            null
+        PermissionRuntime(coordinator) {
+            val connection = getOrNull<PermissionConnection>()
+            if (coordinator != null && connection != null) {
+                PermissionRealtimeBridge(connection.source, connection.decoder, coordinator)
+            } else {
+                null
+            }
         }
-        PermissionRuntime(coordinator, bridge)
     }
 }

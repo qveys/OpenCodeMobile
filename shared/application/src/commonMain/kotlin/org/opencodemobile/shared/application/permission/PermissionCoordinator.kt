@@ -143,6 +143,16 @@ public class PermissionCoordinator(
         // Server-issued ids that are no longer pending are recorded as decided so
         // an out-of-order `permission.asked` cannot resurrect them.
         val serverIds = serverPending.map { it.id }.toSet()
+
+        // A successful GET is authoritative, but a response captured during an SSE
+        // reconnect can be momentarily empty or truncated. Absence is therefore not
+        // proof a request was decided (N1): one omission must not erase the banner
+        // *and* permanently suppress that request's event. So an id the server
+        // reports pending again drops any tombstone recorded by an earlier,
+        // incomplete reconcile. The set stays bounded by `rememberDecided`.
+        for (id in serverIds) {
+            decidedIds.remove(id)
+        }
         for (existing in mutableState.value.pending) {
             if (existing.id !in serverIds) rememberDecided(existing.id)
         }
@@ -245,9 +255,10 @@ public class PermissionCoordinator(
      * device-credential gate immediately before the send.
      *
      * [displayedFingerprint] is the fingerprint of the content the confirmation
-     * screen rendered; it must still match the live request, and the request is
-     * re-checked again after the biometric prompt (the content can change while
-     * the user authenticates).
+     * screen rendered (the banner model the screen holds); it must still match the
+     * live request, and the foreground, armed-confirmation and content binding are
+     * all re-checked again after the biometric prompt, because the activity can be
+     * stopped and the content can change while the user authenticates.
      */
     public suspend fun approve(
         requestId: String,
@@ -281,11 +292,16 @@ public class PermissionCoordinator(
             return PermissionSubmitResult.NotAuthenticated(biometric.describe())
         }
 
-        // The content can change while the user authenticates: re-read the live
-        // request and refuse a stale approval.
-        val live = mutableState.value.request(requestId)
+        // The content can change while the user authenticates, and the activity can
+        // be stopped while the prompt is up (which disarms and clears the
+        // foreground flag). Re-read the live state and re-assert the whole T2
+        // invariant at the enforcement point, not just the content fingerprint.
+        val live = mutableState.value
+        if (!live.foregrounded) return PermissionSubmitResult.NotForegrounded
+        if (live.armedRequestId != requestId) return PermissionSubmitResult.NotArmed
+        val liveRequest = live.request(requestId)
             ?: return PermissionSubmitResult.NotFound
-        if (live.contentFingerprint != request.contentFingerprint) {
+        if (liveRequest.contentFingerprint != request.contentFingerprint) {
             return PermissionSubmitResult.ContentChanged
         }
 

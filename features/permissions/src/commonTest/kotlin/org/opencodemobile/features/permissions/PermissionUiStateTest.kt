@@ -31,6 +31,11 @@ class PermissionUiStateTest {
         assertEquals("bash", banner?.tool)
         assertEquals(listOf("rm -rf build"), banner?.targets)
         assertEquals("""{"command":"rm -rf build"}""", banner?.argumentsText)
+        assertEquals(
+            request.contentFingerprint,
+            banner?.contentFingerprint,
+            "the banner must carry the fingerprint of what it rendered (N3)",
+        )
 
         val decisions = banner?.decisions.orEmpty()
         assertEquals(

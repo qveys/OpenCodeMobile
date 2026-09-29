@@ -600,6 +600,14 @@ from an in-app pending-approvals list). This screen enforces:
   confirmation without biometrics," never down to "notification-only."
   (This directly answers the open product decision: notification-only
   approval is not offered as a mode.)
+  In V1 this gate is implemented on **Android** only. `AndroidBiometricAuthenticator`
+  is the real `BiometricPrompt`/device-credential implementation and is the only
+  consumer of the biometric port wired into the app
+  (`shared/security/src/androidMain/.../AndroidBiometricAuthenticator.kt`). The iOS
+  `LAContext` actual is correct but has no consumer: there is no iOS host yet
+  (`iosApp/` is a stub), so there is no iOS approval path at all - fail-closed, not
+  fail-open. The iOS host must wire the same coordinator gates before iOS can
+  approve anything; it is tracked separately.
 - **Request-bound, single-use decision.** The confirmation screen arms itself
   with the server-issued permission-request ID and a content hash of what it is
   displaying; the coordinator re-checks that hash, and the request's

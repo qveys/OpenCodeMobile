@@ -2,6 +2,7 @@ package org.opencodemobile.shared.application.permission
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +45,17 @@ private class FakeEventSource : EventSource {
 private class SingleEventDecoder(private val request: PermissionRequest) : PermissionEventDecoder {
     override fun decode(type: String, payload: String): PermissionEvent? =
         if (type == "permission.asked") PermissionEvent.Asked(request) else null
+}
+
+/** Throws on the first decode, then decodes normally, to model a faulty seam. */
+private class ThrowingThenWorkingDecoder(private val request: PermissionRequest) : PermissionEventDecoder {
+    private var calls: Int = 0
+
+    override fun decode(type: String, payload: String): PermissionEvent? {
+        calls += 1
+        if (calls == 1) throw IllegalStateException("undecodable payload")
+        return PermissionEvent.Asked(request)
+    }
 }
 
 class PermissionRealtimeBridgeTest {
@@ -93,5 +105,45 @@ class PermissionRealtimeBridgeTest {
         source.phase(ConnectionPhase.Live)
         runCurrent()
         assertEquals(emptyList(), coordinator.state.value.pending.map { it.id })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun aThrowingDecoderDoesNotCancelTheCollector() = runTest {
+        val source = FakeEventSource()
+        val coordinator = PermissionCoordinator(
+            port = object : PermissionPort {
+                override suspend fun pendingPermissions(): List<PermissionRequest> = emptyList()
+                override suspend fun reply(
+                    requestId: String,
+                    decision: org.opencodemobile.shared.domain.permission.PermissionDecision,
+                ): PermissionReplyOutcome = PermissionReplyOutcome.Accepted
+            },
+            store = object : PendingPermissionStore {
+                override suspend fun load(): List<PermissionRequest> = emptyList()
+                override suspend fun save(requests: List<PermissionRequest>) = Unit
+            },
+            mutationGate = object : MutationGate {
+                override fun mutationsAllowed(): Boolean = true
+            },
+        )
+        val bridge = PermissionRealtimeBridge(source, ThrowingThenWorkingDecoder(request), coordinator)
+        bridge.start(backgroundScope)
+        runCurrent()
+
+        source.emit(ServerEvent(sequence = 1, id = "evt_1", type = "permission.asked", payload = "{}"))
+        runCurrent()
+        assertTrue(
+            coordinator.state.value.pending.isEmpty(),
+            "an undecodable payload is dropped, not propagated",
+        )
+
+        source.emit(ServerEvent(sequence = 2, id = "evt_2", type = "permission.asked", payload = "{}"))
+        runCurrent()
+        assertEquals(
+            listOf("per_1"),
+            coordinator.state.value.pending.map { it.id },
+            "the collector must survive a decoder throw and keep ingesting events (N7)",
+        )
     }
 }

@@ -34,17 +34,30 @@ public class AndroidPermissionNotifier(
     private val context: Context,
 ) : PermissionNotifier {
 
-    private val postedIds: MutableSet<Int> = mutableSetOf()
+    /**
+     * Stable, collision-free notification ids for the pending requests.
+     *
+     * A 32-bit `requestId.hashCode()` can collide, which would merge two pending
+     * requests into one notification: the visible "Deny" would then deny the id in
+     * the `extra` (the other request) while the user believed they were denying the
+     * one on screen, and the other request would never be shown (N4). Instead every
+     * request id gets its own monotonically allocated id, released when the request
+     * leaves the pending set so the space is reused.
+     */
+    private val notificationIds: MutableMap<String, Int> = mutableMapOf()
+    private var nextNotificationId: Int = FIRST_NOTIFICATION_ID
 
     override suspend fun onPendingChanged(pending: List<PermissionRequest>) {
         ensureChannel()
         val manager = NotificationManagerCompat.from(context)
         if (!manager.areNotificationsEnabled()) {
-            postedIds.clear()
+            for (id in notificationIds.values) {
+                runCatching { manager.cancel(id) }
+            }
+            notificationIds.clear()
             return
         }
 
-        val liveIds = pending.map { notificationId(it.id) }.toSet()
         for (request in pending) {
             val plan = PermissionPolicy.notificationFor(request)
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -70,11 +83,13 @@ public class AndroidPermissionNotifier(
         }
 
         // A request that is no longer pending must not keep a stale notification.
-        for (staleId in postedIds - liveIds) {
-            runCatching { manager.cancel(staleId) }
+        // Its id is released so it can be reused by a later request.
+        val liveRequestIds = pending.map { it.id }.toSet()
+        for (staleRequestId in notificationIds.keys - liveRequestIds) {
+            notificationIds.remove(staleRequestId)?.let { staleId ->
+                runCatching { manager.cancel(staleId) }
+            }
         }
-        postedIds.clear()
-        postedIds += liveIds
     }
 
     private fun openConfirmation(requestId: String, route: String): PendingIntent {
@@ -85,7 +100,7 @@ public class AndroidPermissionNotifier(
         }
         return PendingIntent.getActivity(
             context,
-            notificationId(requestId) + OPEN_OFFSET,
+            requestCode(requestId, OPEN_OFFSET),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -98,7 +113,7 @@ public class AndroidPermissionNotifier(
         }
         return PendingIntent.getBroadcast(
             context,
-            notificationId(requestId) + DENY_OFFSET,
+            requestCode(requestId, DENY_OFFSET),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -121,10 +136,22 @@ public class AndroidPermissionNotifier(
 
     private fun denyLabel(): CharSequence = "Deny"
 
-    private fun notificationId(requestId: String): Int = requestId.hashCode()
+    private fun notificationId(requestId: String): Int =
+        notificationIds.getOrPut(requestId) { nextNotificationId++ }
+
+    /**
+     * The PendingIntent request code for [requestId]. Each notification id owns a
+     * stride so the open and deny PendingIntents of distinct requests never share a
+     * request code (extras are not part of [Intent.filterEquals], so a shared code
+     * could misroute a "Deny" to the wrong request).
+     */
+    private fun requestCode(requestId: String, offset: Int): Int =
+        notificationId(requestId) * REQUEST_CODE_STRIDE + offset
 
     private companion object {
         private const val CHANNEL_ID: String = "permission_requests"
+        private const val FIRST_NOTIFICATION_ID: Int = 1
+        private const val REQUEST_CODE_STRIDE: Int = 4
         private const val OPEN_OFFSET: Int = 1
         private const val DENY_OFFSET: Int = 2
     }

@@ -30,9 +30,12 @@ public class PermissionRealtimeBridge(
     public fun start(scope: CoroutineScope): Job = scope.launch {
         launch {
             source.events.collect { event ->
-                decoder.decode(event.type, event.payload)?.let { decoded ->
-                    coordinator.onEvent(decoded)
-                }
+                // The decoder contract is "never throws", but it is a third-party
+                // seam: an uncaught throw would permanently cancel this collector
+                // inside a SupervisorJob scope, silently stopping all permission
+                // events for the process (N7). Enforce the contract at the boundary.
+                val decoded = runCatching { decoder.decode(event.type, event.payload) }.getOrNull()
+                decoded?.let { coordinator.onEvent(it) }
             }
         }
         launch {

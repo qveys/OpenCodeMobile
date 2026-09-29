@@ -70,10 +70,12 @@ private class GatedPermissionPort : RecordingPermissionPort() {
 
 private class FakeBiometricAuthenticator(
     var result: BiometricResult = BiometricResult.Succeeded,
+    var onAuthenticate: () -> Unit = {},
 ) : BiometricAuthenticator {
     var calls: Int = 0
     override suspend fun authenticate(reason: String): BiometricResult {
         calls += 1
+        onAuthenticate()
         return result
     }
 }
@@ -281,6 +283,77 @@ class PermissionCoordinatorTest {
 
         assertFalse(coordinator.state.value.bannerVisible, "the server is authoritative on reconnect")
         assertTrue(store.saved.isEmpty(), "the persisted set must match the reconciled server state")
+    }
+
+    @Test
+    fun aTransientlyOmittedPendingIdIsRestoredByTheNextReconcile() = runTest {
+        val port = RecordingPermissionPort(serverPending = listOf(bashRequest))
+        val coordinator = coordinator(port = port)
+        coordinator.reconcile()
+        assertTrue(coordinator.state.value.bannerVisible, "the server reported the request pending")
+
+        // An SSE reconnect captured a momentarily empty (or truncated) response:
+        // the banner drops and the omission is recorded, so an out-of-order event
+        // cannot resurrect the id on its own.
+        port.serverPending = emptyList()
+        coordinator.reconcile()
+        assertFalse(coordinator.state.value.bannerVisible)
+        coordinator.onEvent(PermissionEvent.Asked(bashRequest))
+        assertFalse(
+            coordinator.state.value.bannerVisible,
+            "the omission tombstone still suppresses a bare asked event",
+        )
+
+        // The next authoritative response reports the id pending again: the request
+        // returns to the banner and the tombstone is dropped, so the omission is not
+        // permanent (N1).
+        port.serverPending = listOf(bashRequest)
+        coordinator.reconcile()
+        assertTrue(coordinator.state.value.bannerVisible, "a later reconcile must restore the request")
+        assertEquals(bashRequest.id, coordinator.state.value.activeRequest?.id)
+    }
+
+    @Test
+    fun leavingTheForegroundDuringTheBiometricPromptRefusesTheApproval() = runTest {
+        val port = RecordingPermissionPort()
+        lateinit var coordinator: PermissionCoordinator
+        val biometric = FakeBiometricAuthenticator()
+        // The activity is stopped while the biometric prompt is up.
+        biometric.onAuthenticate = { coordinator.onForegroundChanged(false) }
+        coordinator = coordinator(port = port, biometric = biometric)
+        coordinator.onForegroundChanged(true)
+        coordinator.onEvent(PermissionEvent.Asked(bashRequest))
+        coordinator.arm(bashRequest.id)
+
+        val result = coordinator.approve(
+            bashRequest.id,
+            PermissionDecision.Once,
+            bashRequest.contentFingerprint,
+        )
+
+        assertEquals(PermissionSubmitResult.NotForegrounded, result)
+        assertTrue(port.replies.isEmpty(), "a backgrounded approval must never reach the wire")
+    }
+
+    @Test
+    fun disarmingDuringTheBiometricPromptRefusesTheApproval() = runTest {
+        val port = RecordingPermissionPort()
+        lateinit var coordinator: PermissionCoordinator
+        val biometric = FakeBiometricAuthenticator()
+        biometric.onAuthenticate = { coordinator.disarm() }
+        coordinator = coordinator(port = port, biometric = biometric)
+        coordinator.onForegroundChanged(true)
+        coordinator.onEvent(PermissionEvent.Asked(bashRequest))
+        coordinator.arm(bashRequest.id)
+
+        val result = coordinator.approve(
+            bashRequest.id,
+            PermissionDecision.Once,
+            bashRequest.contentFingerprint,
+        )
+
+        assertEquals(PermissionSubmitResult.NotArmed, result)
+        assertTrue(port.replies.isEmpty(), "an unarmed approval must never reach the wire")
     }
 
     @Test

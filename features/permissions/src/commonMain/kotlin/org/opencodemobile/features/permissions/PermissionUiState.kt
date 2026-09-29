@@ -49,6 +49,12 @@ public data class PermissionBannerModel(
     /** The exact server arguments, shown verbatim (never truncated). */
     public val argumentsText: String,
     public val decisions: List<PermissionDecisionUi>,
+    /**
+     * Fingerprint of the exact content this banner model rendered. The screen
+     * passes it back when it submits, so the coordinator compares the content the
+     * user actually saw against the live request (N3: not the same live value).
+     */
+    public val contentFingerprint: String,
 )
 
 /** The permission surface, derived from the application state. */
@@ -75,6 +81,7 @@ private fun PermissionRequest.toBannerModel(): PermissionBannerModel = Permissio
     targets = patterns.map { PermissionDisplay.sanitizeForDisplay(it) },
     argumentsText = rawArguments,
     decisions = PermissionPolicy.availableDecisions(this).map { it.toDecisionUi() },
+    contentFingerprint = contentFingerprint,
 )
 
 private fun PermissionDecision.toDecisionUi(): PermissionDecisionUi = PermissionDecisionUi(
@@ -136,16 +143,16 @@ public class PermissionsPresenter(
      * Submits an approving decision taken on the confirmation screen. The
      * coordinator runs the biometric gate, checks the foreground, and re-checks
      * the content binding against what the screen rendered.
+     *
+     * [displayedFingerprint] must be the fingerprint carried by the banner model
+     * the screen rendered ([PermissionBannerModel.contentFingerprint]), not one
+     * read back from the coordinator: the coordinator compares the two, so a screen
+     * showing stale content is refused.
      */
     public suspend fun approve(
         requestId: String,
         decision: PermissionDecision,
-    ): PermissionSubmitResult {
-        val displayedFingerprint = coordinator.state.value.request(requestId)?.contentFingerprint
-        return if (displayedFingerprint == null) {
-            coordinator.approve(requestId, decision, displayedFingerprint = "")
-        } else {
-            coordinator.approve(requestId, decision, displayedFingerprint)
-        }
-    }
+        displayedFingerprint: String,
+    ): PermissionSubmitResult =
+        coordinator.approve(requestId, decision, displayedFingerprint)
 }
