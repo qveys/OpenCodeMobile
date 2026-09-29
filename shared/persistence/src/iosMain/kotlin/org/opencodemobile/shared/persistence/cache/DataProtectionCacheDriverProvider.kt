@@ -1,5 +1,6 @@
 package org.opencodemobile.shared.persistence.cache
 
+import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.native.NativeSqliteDriver
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -41,8 +42,18 @@ public class DataProtectionCacheDriverProvider(
             },
         )
         // Force a real open (and the schema CREATE) so the DB and its
-        // companions exist before we mark them; SQLite creates -wal/-shm lazily.
-        driver.execute(null, "SELECT 1", 0) {}
+        // companions exist before we mark them; SQLite creates -wal/-shm
+        // lazily. `execute` maps to `executeUpdateDelete`, which cannot run a
+        // row-returning statement, so use `executeQuery` and step once.
+        driver.executeQuery(
+            identifier = null,
+            sql = "SELECT 1",
+            mapper = { cursor ->
+                cursor.next()
+                QueryResult.Unit
+            },
+            parameters = 0,
+        )
         IosCacheFileProtection.protectCacheFiles(directory)
         driver
     }
