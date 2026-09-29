@@ -26,15 +26,21 @@ import org.opencodemobile.shared.persistence.db.TranscriptMessage
  * SQLDelight-backed [SessionCache] and [SessionCacheWriter].
  *
  * The same instance serves reads (the offline, read-only surface) and writes
- * (the event/snapshot ingestion surface). It holds no policy of its own: the
- * offline read-only rule (D8) is enforced by the application layer, which only
- * invokes [SessionCacheWriter] from server events and snapshots.
+ * (the event/snapshot ingestion surface), but it is **internal**: no consumer
+ * outside `shared/persistence` can obtain it, so no consumer can cast a read
+ * port back into an ungated writer. Writes are handed out only through
+ * [CacheDatabase.writer], which wraps this instance in
+ * [org.opencodemobile.shared.domain.cache.GatedSessionCacheWriter] (D8).
+ *
+ * It holds no policy of its own: the offline read-only rule (D8) is enforced by
+ * that gate, and the application only invokes the writer from server events and
+ * snapshots.
  *
  * The driver handed in is already encrypted at rest: Android builds it over
  * SQLCipher with a Keystore-held passphrase, iOS over OS Data Protection. This
  * class therefore never sees key material.
  */
-public class SqlSessionCache(
+internal class SqlSessionCache(
     driver: SqlDriver,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : SessionCache, SessionCacheWriter {

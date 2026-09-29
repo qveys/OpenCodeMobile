@@ -6,6 +6,8 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.opencodemobile.shared.domain.cache.CachedTranscriptMessage
+import org.opencodemobile.shared.domain.cache.ConnectionState
+import org.opencodemobile.shared.domain.cache.ConnectivityMutationGate
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileProtectionCompleteUnlessOpen
 
@@ -63,7 +65,7 @@ class IosCacheFileProtectionTest {
         // Keep the connection open while inspecting the files: a clean close
         // checkpoints and removes `-wal`/`-shm`, which made the previous
         // companion checks vacuous (F1).
-        database.open().putTranscriptMessage(
+        database.writer(ConnectivityMutationGate(ConnectionState.Online)).putTranscriptMessage(
             CachedTranscriptMessage("s1", "p1", "sess1", 1L, "user", "hello", 1L),
             keepLast = 10,
         )

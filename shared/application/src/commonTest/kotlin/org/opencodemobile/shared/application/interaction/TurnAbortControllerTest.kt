@@ -5,7 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
-import org.opencodemobile.shared.application.cache.ConnectivityMutationGate
+import org.opencodemobile.shared.domain.cache.ConnectivityMutationGate
 import org.opencodemobile.shared.domain.cache.ConnectionState
 
 class TurnAbortControllerTest {

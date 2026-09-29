@@ -1,7 +1,4 @@
-package org.opencodemobile.shared.application.cache
-
-import org.opencodemobile.shared.domain.cache.ConnectionState
-import org.opencodemobile.shared.domain.cache.MutationGate
+package org.opencodemobile.shared.domain.cache
 
 /**
  * Default [MutationGate]: mutations are offered only while the app has a live
@@ -11,6 +8,10 @@ import org.opencodemobile.shared.domain.cache.MutationGate
  * connection comes and goes; every mutation surface reads [mutationsAllowed].
  * Offline, mutation affordances stay disabled and nothing is queued: the local
  * cache is only ever written from server events and snapshots.
+ *
+ * It lives next to the [MutationGate] port and [ConnectionState] so the cache
+ * composition on either platform can construct it without reaching into the
+ * application layer.
  */
 public class ConnectivityMutationGate(
     initialState: ConnectionState = ConnectionState.Offline,

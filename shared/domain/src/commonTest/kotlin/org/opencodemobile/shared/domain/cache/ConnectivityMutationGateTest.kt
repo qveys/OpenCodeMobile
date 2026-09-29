@@ -1,9 +1,8 @@
-package org.opencodemobile.shared.application.cache
+package org.opencodemobile.shared.domain.cache
 
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import org.opencodemobile.shared.domain.cache.ConnectionState
 
 /**
  * D8 — offline is read-only: every mutation surface must consult the gate and

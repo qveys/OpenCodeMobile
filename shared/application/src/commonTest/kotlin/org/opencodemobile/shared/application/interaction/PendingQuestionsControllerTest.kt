@@ -9,7 +9,7 @@ import org.opencodemobile.shared.domain.cache.ConnectionState
 import org.opencodemobile.shared.domain.interaction.PendingQuestion
 import org.opencodemobile.shared.domain.interaction.QuestionItem
 import org.opencodemobile.shared.domain.interaction.QuestionOption
-import org.opencodemobile.shared.application.cache.ConnectivityMutationGate
+import org.opencodemobile.shared.domain.cache.ConnectivityMutationGate
 
 class PendingQuestionsControllerTest {
 

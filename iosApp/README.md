@@ -32,3 +32,14 @@ Keychain, notification, and `SFSpeechRecognizer` `actual` implementations live i
 `iosMain` source set of the module that owns the corresponding `expect` declaration
 (`shared/security` for Keychain/notifications, `features/composer` for dictation) — not in this
 directory. `iosApp` only hosts the SwiftUI shell that starts Koin and presents the Compose UI.
+
+## Cache stack composition (OPE-172)
+
+The iOS cache stack is assembled in Kotlin, not in this Swift directory: `shared/data` exposes
+`createIosCacheStack()` (in `shared/data/src/iosMain`), which builds the
+`DataProtectionCacheDriverProvider` and wires it into a `CacheStack`. The Swift host calls that
+factory from its composition root and starts the `RealtimeCacheProjector` with
+`stack.writer()`, so the cache is written only from the realtime pipeline and the D8 gate stays
+structural (the writer is already gated). T3 on iOS remains the accepted residual risk recorded
+in ADR 0005 OP2.
+

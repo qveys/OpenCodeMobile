@@ -7,6 +7,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.opencodemobile.shared.domain.cache.CacheUnavailableException
+import org.opencodemobile.shared.domain.cache.GatedSessionCacheWriter
+import org.opencodemobile.shared.domain.cache.MutationGate
+import org.opencodemobile.shared.domain.cache.SessionCache
+import org.opencodemobile.shared.domain.cache.SessionCacheWriter
 
 /**
  * Name of the local cache database file (no path). The Android backup-exclusion
@@ -32,6 +36,12 @@ public const val CACHE_DATABASE_NAME: String = "opencodemobile_cache.db"
  * - A **second** failure, or a wipe that did not actually remove the files, is
  *   surfaced as [CacheUnavailableException] so the application can render an
  *   empty, read-only state instead of recreating over an undecryptable file.
+ *
+ * The object graph the app composes never sees the raw [SqlSessionCache]: reads
+ * are handed out as the [SessionCache] port ([open]) and writes only through
+ * [writer], which is already wrapped in a
+ * [org.opencodemobile.shared.domain.cache.GatedSessionCacheWriter] so the D8
+ * offline read-only rule cannot be bypassed (OPE-172).
  */
 public class CacheDatabase(
     private val provider: CacheDriverProvider,
@@ -41,16 +51,30 @@ public class CacheDatabase(
     private var driver: SqlDriver? = null
     private var cache: SqlSessionCache? = null
 
-    /** Returns the open cache, creating it on first use. */
-    public suspend fun open(): SqlSessionCache = openLock.withLock {
-        cache ?: openLocked()
-    }
+    /** Returns the open cache read port, creating the database on first use. */
+    public suspend fun open(): SessionCache = openSqlCache()
 
     /**
-     * Wipes the local cache and returns a fresh, empty one. Used on key loss and
-     * when a profile is removed.
+     * Returns the cache write port, already wrapped with the D8 gate.
+     *
+     * This is the **only** way to obtain a [SessionCacheWriter]. The returned
+     * writer refuses every `put*` (and [SessionCacheWriter.wipeServer]) with
+     * [org.opencodemobile.shared.domain.cache.CacheMutationNotAllowedException]
+     * while [gate] reports mutations are disabled, so an offline caller fails
+     * fast and nothing is queued.
      */
-    public suspend fun wipeAndRebuild(): SqlSessionCache = openLock.withLock {
+    public suspend fun writer(gate: MutationGate): SessionCacheWriter =
+        GatedSessionCacheWriter(gate, openSqlCache())
+
+    /**
+     * Wipes the local cache and returns a fresh, empty read port. Used on key
+     * loss and when a profile is removed.
+     *
+     * Recovery from key loss must work offline, so this path is deliberately not
+     * behind the mutation gate; it returns only the read port, so it can never
+     * leak an ungated writer.
+     */
+    public suspend fun wipeAndRebuild(): SessionCache = openLock.withLock {
         closeLocked()
         deleteLocalCacheOrThrow(cause = null)
         openLocked()
@@ -59,6 +83,10 @@ public class CacheDatabase(
     /** Closes the driver. The cache can be reopened later. */
     public suspend fun close() {
         openLock.withLock { closeLocked() }
+    }
+
+    private suspend fun openSqlCache(): SqlSessionCache = openLock.withLock {
+        cache ?: openLocked()
     }
 
     private suspend fun openLocked(): SqlSessionCache {
