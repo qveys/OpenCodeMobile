@@ -87,19 +87,37 @@ run_root() {
   fi
 }
 
+# Bound a command that may hang on a flaky network. macOS ships neither
+# `timeout` nor `gtimeout` by default, so fall back to a watchdog subshell.
+with_timeout() { # seconds cmd...
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"; return $?; fi
+  if command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"; return $?; fi
+  "$@" & local p=$!
+  ( sleep "$secs"; kill -TERM "$p" 2>/dev/null ) & local w=$!
+  local rc=0
+  wait "$p" || rc=$?
+  kill "$w" 2>/dev/null || true
+  wait "$w" 2>/dev/null || true
+  [ "$rc" -eq 143 ] && rc=124
+  return "$rc"
+}
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 download() { # url out
   if command -v curl >/dev/null 2>&1; then
     # --http1.1 avoids the HTTP/2 `PROTOCOL_ERROR` stall seen on the self-hosted
-    # macOS runner (it hung for ~1h on api.adoptium.net); the connect/max
-    # timeouts make a dead mirror fail over quickly instead of eating the job
-    # timeout.
-    curl -fSL --http1.1 --connect-timeout 20 --max-time 600 \
-      --retry 3 --retry-delay 5 -o "$2" "$1"
+    # macOS runner (it hung ~1h on api.adoptium.net). --speed-limit/--speed-time
+    # abort a stalled connection in ~60s, and --max-time bounds a slow but live
+    # transfer. --retry stays low so a dead mirror cannot multiply the timeout
+    # budget across many attempts and eat the whole job timeout.
+    curl -fSL --http1.1 --connect-timeout 20 \
+      --speed-limit 10240 --speed-time 60 --max-time 900 \
+      --retry 1 --retry-delay 5 -o "$2" "$1"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q --tries=3 --timeout=20 -O "$2" "$1"
+    wget -q --tries=2 --timeout=20 -O "$2" "$1"
   else
     return 1
   fi
@@ -222,12 +240,20 @@ install_jdk21() {
   fi
   tmp="$(mktemp -d)"
   got=0
+  local dl_deadline; dl_deadline=$(( $(date +%s) + 2700 ))
   for url in \
     "https://corretto.aws/downloads/latest/amazon-corretto-21-${TEMURIN_ARCH}-${corretto_seg}-jdk.tar.gz" \
     "https://api.adoptium.net/v3/binary/latest/21/ga/${os_seg}/${TEMURIN_ARCH}/jdk/hotspot/normal/eclipse" \
     "https://aka.ms/download-jdk/microsoft-jdk-21-${ms_seg}-${TEMURIN_ARCH}.tar.gz"; do
+    # Hard cap across all mirrors so JDK download can never consume the whole
+    # 120-minute job budget (the OPE-100 macOS run stalled past 75 minutes).
+    if [ "$(date +%s)" -ge "$dl_deadline" ]; then
+      warn "JDK download time budget exhausted; not trying any further mirror"
+      break
+    fi
     info "downloading $url"
     if download "$url" "$tmp/jdk21.tar.gz" && tar -tzf "$tmp/jdk21.tar.gz" >/dev/null 2>&1; then
+      info "downloaded $(wc -c < "$tmp/jdk21.tar.gz" 2>/dev/null || echo '?') bytes"
       got=1; break
     fi
     warn "source unavailable: $url"
@@ -381,14 +407,14 @@ install_android_sdk() {
 
   info "accepting Android SDK licenses"
   if command -v yes >/dev/null 2>&1; then
-    yes | sdkmanager --sdk_root="$sdk" --licenses >/dev/null 2>&1 || warn "license acceptance returned non-zero (continuing)"
+    yes | with_timeout 300 sdkmanager --sdk_root="$sdk" --licenses >/dev/null 2>&1 || warn "license acceptance returned non-zero (continuing)"
   else
-    printf 'y\ny\ny\ny\ny\ny\ny\ny\ny\ny\n' | sdkmanager --sdk_root="$sdk" --licenses >/dev/null 2>&1 || true
+    printf 'y\ny\ny\ny\ny\ny\ny\ny\ny\ny\n' | with_timeout 300 sdkmanager --sdk_root="$sdk" --licenses >/dev/null 2>&1 || true
   fi
 
   info "installing platform-tools, platforms;$ANDROID_PLATFORM, build-tools;$ANDROID_BUILD_TOOLS"
-  if ! sdkmanager --sdk_root="$sdk" "platform-tools" "platforms;$ANDROID_PLATFORM" "build-tools;$ANDROID_BUILD_TOOLS"; then
-    warn "sdkmanager failed to install packages"
+  if ! with_timeout 2400 sdkmanager --sdk_root="$sdk" "platform-tools" "platforms;$ANDROID_PLATFORM" "build-tools;$ANDROID_BUILD_TOOLS"; then
+    warn "sdkmanager failed to install packages (or timed out)"
     return 1
   fi
   SDK_HOME_FINAL="$sdk"
