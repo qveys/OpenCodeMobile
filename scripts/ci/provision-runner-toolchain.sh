@@ -110,14 +110,16 @@ download() { # url out
   if command -v curl >/dev/null 2>&1; then
     # --http1.1 avoids the HTTP/2 `PROTOCOL_ERROR` stall seen on the self-hosted
     # macOS runner (it hung ~1h on api.adoptium.net). --speed-limit/--speed-time
-    # abort a stalled connection in ~60s, and --max-time bounds a slow but live
-    # transfer. --retry stays low so a dead mirror cannot multiply the timeout
-    # budget across many attempts and eat the whole job timeout.
-    curl -fSL --http1.1 --connect-timeout 20 \
-      --speed-limit 10240 --speed-time 60 --max-time 900 \
-      --retry 1 --retry-delay 5 -o "$2" "$1"
+    # -4: the self-hosted mac runner's IPv6 path measured ~35 KB/s (OPE-100 run
+    # 36522311638), which makes a 203 MB JDK take ~90 min; forcing IPv4 is the
+    # cheapest fix for a throttled/PMTU-broken v6 route. HTTP/1.1 avoids the
+    # HTTP/2 stalls. -C - resumes a partial file so a reset does not lose
+    # progress, and --speed-limit aborts a genuinely stalled stream.
+    curl -fSL -4 --http1.1 -C - --connect-timeout 20 \
+      --speed-limit 2048 --speed-time 180 --max-time 3600 \
+      --retry 3 --retry-delay 10 -o "$2" "$1"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q --tries=2 --timeout=20 -O "$2" "$1"
+    wget -q -4 -c --tries=3 --timeout=20 -O "$2" "$1"
   else
     return 1
   fi
@@ -240,21 +242,32 @@ install_jdk21() {
   fi
   tmp="$(mktemp -d)"
   got=0
-  local dl_deadline; dl_deadline=$(( $(date +%s) + 2700 ))
+  # Keep partial downloads in a persistent cache so `curl -C -` resumes them.
+  # At the runner's measured ~35 KB/s a 203 MB JDK needs ~90 min: a single job
+  # (or even one --max-time window) can miss it, but progress is not lost and
+  # the next attempt/run continues from where it stopped.
+  local dl_cache; dl_cache="$HOME/.cache/opencode-mobile-jdk21"
+  mkdir -p "$dl_cache" 2>/dev/null || dl_cache="$tmp"
+  local dl_deadline; dl_deadline=$(( $(date +%s) + 7200 ))
   for url in \
     "https://corretto.aws/downloads/latest/amazon-corretto-21-${TEMURIN_ARCH}-${corretto_seg}-jdk.tar.gz" \
     "https://api.adoptium.net/v3/binary/latest/21/ga/${os_seg}/${TEMURIN_ARCH}/jdk/hotspot/normal/eclipse" \
     "https://aka.ms/download-jdk/microsoft-jdk-21-${ms_seg}-${TEMURIN_ARCH}.tar.gz"; do
-    # Hard cap across all mirrors so JDK download can never consume the whole
-    # 120-minute job budget (the OPE-100 macOS run stalled past 75 minutes).
+    # Hard cap across all mirrors so the JDK download cannot consume the whole
+    # job budget. The mac job timeout is raised to match (see the workflow).
     if [ "$(date +%s)" -ge "$dl_deadline" ]; then
       warn "JDK download time budget exhausted; not trying any further mirror"
       break
     fi
-    info "downloading $url"
-    if download "$url" "$tmp/jdk21.tar.gz" && tar -tzf "$tmp/jdk21.tar.gz" >/dev/null 2>&1; then
-      info "downloaded $(wc -c < "$tmp/jdk21.tar.gz" 2>/dev/null || echo '?') bytes"
-      got=1; break
+    part="$dl_cache/$(printf '%s' "$url" | cksum | awk '{print $1}').tar.gz"
+    if [ -f "$part" ] && tar -tzf "$part" >/dev/null 2>&1; then
+      info "reusing complete cached JDK download: $part"
+      cp "$part" "$tmp/jdk21.tar.gz"; got=1; break
+    fi
+    info "downloading $url (resumes partial $part)"
+    if download "$url" "$part" && tar -tzf "$part" >/dev/null 2>&1; then
+      info "downloaded $(wc -c < "$part" 2>/dev/null || echo '?') bytes"
+      cp "$part" "$tmp/jdk21.tar.gz"; got=1; break
     fi
     warn "source unavailable: $url"
   done
@@ -431,7 +444,7 @@ install_android_sdk() {
   fi
 
   info "installing platform-tools, platforms;$ANDROID_PLATFORM, build-tools;$ANDROID_BUILD_TOOLS"
-  if ! with_timeout 2400 sdkmanager --sdk_root="$sdk" "platform-tools" "platforms;$ANDROID_PLATFORM" "build-tools;$ANDROID_BUILD_TOOLS"; then
+  if ! with_timeout 5400 sdkmanager --sdk_root="$sdk" "platform-tools" "platforms;$ANDROID_PLATFORM" "build-tools;$ANDROID_BUILD_TOOLS"; then
     warn "sdkmanager failed to install packages (or timed out)"
     return 1
   fi
