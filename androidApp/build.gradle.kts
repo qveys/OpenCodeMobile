@@ -69,4 +69,12 @@ dependencies {
     // variant that provides `kotlin.test.Test` and the assertions.
     testImplementation(kotlin("test"))
     testImplementation(libs.koin.core)
+    // OPE-176: the live-connection binding is proven against MockOpenCodeServer,
+    // the same harness the app-e2e recette uses. Ktor is test-only: the app shell
+    // main classpath must not name `io.ktor.client.HttpClient` (ModuleBoundaryTest
+    // scans `src/main/kotlin` only), but the test builds the real adapter over the
+    // mock's in-process client.
+    testImplementation(project(":shared:test-support"))
+    testImplementation(libs.ktor.client.core)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

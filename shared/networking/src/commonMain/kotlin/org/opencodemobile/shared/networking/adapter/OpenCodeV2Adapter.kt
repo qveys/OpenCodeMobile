@@ -46,6 +46,7 @@ import org.opencodemobile.shared.domain.connection.ServerIdentityCheck
 import org.opencodemobile.shared.domain.connection.ServerIdentityException
 import org.opencodemobile.shared.domain.connection.ServerProfile
 import org.opencodemobile.shared.domain.connection.ServerVersion
+import org.opencodemobile.shared.domain.event.EventTransport
 import org.opencodemobile.shared.domain.interaction.AgentDescriptor
 import org.opencodemobile.shared.domain.interaction.InteractionNotConnectedException
 import org.opencodemobile.shared.domain.interaction.ModelDescriptor
@@ -62,6 +63,8 @@ import org.opencodemobile.shared.domain.session.SessionNotConnectedException
 import org.opencodemobile.shared.domain.session.SessionNotFoundException
 import org.opencodemobile.shared.domain.session.SessionRejectedException
 import org.opencodemobile.shared.domain.session.SessionSummary
+import org.opencodemobile.shared.networking.permission.OpenCodePermissionGateway
+import org.opencodemobile.shared.networking.realtime.NetworkingRealtimeTransport
 import org.opencodemobile.shared.security.identity.ServerIdentityAuthorization
 import org.opencodemobile.shared.security.identity.ServerIdentityGate
 import org.opencodemobile.shared.security.identity.ServerIdentityPinController
@@ -478,6 +481,36 @@ public class OpenCodeV2Adapter(
      */
     public fun negotiatesJsonContent(): Boolean =
         httpClient.pluginOrNull(ContentNegotiation) != null
+
+    /**
+     * The real `GET /permission` + `POST /permission/{id}/reply` surface, bound to
+     * this adapter's client and T1 credential gate (OPE-176).
+     *
+     * The app shell cannot name `io.ktor.client.HttpClient` (§5.2), so it cannot
+     * build [OpenCodePermissionGateway] itself. Exposing the gateway here keeps
+     * both the client type and the credential release inside this module: the
+     * gateway shares the same pinned TLS engine and the same
+     * [currentCredential] permit as every other call, so the permission surface
+     * cannot bypass the identity gate that [connect] enforced.
+     */
+    public fun permissionGateway(baseUrl: String): OpenCodePermissionGateway =
+        OpenCodePermissionGateway(
+            httpClient = httpClient,
+            baseUrl = baseUrl,
+            authTokenProvider = { currentCredential() },
+        )
+
+    /**
+     * The realtime transport bound to this adapter's client and credential gate
+     * (OPE-176): the app shell drives `EventProcessor` over it without naming
+     * the Ktor client.
+     */
+    public fun eventTransport(baseUrl: String): EventTransport =
+        NetworkingRealtimeTransport(
+            httpClient = httpClient,
+            baseUrl = baseUrl,
+            authTokenProvider = { currentCredential() },
+        )
 }
 
 private fun ApiQuestionRequest.toDomain(): PendingQuestion = PendingQuestion(

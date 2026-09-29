@@ -8,6 +8,7 @@ import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import org.opencodemobile.android.cache.CacheConnection
 import org.opencodemobile.android.cache.CacheWriteRuntime
+import org.opencodemobile.android.connection.ConnectionBinder
 import org.opencodemobile.shared.data.cache.CacheStack
 import org.opencodemobile.shared.domain.cache.MutationGate
 import org.opencodemobile.shared.domain.cache.SessionCache
@@ -48,7 +49,7 @@ public val cacheModule = module {
     single {
         CacheWriteRuntime(
             scope = get(named(CACHE_WRITE_SCOPE_QUALIFIER)),
-            resolveConnection = { getOrNull<CacheConnection>() },
+            resolveConnection = { getOrNull<ConnectionBinder>()?.cache() },
             resolveStack = { getOrNull<CacheStack>() },
         )
     }

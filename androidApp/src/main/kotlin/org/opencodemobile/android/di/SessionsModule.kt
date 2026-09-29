@@ -6,6 +6,7 @@ import kotlinx.coroutines.SupervisorJob
 import org.koin.core.module.Module
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
+import org.opencodemobile.android.connection.ConnectionBinder
 import org.opencodemobile.android.session.DeferredSessionGateway
 import org.opencodemobile.android.session.SessionConnection
 import org.opencodemobile.features.sessions.SessionsPresenter
@@ -37,7 +38,7 @@ public val sessionsModule: Module = module {
     }
 
     single<SessionGateway> {
-        DeferredSessionGateway { getOrNull<SessionConnection>() }
+        DeferredSessionGateway { getOrNull<ConnectionBinder>()?.session() }
     }
 
     single {
@@ -46,7 +47,7 @@ public val sessionsModule: Module = module {
             cache = get<SessionCache>(),
             gate = get<MutationGate>(),
             scope = {
-                getOrNull<SessionConnection>()?.let { connection ->
+                getOrNull<ConnectionBinder>()?.session()?.let { connection ->
                     SessionsScope(serverId = connection.serverId, projectId = connection.projectId)
                 }
             },

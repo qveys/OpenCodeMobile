@@ -6,6 +6,7 @@ import kotlinx.coroutines.SupervisorJob
 import org.koin.core.module.Module
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
+import org.opencodemobile.android.connection.ConnectionBinder
 import org.opencodemobile.android.questions.DeferredInteractionGateway
 import org.opencodemobile.android.questions.PendingQuestionsRuntime
 import org.opencodemobile.android.questions.QuestionConnection
@@ -39,7 +40,7 @@ public val questionsModule: Module = module {
     }
 
     single<OpenCodeInteractionGateway> {
-        DeferredInteractionGateway { getOrNull<QuestionConnection>() }
+        DeferredInteractionGateway { getOrNull<ConnectionBinder>()?.questions() }
     }
 
     single { PendingQuestionsController(get<OpenCodeInteractionGateway>(), get<MutationGate>()) }
@@ -48,7 +49,7 @@ public val questionsModule: Module = module {
 
     single {
         PendingQuestionsRuntime(getOrNull<PendingQuestionsController>()) {
-            val connection = getOrNull<QuestionConnection>()
+            val connection = getOrNull<ConnectionBinder>()?.questions()
             if (connection != null) {
                 PendingQuestionsRealtimeBridge(
                     source = connection.source,

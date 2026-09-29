@@ -19,7 +19,7 @@ public fun createOpenCodeGateway(
     identityPin: ServerIdentityPinController,
     identityGate: ServerIdentityGate,
     compatibilityProfile: CompatibilityProfile = CompatibilityProfile.OpenCodeServerV2,
-): OpenCodeGateway = OpenCodeV2Adapter(
+): OpenCodeV2Adapter = OpenCodeV2Adapter(
     httpClient = OpenCodeHttpClient.create(identityPin),
     identityGate = identityGate,
     identityPin = identityPin,

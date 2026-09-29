@@ -11,6 +11,7 @@ import org.opencodemobile.android.chat.ChatRuntime
 import org.opencodemobile.android.chat.DeferredChatEventDecoder
 import org.opencodemobile.android.chat.DeferredChatGateway
 import org.opencodemobile.android.chat.DeferredChatInteractionGateway
+import org.opencodemobile.android.connection.ConnectionBinder
 import org.opencodemobile.features.composer.ComposerPresenter
 import org.opencodemobile.features.transcript.TranscriptPresenter
 import org.opencodemobile.shared.application.chat.ComposerController
@@ -49,11 +50,11 @@ public val chatModule: Module = module {
     }
 
     single<OpenCodeChatGateway> {
-        DeferredChatGateway { getOrNull<ChatConnection>() }
+        DeferredChatGateway { getOrNull<ConnectionBinder>()?.chat() }
     }
 
     single<ChatEventDecoder> {
-        DeferredChatEventDecoder { getOrNull<ChatConnection>() }
+        DeferredChatEventDecoder { getOrNull<ConnectionBinder>()?.chat() }
     }
 
     // V1-08: the abort controller is scoped to the chat/transcript surface. Its
@@ -62,13 +63,13 @@ public val chatModule: Module = module {
     // own interaction gateway.
     single {
         TurnAbortController(
-            gateway = DeferredChatInteractionGateway { getOrNull<ChatConnection>() },
+            gateway = DeferredChatInteractionGateway { getOrNull<ConnectionBinder>()?.chat() },
             mutationGate = get<MutationGate>(),
         )
     }
 
     single<ComposerDraftStore> {
-        val connection = getOrNull<ChatConnection>()
+        val connection = getOrNull<ConnectionBinder>()?.chat()
         val cache = getOrNull<SessionCache>()
         val cacheStack = getOrNull<CacheStack>()
         if (connection != null && cache != null && cacheStack != null) {
@@ -102,5 +103,5 @@ public val chatModule: Module = module {
     single { TranscriptPresenter(get(), get(named(CHAT_SCOPE_QUALIFIER)), get<TurnAbortController>()) }
     single { ComposerPresenter(get(), get(named(CHAT_SCOPE_QUALIFIER))) }
 
-    single { ChatRuntime(get(), get<TurnAbortController>(), { getOrNull<ChatConnection>() }) }
+    single { ChatRuntime(get(), get<TurnAbortController>(), { getOrNull<ConnectionBinder>()?.chat() }) }
 }

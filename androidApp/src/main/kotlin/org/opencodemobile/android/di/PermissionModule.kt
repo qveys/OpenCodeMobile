@@ -13,6 +13,7 @@ import org.opencodemobile.android.permission.DeferredPermissionEventDecoder
 import org.opencodemobile.android.permission.DeferredPermissionPort
 import org.opencodemobile.android.permission.PermissionConnection
 import org.opencodemobile.android.permission.PermissionHostActivity
+import org.opencodemobile.android.connection.ConnectionBinder
 import org.opencodemobile.android.permission.PermissionRuntime
 import org.opencodemobile.features.permissions.PermissionsPresenter
 import org.opencodemobile.shared.application.permission.PermissionCoordinator
@@ -44,12 +45,14 @@ public const val PERMISSION_SCOPE_QUALIFIER: String = "permissionScope"
  *   (no approve action, tap opens the confirmation screen),
  * - the pending set is persisted in the encrypted cache so it survives an app kill.
  *
- * **Optional connection.** The app shell has no connection/onboarding composition
- * root yet, so the realtime pipeline and the reply port are an injected seam: the
- * connection composition root binds a [PermissionConnection] once it exists. Until
- * then the surface is inert and fail-closed (see [UnavailablePermissionPort]) and
- * the coordinator is offline, so nothing can be approved. The `MutationGate` is
- * resolved by type from the cache composition root (`cacheModule`).
+ * **Live connection.** The connection composition root
+ * (`connectionCompositionModule`) binds a [ConnectionBinder] on a successful
+ * handshake; the resolvers below read the active [PermissionConnection] at call
+ * time, so the surface reaches the server as soon as it is live. Before a
+ * connection exists the resolvers return null and the surface is inert and
+ * fail-closed (see [UnavailablePermissionPort]); the coordinator is offline, so
+ * nothing can be approved. The `MutationGate` is resolved by type from the cache
+ * composition root (`cacheModule`).
  */
 public val permissionModule: Module = module {
     single<CoroutineScope>(named(PERMISSION_SCOPE_QUALIFIER)) {
@@ -63,16 +66,16 @@ public val permissionModule: Module = module {
     single<PermissionNotifier> { AndroidPermissionNotifier(androidContext()) }
 
     single<PermissionPort> {
-        DeferredPermissionPort { getOrNull<PermissionConnection>() }
+        DeferredPermissionPort { getOrNull<ConnectionBinder>()?.permission() }
     }
 
     single<PermissionEventDecoder> {
-        DeferredPermissionEventDecoder { getOrNull<PermissionConnection>() }
+        DeferredPermissionEventDecoder { getOrNull<ConnectionBinder>()?.permission() }
     }
 
     single<PendingPermissionStore> {
         DeferredPendingPermissionStore {
-            val connection = getOrNull<PermissionConnection>()
+            val connection = getOrNull<ConnectionBinder>()?.permission()
             val cache = getOrNull<SessionCache>()
             val cacheStack = getOrNull<CacheStack>()
             if (connection != null && cache != null && cacheStack != null) {
@@ -91,7 +94,7 @@ public val permissionModule: Module = module {
     single {
         val coordinator = runCatching { getOrNull<PermissionCoordinator>() }.getOrNull()
         PermissionRuntime(coordinator) {
-            val connection = getOrNull<PermissionConnection>()
+            val connection = getOrNull<ConnectionBinder>()?.permission()
             if (coordinator != null && connection != null) {
                 PermissionRealtimeBridge(connection.source, connection.decoder, coordinator)
             } else {

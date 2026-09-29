@@ -39,7 +39,12 @@ public class ConnectionSetupController(
     private val existingProfileProvider: suspend () -> ServerProfile? = { null },
     private val existingFingerprintProvider: suspend (ServerProfile) -> ServerFingerprint? = { null },
     private val identityConfirmer: suspend (ServerProfile, ServerFingerprint) -> Unit = { _, _ -> },
-    private val onConnected: (ConnectionHandshake) -> Unit = {},
+    /**
+     * Called once the handshake succeeded, with the profile that was connected
+     * and its handshake. The connection composition root binds the live graph
+     * here (OPE-176); the feature itself never wires L2/L3 surfaces.
+     */
+    private val onConnected: (ServerProfile, ConnectionHandshake) -> Unit = { _, _ -> },
 ) {
     private val mutableState = MutableStateFlow(ConnectionSetupUiState())
 
@@ -176,7 +181,7 @@ public class ConnectionSetupController(
         when (val result = setup.validate(plan, credential)) {
             is ConnectionValidation.Connected -> {
                 mutableState.update { it.copy(busy = false, connected = result.handshake, review = null, failure = null) }
-                onConnected(result.handshake)
+                onConnected(plan.profile, result.handshake)
             }
 
             is ConnectionValidation.Rejected -> when (val error = result.error) {

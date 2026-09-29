@@ -34,6 +34,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
+import org.opencodemobile.android.connection.ConnectionBinder
 import org.opencodemobile.android.permission.PermissionHostActivity
 import org.opencodemobile.design.system.LocalOpenCodeColors
 import org.opencodemobile.design.system.OpenCodeContext
@@ -116,6 +117,7 @@ class MainActivity : FragmentActivity() {
         val questionsPresenter = questionsPresenterOrNull()
         val catalogPresenter = catalogPresenterOrNull()
         val connectionController = connectionSetupControllerOrNull()
+        val connectionBinder = connectionBinderOrNull()
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -127,6 +129,7 @@ class MainActivity : FragmentActivity() {
                         questionsPresenter = questionsPresenter,
                         catalogPresenter = catalogPresenter,
                         connectionController = connectionController,
+                        connectionBinder = connectionBinder,
                         scanner = qrCodeScanner,
                         requestedConfirmationId = requestedConfirmation,
                         onConfirmationRequestHandled = { requestedConfirmation = null },
@@ -230,6 +233,14 @@ class MainActivity : FragmentActivity() {
      */
     private fun connectionSetupControllerOrNull(): ConnectionSetupController? =
         runCatching { GlobalContext.getOrNull()?.get<ConnectionSetupController>() }.getOrNull()
+
+    /**
+     * OPE-176: the live-connection holder. The home surface stays on the
+     * connection screen until a handshake published a [LiveConnection], so an
+     * unconnected app never renders an inert sessions list.
+     */
+    private fun connectionBinderOrNull(): ConnectionBinder? =
+        runCatching { GlobalContext.getOrNull()?.get<ConnectionBinder>() }.getOrNull()
 }
 
 @Composable
@@ -241,10 +252,15 @@ private fun PermissionHost(
     questionsPresenter: QuestionsPresenter?,
     catalogPresenter: CatalogPresenter?,
     connectionController: ConnectionSetupController?,
+    connectionBinder: ConnectionBinder?,
     scanner: QrCodeScanner?,
     requestedConfirmationId: String?,
     onConfirmationRequestHandled: () -> Unit,
 ) {
+    // OPE-176: the home surface is the connection screen until a handshake
+    // published a live connection; the binder is observed so the switch to the
+    // sessions list happens as soon as the graph is bound.
+    val connected = connectionBinder?.live?.collectAsState()?.value != null
     if (presenter == null) {
         AppContent(
             sessionsPresenter,
@@ -253,6 +269,7 @@ private fun PermissionHost(
             questionsPresenter,
             catalogPresenter,
             connectionController,
+            connected,
             scanner,
         )
         return
@@ -288,6 +305,7 @@ private fun PermissionHost(
                 questionsPresenter,
                 catalogPresenter,
                 connectionController,
+                connected,
                 scanner,
             )
             if (banner != null) {
@@ -319,6 +337,7 @@ private fun AppContent(
     questionsPresenter: QuestionsPresenter?,
     catalogPresenter: CatalogPresenter?,
     connectionController: ConnectionSetupController?,
+    connected: Boolean,
     scanner: QrCodeScanner?,
 ) {
     var openSession by remember { mutableStateOf<SessionSummary?>(null) }
@@ -342,13 +361,17 @@ private fun AppContent(
         return
     }
 
+    // OPE-176: until a handshake binds the live graph, the home surface is the
+    // L1 setup screen. The sessions list is only reachable once the L2/L3 seams
+    // resolve a connection; otherwise it would render an inert, empty list.
+    if (connectionController != null && !connected) {
+        ConnectionSetupScreen(controller = connectionController, scanner = scanner)
+        return
+    }
+
     if (sessionsPresenter == null) {
-        if (connectionController != null) {
-            ConnectionSetupScreen(controller = connectionController, scanner = scanner)
-        } else {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("OpenCode Mobile")
-            }
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("OpenCode Mobile")
         }
         return
     }
