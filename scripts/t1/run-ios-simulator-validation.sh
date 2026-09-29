@@ -55,6 +55,9 @@ chmod +x gradlew
 ./gradlew :shared:security:iosSimulatorArm64Test :shared:persistence:iosSimulatorArm64Test --no-daemon --stacktrace
 GRADLE_STATUS=$?
 
+echo "== iOS test result XML =="
+find shared/security/build/test-results shared/persistence/build/test-results -name '*.xml' -print -exec cat {} \; 2>/dev/null || true
+
 echo "== Pinned server (cert A) requests =="
 cat "$LOG_A" 2>/dev/null || true
 echo "== Swapped server (cert B) requests — must be empty (fail-closed) =="
