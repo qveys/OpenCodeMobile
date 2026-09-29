@@ -75,9 +75,11 @@ targets:
       - name: "Build Kotlin frameworks"
         shell: /bin/bash
         basedOnDependencyAnalysis: false
+        # Explicit `bash` so the phase does not depend on the executable bit
+        # (the repository's signed-commit flow cannot carry file modes).
         script: |
           set -euo pipefail
-          "$SRCROOT/../scripts/ios/build-frameworks.sh"
+          bash "$SRCROOT/../scripts/ios/build-frameworks.sh"
 
   iosAppUITests:
     type: bundle.ui-testing
