@@ -20,6 +20,7 @@ import org.opencodemobile.shared.domain.session.ServerUnavailableException
 import org.opencodemobile.shared.domain.session.SessionCapabilities
 import org.opencodemobile.shared.domain.session.SessionGateway
 import org.opencodemobile.shared.domain.session.SessionSummary
+import org.opencodemobile.shared.domain.session.SessionTitlePolicy
 
 private val scope = SessionsScope(serverId = "srv_1", projectId = "prj_1")
 
@@ -175,6 +176,8 @@ class SessionListControllerTest {
         assertEquals(SessionListError.Offline, controller.state.value.error)
         controller.deleteSession("ses_cached_1")
         assertEquals(SessionListError.Offline, controller.state.value.error)
+        controller.forkSession("ses_cached_1")
+        assertEquals(SessionListError.Offline, controller.state.value.error)
         assertTrue(fixture.gateway.calls.isEmpty(), "no mutation reaches the gateway offline")
     }
 
@@ -245,6 +248,17 @@ class SessionListControllerTest {
 
         assertTrue(fixture.controller.state.value.error is SessionListError.Rejected)
         assertFalse(fixture.gateway.calls.any { it.startsWith("rename:") })
+    }
+
+    @Test
+    fun createRejectsATitleLongerThanThePolicyBeforeTouchingTheGateway() = runTest {
+        val fixture = Fixture()
+        fixture.controller.refresh()
+
+        fixture.controller.createSession("a".repeat(SessionTitlePolicy.MAX_LENGTH + 1))
+
+        assertTrue(fixture.controller.state.value.error is SessionListError.Rejected)
+        assertFalse(fixture.gateway.calls.contains("create"))
     }
 
     @Test

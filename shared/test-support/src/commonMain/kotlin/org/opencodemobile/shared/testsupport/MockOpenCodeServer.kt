@@ -217,11 +217,20 @@ public class MockOpenCodeServer(
 
             method == HttpMethod.Post && path == SESSION_PATH -> {
                 val body = readBodyText(request.body)
-                val created = nextSession(
-                    title = parseTitle(body),
-                    directory = parseDirectory(body),
-                )
-                jsonResponse(OpenCodeFixtures.sessionJson(created), HttpStatusCode.Created, callContext)
+                if (bodyContainsKey(body, "directory")) {
+                    // The pinned spec's POST /session body is additionalProperties:false
+                    // and has no `directory`; it is a query parameter. Reject it here so a
+                    // regression in the create path is caught by the harness.
+                    badRequestJson(callContext)
+                } else {
+                    val created = nextSession(
+                        title = parseTitle(body),
+                        // `directory` is a query parameter on POST /session in the
+                        // pinned spec; the mock reads it there, like a real server.
+                        directory = request.url.parameters["directory"],
+                    )
+                    jsonResponse(OpenCodeFixtures.sessionJson(created), HttpStatusCode.Created, callContext)
+                }
             }
 
             method == HttpMethod.Post && path.startsWith("$SESSION_PATH/") && path.endsWith("/fork") -> {
@@ -528,11 +537,11 @@ public class MockOpenCodeServer(
         return (obj["title"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
     }
 
-    /** Parses the optional `directory` off a `POST /session` body, or null. */
-    private fun parseDirectory(text: String?): String? {
-        if (text.isNullOrBlank()) return null
-        val obj = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject ?: return null
-        return (obj["directory"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+    /** Whether a JSON request body carries [key] at the top level. */
+    private fun bodyContainsKey(text: String?, key: String): Boolean {
+        if (text.isNullOrBlank()) return false
+        val obj = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject ?: return false
+        return obj.containsKey(key)
     }
 
     /** Parses `{ "answers": [[label, ...], ...] }`, or null when the body is not a reply. */

@@ -79,6 +79,7 @@ public fun SessionsScreen(
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 SessionsTopBar(
+                    offline = state.offline,
                     onNewSession = { presenter.createSession() },
                 )
                 TechnicalStatus(state = state, onRetry = { presenter.refresh() })
@@ -121,7 +122,7 @@ public fun SessionsScreen(
 }
 
 @Composable
-private fun SessionsTopBar(onNewSession: () -> Unit) {
+private fun SessionsTopBar(offline: Boolean, onNewSession: () -> Unit) {
     val colors = LocalOpenCodeColors.current
     Row(
         modifier = Modifier
@@ -134,8 +135,10 @@ private fun SessionsTopBar(onNewSession: () -> Unit) {
             style = OpenCodeType.title,
             modifier = Modifier.weight(1f),
         )
+        // D8: the mutation affordance is disabled offline, not merely refused.
         Button(
             onClick = onNewSession,
+            enabled = !offline,
             colors = ButtonDefaults.buttonColors(
                 containerColor = colors.primary,
                 contentColor = colors.onPrimary,

@@ -55,7 +55,12 @@ public object SessionTitlePolicy {
     /** Longest title the app accepts. Long enough for a sentence, short enough for a row. */
     public const val MAX_LENGTH: Int = 120
 
-    /** Trims and collapses whitespace; null when nothing displayable remains. */
+    /**
+     * Trims and collapses whitespace; null when nothing displayable remains.
+     *
+     * It does not truncate: [isValid] is the bound check, and callers must run
+     * it before sending a title (see [SessionTitlePolicy.MAX_LENGTH]).
+     */
     public fun normalize(raw: String): String? =
         raw.trim()
             .replace(WHITESPACE_RUN, " ")

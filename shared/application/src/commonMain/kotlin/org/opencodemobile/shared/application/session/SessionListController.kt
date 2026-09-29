@@ -152,7 +152,7 @@ public class SessionListController(
                     sessions = cached,
                     source = SessionListSource.Cache,
                     offline = false,
-                    online = true,
+                    online = false,
                     forkAvailable = false,
                     error = failure.toListError(),
                 )
@@ -167,11 +167,17 @@ public class SessionListController(
 
     /** Creates a session and reloads the authoritative list (`POST /session`). */
     public suspend fun createSession(title: String? = null) {
-        val normalized = title?.let { SessionTitlePolicy.normalize(it) }
-        if (title != null && normalized == null) {
-            mutableState.update { it.copy(error = SessionListError.Rejected("A session title cannot be blank")) }
+        if (title != null && !SessionTitlePolicy.isValid(title)) {
+            mutableState.update {
+                it.copy(
+                    error = SessionListError.Rejected(
+                        "A title must be 1..${SessionTitlePolicy.MAX_LENGTH} characters",
+                    ),
+                )
+            }
             return
         }
+        val normalized = title?.let { SessionTitlePolicy.normalize(it) }
         mutate(pendingSessionId = null, notice = "Session created") {
             gateway.createSession(directory = directory, title = normalized)
             Unit
@@ -241,6 +247,12 @@ public class SessionListController(
      * acceptance).
      */
     public suspend fun forkSession(sessionId: String) {
+        // Offline read-only (D8) comes first: it is the reason the action is
+        // unavailable, and the capability is downgraded to false offline too.
+        if (!gate.mutationsAllowed()) {
+            mutableState.update { it.copy(error = SessionListError.Offline) }
+            return
+        }
         if (!mutableState.value.forkAvailable) {
             mutableState.update {
                 it.copy(error = SessionListError.Rejected("This server does not expose session forking"))

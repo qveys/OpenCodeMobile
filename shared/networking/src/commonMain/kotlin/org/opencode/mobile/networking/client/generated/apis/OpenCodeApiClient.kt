@@ -88,11 +88,14 @@ class OpenCodeApiClient(
 
     /**
      * Create a new session (POST /session).
+     *
+     * `directory` is a query parameter in the pinned spec, not a body field.
      */
-    suspend fun createSession(request: ApiCreateSessionRequest): ApiSession {
+    suspend fun createSession(request: ApiCreateSessionRequest, directory: String? = null): ApiSession {
         return httpClient.post("$baseUrl/session") {
             applyAuth()
             contentType(ContentType.Application.Json)
+            if (directory != null) parameter("directory", directory)
             setBody(request)
         }.body()
     }

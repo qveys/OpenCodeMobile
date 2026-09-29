@@ -40,7 +40,6 @@ data class ApiSession(
 
 @Serializable
 data class ApiCreateSessionRequest(
-    val directory: String? = null,
     val title: String? = null,
     val parentID: String? = null
 )

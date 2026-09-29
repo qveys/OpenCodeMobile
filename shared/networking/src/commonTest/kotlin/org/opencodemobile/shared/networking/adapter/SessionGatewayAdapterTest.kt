@@ -138,6 +138,25 @@ class SessionGatewayAdapterTest {
     }
 
     @Test
+    fun createSendsTheDirectoryAsAQueryParameter() = runTest {
+        val server = MockOpenCodeServer(expectSuccess = true).start()
+        try {
+            val adapter = adapterFor(server)
+            adapter.connect(profile, ServerCredential("s3cr3t"))
+
+            val created = adapter.createSession(directory = "/home/dev/scoped", title = "Scoped session")
+
+            assertEquals("Scoped session", created.title)
+            // The mock reads `directory` from the query string and rejects a body
+            // that carries it (additionalProperties:false in the pinned spec), so
+            // this proves the create path scopes through the query parameter.
+            assertEquals("/home/dev/scoped", created.directory)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
     fun renamingAnUnknownSessionSurfacesANotFoundFailure() = runTest {
         val server = MockOpenCodeServer(expectSuccess = true).start()
         try {

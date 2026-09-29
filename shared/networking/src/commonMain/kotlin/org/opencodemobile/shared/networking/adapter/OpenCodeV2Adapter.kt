@@ -216,7 +216,12 @@ public class OpenCodeV2Adapter(
     override suspend fun createSession(directory: String?, title: String?): SessionSummary =
         sessionCall {
             requireActiveClient()
-                .createSession(ApiCreateSessionRequest(directory = directory, title = title))
+                // `directory` is a query parameter on POST /session; the request
+                // body carries only title/parentID in the pinned spec.
+                .createSession(
+                    request = ApiCreateSessionRequest(title = title),
+                    directory = directory,
+                )
                 .toDomain()
         }
 
