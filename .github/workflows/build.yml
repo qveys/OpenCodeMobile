@@ -97,6 +97,12 @@ jobs:
   # trace) into the job log via scripts/ci/report-test-results.sh, because the
   # org Actions allowlist has no `actions/upload-artifact` to download reports.
   #
+  # `test-ios` runs under scripts/ci/with-t1-tls-servers.sh: the iOS
+  # `IosTlsHandshakePinningTest` dials a host-side TLS recorder
+  # (`tests/t1/tls_recording_server.py`, ports 9943/9944) because Kotlin/Native
+  # cannot build an in-process TLS server. Without those servers the full iOS
+  # suite fails with "could not connect to the server".
+  #
   # Toolchain policy is identical to the build jobs: only `actions/checkout`,
   # with the JDK 21 / Gradle wrapper already present on the runner.
   test-android:
@@ -128,7 +134,7 @@ jobs:
           export JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-$JAVA_HOME}}"
           chmod +x gradlew
           java -version
-          CI=1 bash scripts/test.sh apple -- --continue
+          CI=1 bash scripts/ci/with-t1-tls-servers.sh bash scripts/test.sh apple -- --continue
       - name: Report test results
         if: always()
         run: bash scripts/ci/report-test-results.sh
