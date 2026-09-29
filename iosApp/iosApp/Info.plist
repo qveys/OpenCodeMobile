@@ -20,6 +20,11 @@
     <string>0.1.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <!-- Compose Multiplatform 1.7.1 enforces this key (PlistSanityCheck); the
+         app aborts at startup without it. It also lets the UI run at the
+         device's full refresh rate. -->
+    <key>CADisableMinimumFrameDurationOnPhone</key>
+    <true/>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>NSCameraUsageDescription</key>
