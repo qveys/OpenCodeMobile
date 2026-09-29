@@ -56,46 +56,45 @@ class IosCacheFileProtectionTest {
     }
 
     @Test
-    fun openedDatabaseAndCompanionsAreProtectedAndExcluded() = runBlocking {
+    fun openedDatabaseAndCompanionsAreProtectedAndExcluded() = runBlocking<Unit> {
         val provider = DataProtectionCacheDriverProvider(Dispatchers.Default)
         provider.deleteLocalCache()
         val database = CacheDatabase(provider, Dispatchers.Default)
+        // Keep the connection open while inspecting the files: a clean close
+        // checkpoints and removes `-wal`/`-shm`, which made the previous
+        // companion checks vacuous (F1).
         database.open().putTranscriptMessage(
             CachedTranscriptMessage("s1", "p1", "sess1", 1L, "user", "hello", 1L),
             keepLast = 10,
         )
-        database.close()
 
         val directory = IosCacheFileProtection.cacheDirectoryPath()
         val databasePath = IosCacheFileProtection.cacheFilePaths(directory).first()
         val fileManager = NSFileManager.defaultManager
 
         assertTrue(fileManager.fileExistsAtPath(databasePath), "the cache DB must exist after an open")
-        assertTrue(
-            IosCacheFileProtection.isExcludedFromBackup(databasePath),
-            "the cache DB must be excluded from iCloud/iTunes backup",
-        )
-        assertEquals(
-            NSFileProtectionCompleteUnlessOpen,
-            IosCacheFileProtection.protectionClass(databasePath),
-            "the cache DB must carry NSFileProtectionCompleteUnlessOpen",
-        )
 
-        // -wal/-shm are created lazily; if present they must be protected too.
-        IosCacheFileProtection.cacheFilePaths(directory).drop(1).forEach { companion ->
-            if (fileManager.fileExistsAtPath(companion)) {
-                assertTrue(
-                    IosCacheFileProtection.isExcludedFromBackup(companion),
-                    "$companion must be excluded from backup",
-                )
-                assertEquals(
-                    NSFileProtectionCompleteUnlessOpen,
-                    IosCacheFileProtection.protectionClass(companion),
-                    "$companion must carry NSFileProtectionCompleteUnlessOpen",
-                )
-            }
+        // The DB and the WAL companions created by the open + write must each
+        // carry the protection class and the backup exclusion. These checks are
+        // unconditional: a companion that is missing or unprotected is a
+        // failure, never a silent skip.
+        listOf(databasePath, "$databasePath-wal", "$databasePath-shm").forEach { path ->
+            assertTrue(
+                fileManager.fileExistsAtPath(path),
+                "$path must exist while the cache connection is open",
+            )
+            assertTrue(
+                IosCacheFileProtection.isExcludedFromBackup(path),
+                "$path must be excluded from iCloud/iTunes backup",
+            )
+            assertEquals(
+                NSFileProtectionCompleteUnlessOpen,
+                IosCacheFileProtection.protectionClass(path),
+                "$path must carry NSFileProtectionCompleteUnlessOpen",
+            )
         }
 
+        database.close()
         provider.deleteLocalCache()
     }
 

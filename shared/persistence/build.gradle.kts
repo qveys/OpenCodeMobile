@@ -72,6 +72,11 @@ android {
 
     defaultConfig {
         minSdk = 31
+        // Without this AGP falls back to a runner that does not discover the
+        // JUnit4 `@Test` methods that `kotlin.test.Test` maps to, so
+        // `connectedDebugAndroidTest` reports `tests="0"` and stays green while
+        // the SQLCipher/Keystore instrumented proof never executes (T3 / OP2).
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
