@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  T3 / OP2 — pre-API-31 counterpart of the cache data-extraction rules. The
+  cache DB and its -wal/-shm companions are excluded from full backup.
+
+  Kept in sync with CACHE_DATABASE_NAME in shared/persistence
+  (org.opencodemobile.shared.persistence.cache).
+-->
+<full-backup-content>
+    <exclude domain="database" path="opencodemobile_cache.db" />
+    <exclude domain="database" path="opencodemobile_cache.db-wal" />
+    <exclude domain="database" path="opencodemobile_cache.db-shm" />
+</full-backup-content>

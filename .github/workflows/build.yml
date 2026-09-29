@@ -61,6 +61,25 @@ jobs:
           find androidApp/build/outputs/bundle -name '*.aab' -print -exec sha256sum {} \;
           test -n "$(find androidApp/build/outputs/apk -name '*.apk' -print -quit)"
           test -n "$(find androidApp/build/outputs/bundle -name '*.aab' -print -quit)"
+      # OPE-107: the cache schema/scoping, the "no secret column" rule, the
+      # Android backup-exclusion rules, and the offline read-only gate are all
+      # JVM unit tests, so they need an explicit test step to run in the build
+      # gate (assemble alone does not execute tests).
+      - name: Cache + application unit tests
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          chmod +x gradlew
+          ./gradlew :shared:persistence:testDebugUnitTest :shared:application:testDebugUnitTest --no-daemon --stacktrace
+      # Compile (not run) the on-device T3 proof; running it needs an emulator
+      # (see .github/workflows/t1-device-validation.yml) but a compile failure
+      # must fail the build gate.
+      - name: Compile the SQLCipher cache instrumented (T3) test
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          chmod +x gradlew
+          ./gradlew :shared:persistence:assembleDebugAndroidTest --no-daemon --stacktrace
 
   build-ios:
     name: Build iOS/macOS frameworks
@@ -75,6 +94,14 @@ jobs:
           chmod +x gradlew
           java -version
           ./gradlew linkDebugFrameworkIosSimulatorArm64 linkDebugFrameworkIosArm64 --no-daemon --stacktrace
+      # OPE-107: type-check the iOS cache at-rest protection code and its test
+      # (Data Protection + NSURLIsExcludedFromBackupKey) on every build.
+      - name: Compile the iOS cache-at-rest test
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-$JAVA_HOME}}"
+          chmod +x gradlew
+          ./gradlew :shared:persistence:compileTestKotlinIosSimulatorArm64 --no-daemon --stacktrace
       - name: Verify iOS frameworks
         run: |
           set -euo pipefail
