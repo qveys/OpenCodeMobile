@@ -124,8 +124,20 @@ public interface MutationGate {
  * pass [requireNonSecretKey]; the cache never holds a secret (§7.3).
  */
 public object CachePreferencePolicy {
+    /**
+     * Credential-ish keys. The long, distinctive terms are matched as
+     * substrings so camelCase forms keep working (`accessToken`,
+     * `clientSecret`, `apiKey`). The short ambiguous terms `auth`/`pin` are
+     * only matched as whole words, so ordinary UI keys that merely contain them
+     * are not refused: `author`, `authorName`, `pinnedRepo`, `spinnerColumns`,
+     * `pathname`. `auth_?token` / `pin_?code` / `pinned_?key` cover the
+     * camelCase credential forms.
+     */
     private val SECRET_BEARING_KEY = Regex(
-        "(?i)(token|secret|password|passphrase|credential|apikey|api_key|authorization|bearer|auth|pin|private_?key)",
+        pattern = "(?i)(" +
+            "token|secret|password|passphrase|credential|api_?key|authorization|bearer|" +
+            "private_?key|auth_?token|pin_?code|pinned_?key" +
+            ")|(^|[^A-Za-z])(auth|pin)([^A-Za-z]|\$)",
     )
 
     /** Whether [key] looks like it could name a credential. */

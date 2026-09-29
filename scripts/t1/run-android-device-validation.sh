@@ -118,6 +118,34 @@ GRADLE_STATUS=$?
 echo "== Instrumented test result XML =="
 find shared/security/build/outputs/androidTest-results shared/persistence/build/outputs/androidTest-results -name '*.xml' -print -exec cat {} \; 2>/dev/null || true
 
+# A green `connectedDebugAndroidTest` with `tests="0"` proves nothing: this is
+# exactly how a missing/incorrect `testInstrumentationRunner` hides the whole
+# T3/SQLCipher proof. Refuse a zero-test (or missing) persistence run so the
+# instrumented control can never be silently green again.
+PERSISTENCE_RESULTS_DIR="shared/persistence/build/outputs/androidTest-results/connected/debug"
+PERSISTENCE_TESTCASE_COUNT=0
+if [ -d "$PERSISTENCE_RESULTS_DIR" ]; then
+  PERSISTENCE_TESTCASE_COUNT="$(grep -rhoI --include='*.xml' '<testcase ' "$PERSISTENCE_RESULTS_DIR" 2>/dev/null | wc -l | tr -d ' ')"
+fi
+echo "persistence_testcases=$PERSISTENCE_TESTCASE_COUNT (expected >= 2)"
+
+if [ "$GRADLE_STATUS" -eq 0 ]; then
+  if [ "${PERSISTENCE_TESTCASE_COUNT:-0}" -eq 0 ]; then
+    echo "FAIL: :shared:persistence:connectedDebugAndroidTest ran zero tests; the"
+    echo "      T3 SQLCipher/Keystore proof was not executed (check testInstrumentationRunner)."
+    GRADLE_STATUS=1
+  else
+    for expected_test in \
+      transcriptIsNotReadableInTheRawDatabaseFile \
+      keystoreKeyLossWipesAndRebuildsWithoutCrashing; do
+      if ! grep -rqI --include='*.xml' "name=\"$expected_test\"" "$PERSISTENCE_RESULTS_DIR" 2>/dev/null; then
+        echo "FAIL: expected persistence instrumented test '$expected_test' did not run"
+        GRADLE_STATUS=1
+      fi
+    done
+  fi
+fi
+
 if [ "$GRADLE_STATUS" -ne 0 ]; then
   echo "== Emulator log tail (for diagnosis) =="
   tail -200 "$EMULATOR_LOG" || true

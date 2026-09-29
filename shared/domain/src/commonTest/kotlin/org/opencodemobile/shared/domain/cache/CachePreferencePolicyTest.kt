@@ -40,6 +40,14 @@ class CachePreferencePolicyTest {
             "sidebar.width",
             "language",
             "recent.sessions.limit",
+            // Regression pins (S4): these used to be refused by the unanchored
+            // `auth`/`pin` terms because they contain "auth" or "pin" as part of
+            // longer words.
+            "author",
+            "authorName",
+            "pinnedRepo",
+            "spinnerColumns",
+            "pathname",
         ).forEach { key ->
             assertFalse(CachePreferencePolicy.isSecretBearingKey(key), "did not expect '$key' to be secret-bearing")
             CachePreferencePolicy.requireNonSecretKey(key)
