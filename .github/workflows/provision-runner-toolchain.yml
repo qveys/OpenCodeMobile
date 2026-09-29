@@ -12,8 +12,8 @@ name: Provision runner toolchain
 #   ./gradlew :shared:networking:testDebugUnitTest --no-daemon
 #
 # It is idempotent and safe to re-run at any time. `workflow_dispatch` forces a
-# refresh; the `push` trigger is path-filtered to the provisioning files so
-# ordinary pushes do not re-run it.
+# refresh; the `push` trigger is path-filtered to the provisioning script and its
+# helpers so ordinary pushes do not re-run it.
 #
 # After this workflow is green, ordinary CI jobs only need to source
 # `scripts/ci/runner-toolchain-env.sh` (see .github/workflows/security-logging.yml).
@@ -22,12 +22,22 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - '.github/workflows/provision-runner-toolchain.yml'
+      # The provisioning script and its helpers. This workflow file is
+      # deliberately NOT listed: editing the workflow itself must not force a
+      # provisioning run, so control-plane edits cannot self-trigger a job on
+      # the single shared macOS runner.
       - 'scripts/ci/**'
 
 concurrency:
-  group: provision-runner-toolchain-${{ github.ref }}
-  cancel-in-progress: false
+  # At most one provisioning run repository-wide, and a newer provisioning
+  # change supersedes older pending/in-progress runs instead of queueing behind
+  # them. Without this, several branches touching scripts/ci/** each enqueue a
+  # provisioning job that piles up on the single `macbook-openclaw` runner
+  # (observed 2026-09-29: one stuck job blocked three later runs for hours).
+  # Provisioning is idempotent, so cancelling a superseded run is safe: the
+  # newer run re-installs/reuses the same pinned toolchain.
+  group: provision-runner-toolchain
+  cancel-in-progress: true
 
 permissions:
   contents: read
