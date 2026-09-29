@@ -60,11 +60,14 @@ than a false failure; set `SMOKE_BASE_URL` to start guarding deployments.
 bash scripts/tests/test-deployment-smoke-test.sh
 
 # Against a real environment:
-scripts/smoke/deployment-smoke-test.sh \
+bash scripts/smoke/deployment-smoke-test.sh \
   --base-url https://staging.example.test \
   --expected-version 0.1.0 \
   --endpoint /health --endpoint /ready
 ```
+
+Scripts are checked in as `100644` (the repo convention) and invoked with
+`bash`, matching how the other `scripts/**` helpers are called from workflows.
 
 Useful options: `--retries N`, `--retry-delay SECONDS`, `--timeout SECONDS`,
 `--report FILE`, `--alert-webhook URL`, `--dry-run`, `--help`. Every option

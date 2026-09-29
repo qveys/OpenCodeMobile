@@ -18,7 +18,7 @@
 # present on GitHub-hosted runners. It never logs credential material.
 #
 # Usage:
-#   scripts/smoke/deployment-smoke-test.sh \
+#   bash scripts/smoke/deployment-smoke-test.sh \
 #     --base-url https://staging.example.test \
 #     --expected-version 0.1.0
 #
