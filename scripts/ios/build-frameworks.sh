@@ -75,7 +75,10 @@ for entry in "${MODULES[@]}"; do
 done
 
 echo "== Building Kotlin/Native frameworks (target=${KMP_TARGET}, variant=${KMP_VARIANT}) =="
-./gradlew "${TASKS[@]}" --no-daemon --stacktrace
+# `bash ./gradlew` because the repository's signed-commit flow cannot carry the
+# executable bit (gradlew is recorded 100644), so `./gradlew` fails in a fresh
+# checkout.
+bash ./gradlew "${TASKS[@]}" --no-daemon --stacktrace
 
 for entry in "${MODULES[@]}"; do
   module_path="${entry%%|*}"
