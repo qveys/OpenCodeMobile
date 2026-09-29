@@ -11,7 +11,16 @@ import iosAppHost
 /// `androidApp`'s `MainActivity` + `ConnectionCompositionRoot` split.
 struct ComposeConnectionView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
-        IosConnectionCompositionRootKt.connectionSetupViewController()
+        // UI tests pass -OPEUIAccessibility so XCUITest can read the Compose
+        // semantics tree; production keeps the default (VoiceOver-triggered)
+        // accessibility sync. Debug builds only.
+        var accessibilitySyncAlways = false
+        #if DEBUG
+        accessibilitySyncAlways = ProcessInfo.processInfo.arguments.contains("-OPEUIAccessibility")
+        #endif
+        return IosConnectionCompositionRootKt.connectionSetupViewController(
+            accessibilitySyncAlways: accessibilitySyncAlways
+        )
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}

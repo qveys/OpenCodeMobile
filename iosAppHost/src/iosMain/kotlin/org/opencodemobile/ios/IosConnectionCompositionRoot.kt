@@ -5,9 +5,11 @@ package org.opencodemobile.ios
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.ExperimentalComposeApi
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.interop.LocalUIViewController
+import androidx.compose.ui.platform.AccessibilitySyncOptions
 import androidx.compose.ui.window.ComposeUIViewController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -112,8 +114,26 @@ public fun startIosKoin() {
  *
  * Call [startIosKoin] first. The returned controller owns the Compose
  * lifecycle; Swift only presents it.
+ *
+ * @param accessibilitySyncAlways builds the Compose semantics tree even without
+ *   an assistive service running. It is only set by the UI test (via the
+ *   debug-only `-OPEUIAccessibility` launch argument): XCUITest is not a
+ *   VoiceOver client, so with the production default
+ *   ([AccessibilitySyncOptions.WhenRequiredByAccessibilityServices]) it would
+ *   only ever see the raw view hierarchy, not the rendered semantics.
  */
-public fun connectionSetupViewController(): UIViewController = ComposeUIViewController {
+@OptIn(ExperimentalComposeApi::class)
+public fun connectionSetupViewController(
+    accessibilitySyncAlways: Boolean = false,
+): UIViewController = ComposeUIViewController(
+    configure = {
+        accessibilitySyncOptions = if (accessibilitySyncAlways) {
+            AccessibilitySyncOptions.Always
+        } else {
+            AccessibilitySyncOptions.WhenRequiredByAccessibilityServices
+        }
+    },
+) {
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             val controller: ConnectionSetupController = koinInject()
