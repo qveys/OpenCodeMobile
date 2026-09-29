@@ -41,12 +41,24 @@ permissions:
 jobs:
   static-scan:
     name: T4 static scan
+    # The job name is the required status check on `main`; do not rename it or
+    # every pull request would be left permanently "Expected" and blocked.
+    #
+    # This job is also the required gate for the SEC-04 / SEC-05 supply-chain
+    # controls. They run here rather than in a new job so that no branch
+    # protection change is needed to make them blocking — a new job name would
+    # not be a required check until branch protection is edited, and the gates
+    # would be advisory only in the meantime.
     runs-on: [self-hosted, hostinger]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Scan for unredacted secret logging
         run: bash scripts/check-no-secret-logging.sh
+      - name: Require SHA-pinned GitHub Actions (SEC-04)
+        run: bash scripts/check-workflow-action-pinning.sh
+      - name: Require an integrity-pinned Gradle toolchain (SEC-05)
+        run: bash scripts/check-gradle-supply-chain.sh
 
   redaction-tests:
     name: Redaction unit tests
