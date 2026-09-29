@@ -38,6 +38,18 @@ public object OpenCodeFixtures {
     /** Server-issued id of the pending question exposed by [questionObject]. */
     public const val QUESTION_REQUEST_ID: String = "que_mock_0001"
 
+    /** Retry `attempt` reported by [sessionStatusJson] for the first fixture session. */
+    public const val SESSION_STATUS_RETRY_ATTEMPT: Int = 2
+
+    /** Retry `message` reported by [sessionStatusJson] for the first fixture session. */
+    public const val SESSION_STATUS_RETRY_MESSAGE: String = "Provider rate limited; retrying"
+
+    /** Retry `next` timestamp reported by [sessionStatusJson] for the first fixture session. */
+    public const val SESSION_STATUS_RETRY_NEXT: Long = BASE_TIME + 5_000L
+
+    /** Id of the late event served by [liveTailSseEvents] as a post-reconnect live tail. */
+    public const val LIVE_TAIL_EVENT_INDEX: Int = 100
+
     public val sessions: List<MockSession> = listOf(
         MockSession(
             id = "ses_mock_0001",
@@ -85,6 +97,31 @@ public object OpenCodeFixtures {
         buildJsonArray {
             sessions.forEach { session -> add(sessionObject(session)) }
         }.toString()
+
+    /**
+     * `GET /session/status` body, shaped like the pinned `Map<String, ApiSessionStatus>` the
+     * generated client expects (the route the fallback polling in `docs/ARCHITECTURE.md` §3.2
+     * reads). The first session reports a `retry` (the state reconciliation must not lose), the
+     * remaining sessions report `idle`.
+     */
+    public fun sessionStatusJson(sessions: List<MockSession> = this.sessions): String =
+        buildJsonObject {
+            sessions.forEachIndexed { index, session ->
+                put(session.id, sessionStatusObject(retry = index == 0))
+            }
+        }.toString()
+
+    /** One `ApiSessionStatus` object. `retry` fills `attempt`/`message`/`next`, otherwise `idle`. */
+    public fun sessionStatusObject(retry: Boolean = false): JsonObject = buildJsonObject {
+        if (retry) {
+            put("type", "retry")
+            put("attempt", SESSION_STATUS_RETRY_ATTEMPT)
+            put("message", SESSION_STATUS_RETRY_MESSAGE)
+            put("next", SESSION_STATUS_RETRY_NEXT)
+        } else {
+            put("type", "idle")
+        }
+    }
 
     /**
      * `GET /event` script for the normal scenario: a session update followed by a streamed
@@ -161,6 +198,16 @@ public object OpenCodeFixtures {
      */
     public fun disconnectSseEvents(): List<MockSseEvent> =
         listOf(sessionUpdatedEvent()) + (1..3).map { partUpdatedEvent(it) }
+
+    /**
+     * `GET /event` activity that arrives **after** the main script on a connection that stays
+     * open ([MockOpenCodeStreamConfig.tailEvents]): a single late `message.part.updated` whose
+     * id sorts after the reconnect script so it cannot be mistaken for a replayed event.
+     */
+    public fun liveTailSseEvents(
+        index: Int = LIVE_TAIL_EVENT_INDEX,
+        sessionID: String = sessions.first().id,
+    ): List<MockSseEvent> = listOf(partUpdatedEvent(index, sessionID))
 
     /** `GET /event` script for [MockOpenCodeScenario.SlowNetwork]: a session update plus two parts. */
     public fun slowNetworkSseEvents(): List<MockSseEvent> =

@@ -27,13 +27,17 @@ public enum class MockOpenCodeScenario {
     /**
      * `/event` stops the response body after [MockOpenCodeStreamConfig.disconnectAfterEvents]
      * events, before the script is exhausted. The client observes a truncated stream and must
-     * reconnect and reconcile (see `README.md`).
+     * reconnect and reconcile (see `README.md`). With
+     * [MockOpenCodeStreamConfig.disconnectConnections] > 1 the first N connections are
+     * truncated before the script resumes, which models a server that stays down.
      */
     Disconnect,
 
     /**
-     * The first `/event` connection is truncated like [Disconnect]; the next connection
-     * resumes the script where it stopped. Already-delivered events are never replayed.
+     * The first [MockOpenCodeStreamConfig.disconnectConnections] `/event` connections are
+     * truncated like [Disconnect]; the next connection resumes the script where it stopped.
+     * Already-delivered events are never replayed unless
+     * [MockOpenCodeStreamConfig.replayFromEventId] asks for an overlapping replay.
      */
     Reconnect,
 
