@@ -1,0 +1,17 @@
+# Paths kept out of the TruffleHog gate — one glob per line, `#` starts a comment.
+#
+# TruffleHog's git source walks the whole history and every ref (`git log
+# --all`), not the tip: a secret-shaped literal keeps failing `--fail` once it
+# is committed, so rewriting the file that carried it changes nothing. Only a
+# path-level filter clears that class of finding, and the repository is the
+# only place that knows which of its files are fixtures.
+#
+# Both files below assert that a server address carrying user-info is rejected:
+#   assertEquals(ServerInputProblem.CREDENTIALS_NOT_ALLOWED, problem("http://user:pass@host"))
+#   ServerAddressParser.parse("https://user:pass@host") -> CredentialsInAddress
+# `user:pass@host` is a deliberately obvious dummy that proves credentials are
+# forbidden in a server address (threat T8). These are negative test fixtures,
+# not credentials. Nothing else is exempt: production sources stay fully
+# scanned.
+shared/domain/src/commonTest/kotlin/org/opencodemobile/shared/domain/connection/ServerAddressTest.kt
+shared/domain/src/commonTest/kotlin/org/opencodemobile/shared/domain/connection/ServerAddressParserTest.kt
