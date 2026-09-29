@@ -27,7 +27,32 @@ All code changes ship via PR (no direct commits to `main`), with review intensit
 | **L6** | Hardening + release | Performance targets (§10.1), server compatibility matrix, best-effort accessibility, threat-model review, store listings + non-affiliation disclaimer, TestFlight/Play Internal → public | §10, §11, §13 | Full V1 Definition of Done met; publication approved |
 | **Post-V1** | P1 backlog | Light file editing behind a flag, interactive terminal, mDNS discovery, attachments/deep links, multi-server profiles | §3.2 | One ADR per feature |
 
-Five decisions remain open and should be closed no later than L0/L1: Liquid Glass on iOS (OP1), local cache encryption (OP2), single vs. multiple server profiles in V1 (OP3), approving permissions from a lock-screen notification (OP4), and the batch of `PROPOSED`-only requirements in the spec (OP5).
+**All five open decisions are decided** (2026-09-29) by
+[`docs/adr/0005-v1-open-decisions-op1-op5.md`](docs/adr/0005-v1-open-decisions-op1-op5.md).
+OP1/OP3/OP4/OP5 are recorded in the specification issue's accepted-decisions
+document; **OP2 is partially closed** — Android closed, iOS accepted with
+residual risk (see ADR 0005 §2/§3). Summary, for anyone reading only the roadmap:
+
+| ID | Decision taken | Effect on this roadmap |
+|---|---|---|
+| OP1 | Pure Compose Multiplatform UI on iOS, no native Liquid Glass | L0 deliverable fulfilled ([ADR 0003](docs/adr/0003-liquid-glass-vs-pure-cmp-ios.md)); iOS POC stays an L1 verification item. |
+| OP2 | Cache encrypted at rest — SQLCipher on Android (**closed**), OS Data Protection as the iOS V1 bar with SQLCipher-for-iOS deferred (**accepted residual risk**: sandbox malware / unlocked stolen device) | No encryption work in L1 (there is no cache yet); the cache and its encryption land together in L2. |
+| OP3 | One stored server profile in V1, `ServerId` kept in the Domain | L1 builds no profile-management UI (the Domain still keeps `ServerId`, so this is not a domain change); multi-profile moves to the Post-V1 P1 backlog. |
+| OP4 | No permission **approval** from a notification in V1 | L3 permission banner is foreground-only; V1-13 notifications stay a MAY surface that can carry at most a "Deny" action, never "Approve". |
+| OP5 | No bulk validation of `PROPOSÉ` requirements; each needs an explicit individual decision | V1-07 and V1-08 are in the L3 scope by explicit decision, not by validating the column. |
+
+### MVP cut
+
+The first shippable cut is **L1 + L2 + L3**, i.e. the §3.1 requirements
+V1-01…V1-09: connect to a server, complete the handshake, enter or scan the
+server address, list and manage sessions, send a prompt and read the streamed
+transcript, and see and answer permission requests (V1-01…V1-06), plus the two
+`PROPOSÉ` items entered by individual decision (V1-07 agent questions, V1-08
+abort) and V1-09 (model/agent listing). The acceptance criteria are the
+*Critère d'acceptation* column of *Cahier des charges* §3.1; §13 is the
+"Règles absolues et Definition of Done" section, not a requirement list. L4
+(dictation, local notifications, biometrics), L5 (files, diffs) and L6
+(hardening, publication) are sequenced after it and are not part of the MVP.
 
 ## Current status (2026-09-24)
 
