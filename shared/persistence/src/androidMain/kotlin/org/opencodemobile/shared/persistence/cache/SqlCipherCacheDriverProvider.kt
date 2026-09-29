@@ -1,6 +1,7 @@
 package org.opencodemobile.shared.persistence.cache
 
 import android.content.Context
+import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import java.io.File
@@ -42,8 +43,18 @@ public class SqlCipherCacheDriverProvider(
         )
         // Force the file open here so a passphrase that no longer matches the
         // file (key loss) fails inside CacheDatabase's recovery path instead of
-        // on the first user-visible read.
-        driver.execute(null, "SELECT 1", 0) {}
+        // on the first user-visible read. `execute` maps to
+        // `executeUpdateDelete`, which cannot run a row-returning statement, so
+        // use `executeQuery` and step the cursor once.
+        driver.executeQuery(
+            identifier = null,
+            sql = "SELECT 1",
+            mapper = { cursor ->
+                cursor.next()
+                QueryResult.Unit
+            },
+            parameters = 0,
+        )
         driver
     }
 
