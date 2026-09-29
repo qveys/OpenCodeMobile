@@ -92,9 +92,14 @@ run_root() {
 # ---------------------------------------------------------------------------
 download() { # url out
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --retry 3 --retry-delay 5 -o "$2" "$1"
+    # --http1.1 avoids the HTTP/2 `PROTOCOL_ERROR` stall seen on the self-hosted
+    # macOS runner (it hung for ~1h on api.adoptium.net); the connect/max
+    # timeouts make a dead mirror fail over quickly instead of eating the job
+    # timeout.
+    curl -fSL --http1.1 --connect-timeout 20 --max-time 600 \
+      --retry 3 --retry-delay 5 -o "$2" "$1"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$2" "$1"
+    wget -q --tries=3 --timeout=20 -O "$2" "$1"
   else
     return 1
   fi
@@ -126,9 +131,9 @@ find_jdk21() {
   fi
   for d in \
     /opt/jdk-21 \
-    "$HOME/.local/jdk-21" \
     /Library/Java/JavaVirtualMachines/*/Contents/Home \
     "$HOME"/Library/Java/JavaVirtualMachines/*/Contents/Home \
+    "$HOME/.local/jdk-21" \
     /usr/lib/jvm/*21* /usr/lib/jvm/java-21-openjdk*; do
     if is_jdk21 "$d"; then printf '%s' "$d"; return 0; fi
   done
@@ -163,47 +168,64 @@ install_jdk21() {
     info "apt path unavailable; falling back to Temurin tarball"
   fi
 
-  # macOS fast path: Homebrew.
+  # macOS fast path: reuse an already-installed Homebrew JDK 21, if any.
+  #
+  # We deliberately do NOT run `brew install` here. On the self-hosted
+  # macbook-openclaw runner Homebrew lives in the ARM prefix (/opt/homebrew)
+  # while the job shell reports x86_64, so `brew install` aborts immediately
+  # ("Cannot install under Rosetta 2 in ARM default prefix"), and the
+  # `--cask temurin@21` install needs a root password the runner does not have
+  # (no passwordless sudo). A doomed brew attempt only wastes time, so we keep
+  # a fast keg lookup and otherwise go straight to the verified JDK mirror.
   if [ "$OS" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
-    info "trying Homebrew openjdk@21"
-    if brew list --versions openjdk@21 >/dev/null 2>&1 || brew install openjdk@21 >/dev/null 2>&1; then
-      local bp
-      bp="$(brew --prefix openjdk@21 2>/dev/null || true)"
-      if [ -n "$bp" ] && is_jdk21 "$bp"; then
-        if [ "$CAN_ROOT" -eq 1 ]; then
-          run_root mkdir -p /Library/Java/JavaVirtualMachines
-          run_root ln -sfn "$bp/libexec/openjdk.jdk" /Library/Java/JavaVirtualMachines/openjdk-21.jdk
-        fi
-        JDK_HOME_FINAL="$bp"
-        info "JDK 21 installed via Homebrew: $bp"
-        return 0
+    info "checking for an existing Homebrew openjdk@21"
+    local bp
+    bp="$(brew --prefix openjdk@21 2>/dev/null || true)"
+    if [ -n "$bp" ] && is_jdk21 "$bp"; then
+      # Register the keg with java_home (user scope when we are not root).
+      if [ "$CAN_ROOT" -eq 1 ]; then
+        run_root mkdir -p /Library/Java/JavaVirtualMachines
+        run_root ln -sfn "$bp/libexec/openjdk.jdk" /Library/Java/JavaVirtualMachines/openjdk-21.jdk 2>/dev/null || true
+      else
+        mkdir -p "$HOME/Library/Java/JavaVirtualMachines"
+        ln -sfn "$bp/libexec/openjdk.jdk" "$HOME/Library/Java/JavaVirtualMachines/openjdk-21.jdk" 2>/dev/null || true
       fi
+      JDK_HOME_FINAL="$bp"
+      info "reusing JDK 21 from Homebrew: $bp"
+      return 0
     fi
-    info "Homebrew path unavailable; falling back to Temurin tarball"
+    info "no usable Homebrew openjdk@21; falling back to a JDK mirror"
   fi
 
   # Universal fallback: a Temurin/Corretto/Microsoft JDK tarball. Several
   # independent mirrors are tried so a blocked or moved URL does not fail the
   # whole provisioning run.
-  local os_seg target tmp src url got
+  # Vendor URL path segments differ: Adoptium uses `mac`, but AWS Corretto and
+  # Microsoft use `macos`. Reusing `mac` for all three caused the OPE-100
+  # failures (corretto.aws returned 404, aka.ms had no matching artifact).
+  local os_seg corretto_seg ms_seg target tmp src url got
   case "$OS" in
-    Linux)  os_seg=linux ;;
-    Darwin) os_seg=mac ;;
+    Linux)  os_seg=linux ; corretto_seg=linux ; ms_seg=linux ;;
+    Darwin) os_seg=mac   ; corretto_seg=macos ; ms_seg=macos ;;
     *) warn "unsupported OS: $OS"; return 1 ;;
   esac
   if [ "$CAN_ROOT" -eq 1 ] && [ "$OS" = "Linux" ]; then
     target=/opt/jdk-21
-  elif [ "$CAN_ROOT" -eq 1 ] && [ "$OS" = "Darwin" ]; then
-    target=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home
+  elif [ "$OS" = "Darwin" ]; then
+    # User-level JDK bundle: the macOS self-hosted runner has no passwordless
+    # sudo, and a `.jdk` under ~/Library/Java/JavaVirtualMachines is discovered
+    # by `/usr/libexec/java_home -v 21` without root. Corretto (reliable, fast
+    # from this runner) is tried first; Adoptium stalled for ~1h over HTTP/2.
+    target="$HOME/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home"
   else
     target="$HOME/.local/jdk-21"
   fi
   tmp="$(mktemp -d)"
   got=0
   for url in \
+    "https://corretto.aws/downloads/latest/amazon-corretto-21-${TEMURIN_ARCH}-${corretto_seg}-jdk.tar.gz" \
     "https://api.adoptium.net/v3/binary/latest/21/ga/${os_seg}/${TEMURIN_ARCH}/jdk/hotspot/normal/eclipse" \
-    "https://corretto.aws/downloads/latest/amazon-corretto-21-${TEMURIN_ARCH}-${os_seg}-jdk.tar.gz" \
-    "https://aka.ms/download-jdk/microsoft-jdk-21-${os_seg}-${TEMURIN_ARCH}.tar.gz"; do
+    "https://aka.ms/download-jdk/microsoft-jdk-21-${ms_seg}-${TEMURIN_ARCH}.tar.gz"; do
     info "downloading $url"
     if download "$url" "$tmp/jdk21.tar.gz" && tar -tzf "$tmp/jdk21.tar.gz" >/dev/null 2>&1; then
       got=1; break
@@ -227,13 +249,22 @@ install_jdk21() {
     warn "could not locate an extracted JDK under $tmp/x"
     rm -rf "$tmp"; return 1
   fi
-  info "installing to $target"
-  run_root rm -rf "$target" 2>/dev/null || rm -rf "$target"
-  run_root mkdir -p "$(dirname "$target")" 2>/dev/null || mkdir -p "$(dirname "$target")"
+  # On macOS the tarball is a full `.jdk` bundle (<jdk>/Contents/Home/...).
+  # Copy the whole bundle, not just Contents/Home, so its Info.plist survives
+  # and `/usr/libexec/java_home -v 21` recognises the JDK.
+  local copy_src="$src" copy_dst="$target"
+  if [ "$OS" = "Darwin" ] && [ "$(basename "$(dirname "$src")")" = "Contents" ]; then
+    copy_src="$(dirname "$(dirname "$src")")"
+    copy_dst="$HOME/Library/Java/JavaVirtualMachines/temurin-21.jdk"
+  fi
+
+  info "installing to $copy_dst"
+  run_root rm -rf "$copy_dst" 2>/dev/null || rm -rf "$copy_dst"
+  run_root mkdir -p "$(dirname "$copy_dst")" 2>/dev/null || mkdir -p "$(dirname "$copy_dst")"
   if [ "$CAN_ROOT" -eq 1 ]; then
-    run_root cp -R "$src" "$target"
+    run_root cp -R "$copy_src" "$copy_dst"
   else
-    cp -R "$src" "$target"
+    cp -R "$copy_src" "$copy_dst"
   fi
   rm -rf "$tmp"
   if ! is_jdk21 "$target"; then warn "installed JDK at $target but it does not report 21"; return 1; fi
@@ -257,6 +288,29 @@ expose_jdk() { # home
   export JAVA_HOME="$home"
   export PATH="$home/bin:$HOME/.local/bin:$PATH"
   info "java -> $(command -v java || echo MISSING)"
+}
+
+# Make a JDK that is already present on disk discoverable by
+# `/usr/libexec/java_home -v 21` (user scope, no root required). The tar path
+# above already installs a proper `.jdk` bundle, so this only matters when we
+# reused a JDK found elsewhere.
+register_macos_jdk() { # home
+  local home="$1" jvmdir bundle
+  [ "$OS" = "Darwin" ] || return 0
+  if [ -x /usr/libexec/java_home ] && /usr/libexec/java_home -v 21 >/dev/null 2>&1; then
+    return 0
+  fi
+  jvmdir="$HOME/Library/Java/JavaVirtualMachines"
+  bundle="$jvmdir/temurin-21.jdk"
+  mkdir -p "$jvmdir"
+  # Never clobber the real install when $home already lives in that bundle.
+  case "$home" in
+    "$jvmdir"/*) return 0 ;;
+  esac
+  rm -rf "$bundle"
+  mkdir -p "$bundle/Contents"
+  ln -sfn "$home" "$bundle/Contents/Home"
+  info "registered user-level JDK bundle $bundle -> $home"
 }
 
 # ---------------------------------------------------------------------------
@@ -410,6 +464,7 @@ write_env() { # jdk sdk
 # ---------------------------------------------------------------------------
 install_jdk21 || { err "JDK 21 provisioning failed"; exit 1; }
 expose_jdk "$JDK_HOME_FINAL"
+register_macos_jdk "$JDK_HOME_FINAL"
 
 install_android_sdk || { err "Android SDK provisioning failed"; exit 1; }
 export ANDROID_HOME="$SDK_HOME_FINAL"
