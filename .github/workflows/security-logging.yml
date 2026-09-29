@@ -50,11 +50,16 @@ jobs:
 
   redaction-tests:
     name: Redaction unit tests
-    # Enabled on every trigger now that OPE-98/OPE-100 provision the self-hosted
-    # macOS runner's JDK 21 + Android SDK toolchain
-    # (`scripts/ci/provision-runner-toolchain.sh`). The job only sources the
-    # preinstalled toolchain via `scripts/ci/runner-toolchain-env.sh`; it never
-    # downloads a JDK/Android SDK itself, so the T4 supply-chain policy is kept.
+    # TEMPORARILY MANUAL ONLY. This job needs a JDK 21 + Android SDK toolchain.
+    # The self-hosted runner pool (hostinger / mac) has no Java runtime yet, and
+    # the repository Actions allowlist permits only `actions/checkout@*`, so the
+    # toolchain cannot be installed by an action. Downloading a JDK/Android SDK
+    # inside a security gate would add an unverified supply-chain step, so the
+    # job is disabled on pull_request/push instead. OPE-98 provisions the
+    # runners; re-enable the pull_request trigger once Java + Android SDK are
+    # present. It stays runnable by hand: Actions -> Logging Redaction (T4) ->
+    # Run workflow.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, mac]
     needs: static-scan
     timeout-minutes: 40
