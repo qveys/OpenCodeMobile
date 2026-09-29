@@ -23,10 +23,7 @@ import org.opencodemobile.features.connection.IosQrCodeScanner
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerIdentityStore
 import org.opencodemobile.shared.domain.connection.ServerIdentityVerifier
-import org.opencodemobile.shared.networking.adapter.OpenCodeV2Adapter
-import org.opencodemobile.shared.networking.adapter.createOpenCodeHttpClient
-import org.opencodemobile.shared.networking.adapter.installHttpMethodPolicy
-import org.opencodemobile.shared.networking.logging.installSanitizingLogging
+import org.opencodemobile.shared.networking.adapter.createOpenCodeGateway
 import org.opencodemobile.shared.security.identity.IosKeychainServerIdentityStore
 import org.opencodemobile.shared.security.identity.IosServerIdentityVerifier
 import org.opencodemobile.shared.security.identity.ServerIdentityGate
@@ -54,7 +51,7 @@ import platform.UIKit.UIViewController
  * exactly as `androidApp` builds the activity-scoped `AndroidQrCodeScanner`
  * outside Koin.
  */
-public val iosConnectionCompositionModule: Module = module {
+internal val iosConnectionCompositionModule: Module = module {
     // PKI/credential state stays in the Keychain-backed stores (B2), each in
     // its own service namespace so sibling secrets cannot be read across stores.
     single { SecureServerProfileStore(IosKeychainSecureStore("server-profile")) }
@@ -66,15 +63,13 @@ public val iosConnectionCompositionModule: Module = module {
     single { TofuServerIdentityCoordinator(get(), get()) }
     single { ServerIdentityGate(get()) }
 
-    // One HttpClient per process, sharing the same pin controller as the
-    // adapter so the engine-side pin backstop cannot silently disappear.
-    single {
-        createOpenCodeHttpClient(get()) {
-            installSanitizingLogging()
-            installHttpMethodPolicy()
-        }
-    }
-    single<OpenCodeGateway> { OpenCodeV2Adapter(get(), get(), get()) }
+    // One OpenCodeGateway per process, built by the sanctioned factory (the same
+    // one Android uses) so the Ktor HttpClient type never reaches this module's
+    // classpath. The factory installs the JSON ContentNegotiation the generated
+    // client's `body()` calls need; the platform factory behind it applies the
+    // outbound transport policy. The same pin controller instance also feeds the
+    // platform TLS engine, so the pin backstop cannot silently disappear.
+    single<OpenCodeGateway> { createOpenCodeGateway(get(), get()) }
 
     single {
         val profileStore: SecureServerProfileStore = get()

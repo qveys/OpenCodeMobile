@@ -10,8 +10,7 @@ import org.opencodemobile.features.connection.ConnectionSetupController
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerIdentityStore
 import org.opencodemobile.shared.domain.connection.ServerIdentityVerifier
-import org.opencodemobile.shared.networking.adapter.OpenCodeHttpClient
-import org.opencodemobile.shared.networking.adapter.OpenCodeV2Adapter
+import org.opencodemobile.shared.networking.adapter.createOpenCodeGateway
 import org.opencodemobile.shared.security.identity.AndroidKeystoreServerIdentityStore
 import org.opencodemobile.shared.security.identity.AndroidServerIdentityVerifier
 import org.opencodemobile.shared.security.identity.ServerIdentityGate
@@ -47,14 +46,11 @@ public val connectionCompositionModule: Module = module {
     single { TofuServerIdentityCoordinator(get(), get()) }
     single { ServerIdentityGate(get()) }
 
-    // One HttpClient per process, sharing the same pin controller as the
-    // adapter so the engine-side pin backstop cannot silently disappear.
-    // `OpenCodeHttpClient.create` is the sanctioned factory: it installs the
-    // JSON ContentNegotiation the generated client's `body()` calls need, plus
-    // redaction-safe logging; the platform factory behind it applies the
-    // outbound transport policy (method allowlist, no redirect following).
-    single { OpenCodeHttpClient.create(get()) }
-    single<OpenCodeGateway> { OpenCodeV2Adapter(get(), get(), get()) }
+    // One OpenCodeGateway per process, built by the sanctioned factory so the
+    // Ktor HttpClient type never reaches this module's classpath. The same pin
+    // controller instance feeds the adapter and the platform TLS engine, so the
+    // engine-side pin backstop cannot silently disappear.
+    single<OpenCodeGateway> { createOpenCodeGateway(get(), get()) }
 
     single {
         val profileStore: SecureServerProfileStore = get()

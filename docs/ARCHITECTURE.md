@@ -452,7 +452,7 @@ Controls that are architecture, not process:
 | Concern | Decision | Where enforced |
 |---|---|---|
 | Concurrency and state | Coroutines + `StateFlow`, unidirectional data flow | `shared/application`, `features/*` |
-| Dependency injection | Koin, runtime resolution, composition root only | `androidApp`, `features/*` |
+| Dependency injection | Koin, runtime resolution, composition root only | `androidApp`, `iosAppHost`, `features/*` |
 | Localization | French + English from V1 | resources in `androidApp` / `iosApp` / `design-system` |
 | Logging | One sanctioned sanitizing entry point | `shared/networking/.../logging/`, CI gate |
 | Error handling | Typed `DomainError` at the domain boundary | `shared/domain`, `shared/networking` |

@@ -185,12 +185,17 @@ private class QrScannerViewController(
         if (session.running) session.stopRunning()
         // Leave the full-screen capture surface before handing the result back,
         // so both the scanned and cancelled paths return to the entry/review
-        // screen behind it. Dismissal is not awaited: the result must resolve
-        // even if the controller was never fully presented (e.g. permission
-        // denied in viewDidLoad).
-        if (presentingViewController != null) {
-            dismissViewControllerAnimated(true, completion = null)
+        // screen behind it. The dismissal is deferred to the next main-loop turn:
+        // on the permission-denied path `complete` runs inside `viewDidLoad`,
+        // before the presentation finishes, so `presentingViewController` can
+        // still be null and an immediate dismiss would no-op, leaving the black
+        // capture on top with no cancel control. `handled` keeps this
+        // single-shot and `onResult` stays on the main queue.
+        dispatch_async(dispatch_get_main_queue()) {
+            if (presentingViewController != null) {
+                dismissViewControllerAnimated(true, completion = null)
+            }
+            onResult(payload)
         }
-        onResult(payload)
     }
 }
