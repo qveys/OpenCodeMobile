@@ -336,6 +336,31 @@ and the supported range. Contract tests against a real instance plus the
 deterministic `MockOpenCodeServer` are the drift detector; the compatibility
 matrix is an L6 deliverable.
 
+Status (OPE-135): implemented. `CompatibilityProfile.OpenCodeServerV2` accepts
+server major `1` at `>= 1.18.0`; `OpenCodeV2Adapter` parses the reported
+version, gates it, and raises `HandshakeException`
+(`HealthUnavailable` / `ServerUnhealthy` / `Incomplete` / `Incompatible`) for a
+handshake that cannot be completed.
+
+### 4.5 Connection policy (HTTP/TLS)
+
+This resolves the open policy question in the T1 section: whether plaintext
+HTTP is restricted to private address ranges.
+
+- `HttpConnectionPolicy` classifies a profile host as `Loopback`, `Lan`,
+  `Tailscale`, or `Public` (RFC 1918 + link-local + ULA, CGNAT
+  `100.64.0.0/10` and `*.ts.net`, mDNS `.local`).
+- HTTPS is allowed for every scope.
+- Plaintext HTTP is allowed only on `Loopback`, `Lan`, and `Tailscale`; those
+  profiles still carry the persistent plaintext warning and the TOFU identity
+  check (T1).
+- Plaintext HTTP to a `Public` host is rejected with
+  `ConnectionPolicyException.Rejected` before any request is built: TLS is
+  mandatory for any external connection, and the credential is never sent.
+
+Status (OPE-135): implemented (`OpenCodeV2Adapter.connect` step 1,
+`HttpConnectionPolicy`).
+
 ---
 
 ## 5. Deployment model
