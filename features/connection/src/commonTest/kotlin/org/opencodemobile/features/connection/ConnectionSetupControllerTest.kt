@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import org.opencodemobile.shared.application.connection.ServerConnectionSetup
 import org.opencodemobile.shared.application.connection.ServerSetupSource
 import org.opencodemobile.shared.domain.connection.ConnectionHandshake
+import org.opencodemobile.shared.domain.connection.DomainError
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerCredential
 import org.opencodemobile.shared.domain.connection.ServerFingerprint
@@ -205,5 +206,93 @@ class ConnectionSetupControllerTest {
 
         assertFalse(controller.state.value.isReviewing)
         assertNull(controller.state.value.existingProfile)
+    }
+
+    @Test
+    fun aSecondScannedPayloadWhileReviewingIsDiscarded() = runTest {
+        val controller = ConnectionSetupController(
+            ServerConnectionSetup(FakeGateway { _, _ -> error("must not connect") }),
+            this,
+        )
+
+        controller.submitScannedPayload("opencodemobile://import?host=first&port=4096")
+        advanceUntilIdle()
+        controller.submitScannedPayload("opencodemobile://import?host=second&port=4096")
+        advanceUntilIdle()
+
+        // One pending import at a time: the first stays, the second is discarded.
+        assertEquals("first", controller.state.value.review?.profile?.host)
+    }
+
+    @Test
+    fun aCredentialProviderFailureIsMappedToTheFailureState() = runTest {
+        val controller = ConnectionSetupController(
+            setup = ServerConnectionSetup(FakeGateway { target, _ -> handshake(target) }),
+            scope = this,
+            credentialProvider = { throw DomainError.StorageFailure("secure store unavailable") },
+        )
+
+        controller.onAddressChange("192.168.1.10")
+        controller.submitManualEntry()
+        advanceUntilIdle()
+        controller.confirmReview()
+        advanceUntilIdle()
+
+        assertNotNull(controller.state.value.failure)
+        assertNull(controller.state.value.connected)
+    }
+
+    @Test
+    fun anExistingProfileLookupFailureIsMappedToTheFailureState() = runTest {
+        val controller = ConnectionSetupController(
+            setup = ServerConnectionSetup(FakeGateway { _, _ -> error("must not connect") }),
+            scope = this,
+            existingProfileProvider = { throw DomainError.StorageFailure("secure store unavailable") },
+        )
+
+        controller.onAddressChange("192.168.1.10")
+        controller.submitManualEntry()
+        advanceUntilIdle()
+
+        assertNotNull(controller.state.value.failure)
+        assertFalse(controller.state.value.isReviewing)
+    }
+
+    @Test
+    fun aSuccessfulConnectionNotifiesTheCompositionRoot() = runTest {
+        val connected = mutableListOf<ConnectionHandshake>()
+        val controller = ConnectionSetupController(
+            setup = ServerConnectionSetup(FakeGateway { target, _ -> handshake(target) }),
+            scope = this,
+            onConnected = { connected += it },
+        )
+
+        controller.onAddressChange("192.168.1.10")
+        controller.submitManualEntry()
+        advanceUntilIdle()
+        controller.confirmReview()
+        advanceUntilIdle()
+
+        assertEquals(1, connected.size)
+        assertEquals(controller.state.value.connected, connected.single())
+    }
+
+    @Test
+    fun theUpdateViewSurfacesThePinnedFingerprint() = runTest {
+        val stored = ServerProfile(id = "192.168.1.10:4096", host = "192.168.1.10", port = 4096)
+        val pinned = fingerprint(3)
+        val controller = ConnectionSetupController(
+            setup = ServerConnectionSetup(FakeGateway { _, _ -> error("must not connect") }),
+            scope = this,
+            existingProfileProvider = { stored },
+            existingFingerprintProvider = { pinned },
+        )
+
+        controller.onAddressChange("192.168.1.10")
+        controller.submitManualEntry()
+        advanceUntilIdle()
+
+        assertTrue(controller.state.value.updatesExistingProfile)
+        assertEquals(pinned, controller.state.value.existingFingerprint)
     }
 }

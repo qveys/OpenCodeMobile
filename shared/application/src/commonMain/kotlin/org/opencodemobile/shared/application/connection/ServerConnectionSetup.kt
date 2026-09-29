@@ -44,9 +44,9 @@ public data class ServerSetupPlan(
     public val isPlaintext: Boolean
         get() = profile.isPlaintextHttp
 
-    /** `host:port`, shown in full on the review screen. */
+    /** `host:port`, shown in full on the review screen, with IPv6 hosts bracketed. */
     public val authority: String
-        get() = profile.authority
+        get() = if (profile.host.contains(':')) "[${profile.host}]:${profile.port}" else profile.authority
 }
 
 /** Result of turning raw input into a [ServerSetupPlan]. */

@@ -1,6 +1,7 @@
 package org.opencodemobile.features.connection
 
 import org.opencodemobile.shared.application.connection.ServerSetupPlan
+import org.opencodemobile.shared.application.connection.ServerSetupSource
 import org.opencodemobile.shared.domain.connection.ConnectionHandshake
 import org.opencodemobile.shared.domain.connection.DomainError
 import org.opencodemobile.shared.domain.connection.DomainErrorMessages
@@ -11,8 +12,8 @@ import org.opencodemobile.shared.domain.connection.ServerProfile
  * Everything the connection surfaces render, as one immutable value.
  *
  * The entry screen is driven by [address] / [label] / [manualError]; the import
- * review screen by [review] / [existingProfile]; the post-validation states by
- * [busy] / [identityPrompt] / [connected] / [failure].
+ * review screen by [review] / [existingProfile] / [existingFingerprint]; the
+ * post-validation states by [busy] / [identityPrompt] / [connected] / [failure].
  */
 public data class ConnectionSetupUiState(
     public val address: String = "",
@@ -21,6 +22,7 @@ public data class ConnectionSetupUiState(
     public val scanFailed: Boolean = false,
     public val review: ServerSetupPlan? = null,
     public val existingProfile: ServerProfile? = null,
+    public val existingFingerprint: ServerFingerprint? = null,
     public val busy: Boolean = false,
     public val identityPrompt: ServerFingerprint? = null,
     public val connected: ConnectionHandshake? = null,
@@ -49,4 +51,11 @@ public fun DomainError.InvalidServerAddress.message(): String = DomainErrorMessa
 public fun DomainError.failureMessage(): String {
     val presentation = DomainErrorMessages.present(this)
     return presentation.actionHint?.let { hint -> "${presentation.message}\n$hint" } ?: presentation.message
+}
+
+/** Human-readable label for a [ServerSetupSource], as shown on the review screen. */
+public fun ServerSetupSource.displayName(): String = when (this) {
+    ServerSetupSource.ManualEntry -> "Manual entry"
+    ServerSetupSource.QrCode -> "QR code"
+    ServerSetupSource.DeepLink -> "Deep link"
 }

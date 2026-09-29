@@ -57,7 +57,7 @@ public fun ServerImportReviewScreen(
         plan.fingerprint?.let { fingerprint ->
             ReviewRow("Fingerprint", fingerprint.colonSeparated)
         }
-        ReviewRow("Source", plan.source.name)
+        ReviewRow("Source", plan.source.displayName())
 
         if (plan.isPlaintext) {
             Text(
@@ -73,6 +73,9 @@ public fun ServerImportReviewScreen(
             if (existing != null) {
                 ReviewRow("Current label", existing.label ?: "(none)")
                 ReviewRow("Current address", existing.authority)
+                state.existingFingerprint?.let { pinned ->
+                    ReviewRow("Current fingerprint", pinned.colonSeparated)
+                }
             }
         }
 
