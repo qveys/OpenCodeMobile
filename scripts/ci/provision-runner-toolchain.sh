@@ -107,6 +107,11 @@ with_timeout() { # seconds cmd...
 # helpers
 # ---------------------------------------------------------------------------
 download() { # url out
+  local max_time=3600
+  if [ -n "${dl_deadline:-}" ]; then
+    max_time=$(( dl_deadline - $(date +%s) ))
+    [ "$max_time" -gt 0 ] || return 1
+  fi
   if command -v curl >/dev/null 2>&1; then
     # --http1.1 avoids the HTTP/2 `PROTOCOL_ERROR` stall seen on the self-hosted
     # macOS runner (it hung ~1h on api.adoptium.net). --speed-limit/--speed-time
@@ -115,14 +120,26 @@ download() { # url out
     # cheapest fix for a throttled/PMTU-broken v6 route. HTTP/1.1 avoids the
     # HTTP/2 stalls. -C - resumes a partial file so a reset does not lose
     # progress, and --speed-limit aborts a genuinely stalled stream.
-    curl -fSL -4 --http1.1 -C - --connect-timeout 20 \
-      --speed-limit 2048 --speed-time 180 --max-time 3600 \
-      --retry 3 --retry-delay 10 -o "$2" "$1"
+    with_timeout "$max_time" curl -fSL -4 --proto '=https' --proto-redir '=https' --http1.1 -C - --connect-timeout 20 \
+      --speed-limit 2048 --speed-time 180 --max-time "$max_time" \
+      --retry 3 --retry-delay 10 --retry-max-time "$max_time" -o "$2" "$1"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -4 -c --tries=3 --timeout=20 -O "$2" "$1"
+    with_timeout "$max_time" wget -q -4 --https-only -c --tries=3 --timeout=20 -O "$2" "$1"
   else
     return 1
   fi
+}
+
+verify_sha256() { # archive expected
+  local actual
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$1")" || return 1
+  elif command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 256 "$1")" || return 1
+  else
+    return 1
+  fi
+  [ "${actual%% *}" = "$2" ]
 }
 
 extract_zip() { # zip dest
@@ -223,7 +240,7 @@ install_jdk21() {
   # Vendor URL path segments differ: Adoptium uses `mac`, but AWS Corretto and
   # Microsoft use `macos`. Reusing `mac` for all three caused the OPE-100
   # failures (corretto.aws returned 404, aka.ms had no matching artifact).
-  local os_seg corretto_seg ms_seg target tmp src url got
+  local os_seg corretto_seg ms_seg target tmp src url got part checksum_url expected
   case "$OS" in
     Linux)  os_seg=linux ; corretto_seg=linux ; ms_seg=linux ;;
     Darwin) os_seg=mac   ; corretto_seg=macos ; ms_seg=macos ;;
@@ -259,13 +276,32 @@ install_jdk21() {
       warn "JDK download time budget exhausted; not trying any further mirror"
       break
     fi
+    case "$url" in
+      https://corretto.aws/downloads/latest/*) checksum_url="${url/\/latest\//\/latest_sha256\/}" ;;
+      # ponytail: Adoptium has no checksum endpoint for the "latest" redirect: skipped (fail closed)
+      https://api.adoptium.net/*) warn "no vendor checksum for $url; skipping mirror"; continue ;;
+      https://aka.ms/*) checksum_url="$url.sha256sum.txt" ;;
+    esac
+    # Fetch vendor checksums afresh over HTTPS; never trust a cache marker.
+    rm -f "$tmp/sha256"
+    if ! download "$checksum_url" "$tmp/sha256"; then
+      warn "checksum unavailable: $checksum_url"
+      continue
+    fi
+    expected="$(awk 'NR == 1 {print tolower($1)}' "$tmp/sha256")"
+    if ! [[ "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+      warn "invalid SHA-256 from $checksum_url"
+      continue
+    fi
     part="$dl_cache/$(printf '%s' "$url" | cksum | awk '{print $1}').tar.gz"
-    if [ -f "$part" ] && tar -tzf "$part" >/dev/null 2>&1; then
+    if [ -f "$part" ] && verify_sha256 "$part" "$expected" && tar -tzf "$part" >/dev/null 2>&1; then
       info "reusing complete cached JDK download: $part"
       cp "$part" "$tmp/jdk21.tar.gz"; got=1; break
     fi
+    # A complete but unverified archive must not be resumed or reused.
+    if [ -f "$part" ] && tar -tzf "$part" >/dev/null 2>&1; then rm -f "$part"; fi
     info "downloading $url (resumes partial $part)"
-    if download "$url" "$part" && tar -tzf "$part" >/dev/null 2>&1; then
+    if download "$url" "$part" && verify_sha256 "$part" "$expected" && tar -tzf "$part" >/dev/null 2>&1; then
       info "downloaded $(wc -c < "$part" 2>/dev/null || echo '?') bytes"
       cp "$part" "$tmp/jdk21.tar.gz"; got=1; break
     fi
