@@ -43,6 +43,7 @@ public fun ConnectionSetupScreen(
 }
 
 /** Stateless split between the entry screen and the import review screen. */
+@Suppress("LongParameterList")
 @Composable
 public fun ConnectionSetupContent(
     state: ConnectionSetupUiState,

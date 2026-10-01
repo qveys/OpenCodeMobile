@@ -112,6 +112,10 @@ public class AndroidKeystoreSecureStore(
             Base64.encodeToString(ciphertext, Base64.NO_WRAP)
     }
 
+    // Every `throw` here is a distinct fail-closed corruption path (malformed
+    // envelope, undecryptable payload, undecodable Base64); collapsing them
+    // would lose the diagnostic detail, so the rule is suppressed.
+    @Suppress("ThrowsCount")
     private fun decrypt(key: String, stored: String): String {
         val parts = stored.split(SEPARATOR)
         if (parts.size != 2) {
@@ -149,7 +153,11 @@ public class AndroidKeystoreSecureStore(
      * `minSdk` is 31, so `securityLevel` is preferred over the deprecated
      * `isInsideSecureHardware` / `isStrongBoxBacked` pair (both deprecated in
      * API 31) and reports the TEE and StrongBox cases alike.
+     *
+     * The caught exceptions are deliberately swallowed: an unreadable key
+     * descriptor means "not hardware-backed", not a crash.
      */
+    @Suppress("SwallowedException")
     private fun isHardwareBacked(): Boolean {
         val key = try {
             readSecretKey()

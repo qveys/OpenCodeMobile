@@ -135,6 +135,7 @@ public class ServerConnectionSetup(
      * credential is never attached after a failed identity check, because that
      * enforcement lives in the adapter.
      */
+    @Suppress("TooGenericExceptionCaught")
     public suspend fun validate(
         plan: ServerSetupPlan,
         credential: ServerCredential?,

@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
  *   null on platforms where no camera scanner is wired, so the screen degrades
  *   to manual entry rather than offering a dead button.
  */
+@Suppress("LongMethod", "LongParameterList")
 @Composable
 public fun ManualServerEntryScreen(
     state: ConnectionSetupUiState,

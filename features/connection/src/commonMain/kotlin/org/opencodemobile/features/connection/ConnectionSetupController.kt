@@ -32,6 +32,7 @@ import org.opencodemobile.shared.domain.connection.toDomainError
  * are mapped to the failure state rather than escaping the coroutine, so the UI
  * always has a single, typed decision surface.
  */
+@Suppress("LongParameterList", "TooManyFunctions", "TooGenericExceptionCaught")
 public class ConnectionSetupController(
     private val setup: ServerConnectionSetup,
     private val scope: CoroutineScope,

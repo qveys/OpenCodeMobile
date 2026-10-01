@@ -77,7 +77,7 @@ Clean Architecture, dependency direction pointing inward only:
 |---|---|---|
 | `androidApp` | Android app | Host shell, Koin composition root, platform `actual` wiring. |
 | `iosApp` | Swift/Xcode host | Swift entry point; not a Gradle module. See `iosApp/README.md`. |
-| `iosAppHost` | KMP library | Kotlin half of the iOS host: Koin graph assembly + Compose hosting (ADR 0006). iOS targets only. |
+| `iosAppHost` | KMP library | Kotlin half of the iOS host: Koin graph assembly + Compose hosting (ADR 0008). iOS targets only. |
 | `shared/domain` | KMP library | Entities, value objects, and ports. Kotlin stdlib only. |
 | `shared/application` | KMP library | Use cases that orchestrate domain ports and coroutines. |
 | `shared/data` | KMP library | Repository implementations, coordinating networking, realtime, persistence, and security. |
@@ -94,7 +94,7 @@ The Gradle module list is authoritative in `settings.gradle.kts`; the scaffold
 is recorded in ADR 0001. `iosApp` is intentionally not a Gradle subproject: it
 is an Xcode project linking one static framework per Kotlin module (ADR 0001
 §3, §4). Its Kotlin composition root is therefore the separate `:iosAppHost`
-module (ADR 0006), the iOS counterpart of `androidApp`.
+module (ADR 0008), the iOS counterpart of `androidApp`.
 
 ### 2.3 Ownership and seams
 
@@ -127,16 +127,21 @@ Rules that hold across all of them:
 ### 2.4 Enforced dependency rules
 
 The architecture specification fixes the edges below.
-`architecture-tests/ModuleBoundaryTest.kt` (PR #14, ADR 0004) encodes them and
-fails CI on any violation:
+`architecture-tests/ModuleBoundaryTest.kt` (ADR 0004) encodes them as Konsist
+assertions and `.github/workflows/architecture-tests.yml` runs
+`./gradlew :architecture-tests:test` on every pull request and push to `main`,
+failing the job on any violation. (A red job only *blocks* merge once the
+`Architecture tests` context is listed in the `main` ruleset's required status
+checks; see ADR 0004 §Verification for the current state.)
 
 1. `shared/domain` depends only on the Kotlin stdlib.
 2. `shared/application` may depend only on `shared/domain` and
    `kotlinx.coroutines`.
 3. `shared/data` may depend on `shared/domain`, `shared/networking`,
    `shared/realtime`, `shared/persistence`, and `shared/security`.
-4. `shared/networking` may depend only on `shared/domain` and Ktor. It
-   exclusively owns the generated OpenAPI client.
+4. `shared/networking` may depend on `shared/domain` and `shared/security` (the
+   T1 identity seam, §3.1), plus Ktor and serialization. It exclusively owns the
+   generated OpenAPI client.
 5. `shared/realtime` may depend only on `shared/domain` and
    `shared/networking`.
 6. `shared/persistence` may depend only on `shared/domain` and SQLDelight.
@@ -271,7 +276,7 @@ handling are mandatory and specified below.
 Compose screens and shared ViewModels observe application-layer flows with
 unidirectional data flow (`StateFlow` in, events out). Koin modules are
 declared in `androidApp` (composition root), `iosAppHost` (iOS composition
-root, ADR 0006), and `features/*`; the `iosApp` Swift shell calls
+root, ADR 0008), and `features/*`; the `iosApp` Swift shell calls
 `startIosKoin()` in `:iosAppHost` and hosts the Compose UI. Pure Compose
 Multiplatform owns navigation and lifecycle on both platforms — `iosApp` stays
 a thin host (ADR 0003).
@@ -634,13 +639,28 @@ from an in-app pending-approvals list). This screen enforces:
   confirmation without biometrics," never down to "notification-only."
   (This directly answers the open product decision: notification-only
   approval is not offered as a mode.)
-- **Request-bound, single-use decision.** The confirmation screen carries
-  the server-issued permission-request ID and a content hash of what it is
-  displaying; the approve/deny call back to the server includes both. A
-  request that was already decided, superseded, or whose content changed
-  since it was fetched cannot be approved from a stale screen — the app
-  re-fetches and re-renders before allowing the tap to submit (ties into
-  T6's single-use/no-replay requirement on the same IDs).
+  In V1 this gate is implemented on **Android** only. `AndroidBiometricAuthenticator`
+  is the real `BiometricPrompt`/device-credential implementation and is the only
+  consumer of the biometric port wired into the app
+  (`shared/security/src/androidMain/.../AndroidBiometricAuthenticator.kt`). The iOS
+  `LAContext` actual is correct but has no consumer: there is no iOS host yet
+  (`iosApp/` is a stub), so there is no iOS approval path at all - fail-closed, not
+  fail-open. The iOS host must wire the same coordinator gates before iOS can
+  approve anything; it is tracked separately.
+- **Request-bound, single-use decision.** The confirmation screen arms itself
+  with the server-issued permission-request ID and a content hash of what it is
+  displaying; the coordinator re-checks that hash, and the request's
+  server-exposed decision set, immediately before and immediately after the
+  biometric prompt. A request that was already decided, superseded, or whose
+  content changed since it was fetched cannot be approved from a stale screen —
+  the app re-renders before allowing the tap to submit (ties into T6's
+  single-use/no-replay requirement on the same IDs).
+  The pinned v2 reply body (`POST /permission/{requestID}/reply`) carries only
+  the decision, with no field for a content hash, so the binding is enforced
+  client-side and the server cannot re-verify it; see
+  `docs/THREAT-MODEL.md` T6 for the residual risk and the follow-up to extend
+  the contract. The hash is still what binds the screen to the request: a stale
+  or swapped request fails the local check and never reaches the wire.
 
 ### Rationale
 
@@ -993,7 +1013,7 @@ otherwise.
 | [0003](adr/0003-liquid-glass-vs-pure-cmp-ios.md) | Pure Compose Multiplatform UI on iOS, no native Liquid Glass chrome; CMP owns navigation and lifecycle. |
 | [0004](adr/0004-architecture-dependency-rules-konsist.md) | Architecture/dependency rules enforced by Konsist in CI. |
 | [0005](adr/0005-v1-open-decisions-op1-op5.md) | Closeout of the V1 open decisions OP1–OP5, and the MVP cut that follows from them. |
-| [0006](adr/0006-ios-composition-root-module.md) | iOS composition root as a Kotlin Multiplatform module (`:iosAppHost`): Koin graph + Compose host, linked by the Xcode project. |
+| [0008](adr/0008-ios-composition-root-module.md) | iOS composition root as a Kotlin Multiplatform module (`:iosAppHost`): Koin graph + Compose host, linked by the Xcode project. |
 | [on-device-speech-to-text](adr/on-device-speech-to-text.md) | On-device-only dictation in V1, with a fail-closed availability model. |
 
 Anything not literally fixed by the architecture specification goes through an

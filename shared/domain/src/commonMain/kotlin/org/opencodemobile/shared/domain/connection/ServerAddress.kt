@@ -79,7 +79,14 @@ public object ServerAddressParser {
     /** The OpenCode Server conventional port, used when the input omits one. */
     public const val DEFAULT_PORT: Int = 4096
 
-    /** Parses [raw], returning either a normalised address or a typed error. */
+    /**
+     * Parses [raw], returning either a normalised address or a typed error.
+     *
+     * The branching is the address grammar itself; the rule is suppressed for
+     * this migrated parser (the baseline-vs-refactor policy is tracked in
+     * OPE-221).
+     */
+    @Suppress("CyclomaticComplexMethod")
     public fun parse(raw: String): ServerAddressResult {
         val input = raw.trim()
         if (input.isEmpty()) {
@@ -183,24 +190,25 @@ public object ServerAddressParser {
  */
 internal object ServerHostGrammar {
 
+    /** Host characters that are never valid in a bare host (they delimit a URL). */
+    private const val ILLEGAL_HOST_CHARS = "/@?#[]"
+
+    /** Characters allowed inside an IPv6 literal: hex groups, colons, and an embedded IPv4 tail. */
+    private const val IPV6_HOST_CHARS = "0123456789abcdefABCDEF:."
+
+    /** Characters allowed in a hostname in addition to letters and digits. */
+    private const val HOSTNAME_HOST_CHARS = ".-_"
+
     /** Returns the problem with [host], or null when it is a valid host. */
-    fun problem(host: String): ServerInputProblem? {
-        if (host.isEmpty()) return ServerInputProblem.MISSING_HOST
-        if (host.any { it.isWhitespace() }) return ServerInputProblem.INVALID_HOST
-        if (host.any { it == '/' || it == '@' || it == '?' || it == '#' || it == '[' || it == ']' }) {
-            return ServerInputProblem.INVALID_HOST
-        }
-        if (host.contains(':')) {
-            // IPv6 literal: hex groups, colons, and possibly an embedded IPv4 tail.
-            if (!host.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' || it == ':' || it == '.' }) {
-                return ServerInputProblem.INVALID_HOST
-            }
-            return null
-        }
-        if (!host.all { it.isLetterOrDigit() || it == '.' || it == '-' || it == '_' }) {
-            return ServerInputProblem.INVALID_HOST
-        }
-        return null
+    fun problem(host: String): ServerInputProblem? = when {
+        host.isEmpty() -> ServerInputProblem.MISSING_HOST
+        host.any { it.isWhitespace() } -> ServerInputProblem.INVALID_HOST
+        host.any { it in ILLEGAL_HOST_CHARS } -> ServerInputProblem.INVALID_HOST
+        host.contains(':') ->
+            if (host.all { it in IPV6_HOST_CHARS }) null else ServerInputProblem.INVALID_HOST
+
+        host.all { it.isLetterOrDigit() || it in HOSTNAME_HOST_CHARS } -> null
+        else -> ServerInputProblem.INVALID_HOST
     }
 
     /** Returns the problem with [portText], or null when it is a valid port. */

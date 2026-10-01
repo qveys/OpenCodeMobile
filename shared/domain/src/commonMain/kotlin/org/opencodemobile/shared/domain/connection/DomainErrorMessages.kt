@@ -36,7 +36,15 @@ public data class DomainErrorPresentation(
  */
 public object DomainErrorMessages {
 
-    /** Renders [error] as user-facing text. */
+    /**
+     * Renders [error] as user-facing text.
+     *
+     * The `when` is a flat, exhaustive mapping table over the sealed
+     * [DomainError] subtypes: its length and branch count are data, not tangled
+     * control flow. The complexity/length rules are suppressed for this
+     * migrated table (the baseline-vs-refactor policy is tracked in OPE-221).
+     */
+    @Suppress("CyclomaticComplexMethod", "LongMethod")
     public fun present(error: DomainError): DomainErrorPresentation = when (error) {
         is DomainError.Unreachable -> DomainErrorPresentation(
             titleKey = "domain_error.connection_unreachable.title",

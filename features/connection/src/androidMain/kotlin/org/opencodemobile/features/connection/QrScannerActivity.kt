@@ -109,6 +109,7 @@ public class QrScannerActivity : ComponentActivity() {
     }
 }
 
+@Suppress("LongMethod")
 @Composable
 private fun QrScannerContent(
     lifecycleOwner: LifecycleOwner,

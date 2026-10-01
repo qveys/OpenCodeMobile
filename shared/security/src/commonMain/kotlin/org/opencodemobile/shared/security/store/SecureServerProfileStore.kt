@@ -50,6 +50,9 @@ public class SecureServerProfileStore(
         append(FIELD_LABEL).append('=').append(profile.label?.let(::escape).orEmpty())
     }
 
+    // Each `throw` is a distinct corruption path for a fail-closed envelope;
+    // the parser keeps them separate to name the exact broken field.
+    @Suppress("ThrowsCount")
     private fun decode(stored: String): ServerProfile {
         val lines = stored.split('\n')
         val format = lines.firstOrNull()

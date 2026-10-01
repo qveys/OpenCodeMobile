@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
  * is set, the fingerprint the server presented is shown and must be confirmed
  * before the credential is released.
  */
+@Suppress("LongMethod", "CyclomaticComplexMethod")
 @Composable
 public fun ServerImportReviewScreen(
     state: ConnectionSetupUiState,
