@@ -1,0 +1,73 @@
+name: Lint
+
+# OPE-15 — required `lint` gate. Runs on every push to `main` and every PR to
+# `main`, and fails the build on any detekt finding.
+#
+# The gate itself is configured by OPE-14: `config/detekt/detekt.yml` holds the
+# bug-focused rule set, `build.gradle.kts` applies detekt once at the root over
+# every `.kt` source, and `scripts/lint.sh` is the single entry point that runs
+# `./gradlew detekt`. This workflow only wires that entry point into CI, so the
+# detekt configuration and its CI job ship together (both live on PR #20).
+#
+# Toolchain policy (repo Actions allowlist): the organization permits only
+# `actions/checkout@*`; every other marketplace action is rejected with
+# `startup_failure` before the job starts. This workflow therefore uses ONLY
+# `actions/checkout` plus plain shell steps, and relies on the toolchain that is
+# already installed on the runner.
+#
+# Runner policy (docs/CI-RUNNER-STRATEGY.md §2): JDK 21 + Gradle work runs on
+# the company self-hosted pool, not GitHub-hosted runners. The step sources
+# scripts/ci/runner-toolchain-env.sh (OPE-98) to resolve JAVA_HOME. The Gradle
+# distribution and every dependency stay pinned in the repo
+# (gradle/wrapper/gradle-wrapper.properties, gradle/libs.versions.toml), so the
+# runner is a cache, not a source of truth.
+#
+# The `pull_request` trigger is intentionally NOT path-filtered. A path-filtered
+# workflow produces no status when a PR touches none of its paths, which would
+# leave the required `lint` check permanently "Expected" and block every PR.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: [self-hosted, hostinger]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Run detekt lint gate
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          chmod +x gradlew
+          java -version
+          CI=1 bash scripts/lint.sh
+      # upload-artifact is not on the Actions allowlist, so inline the report
+      # into the job log on every run to keep failures actionable.
+      - name: Publish detekt report to the job log
+        if: always()
+        run: |
+          set -euo pipefail
+          report_dir=build/reports/detekt
+          if [ ! -d "$report_dir" ]; then
+            echo "no detekt report directory was produced"
+            exit 0
+          fi
+          ls -la "$report_dir"
+          for f in "$report_dir/detekt.txt" "$report_dir/detekt.md"; do
+            if [ -f "$f" ]; then
+              echo "----- $f -----"
+              cat "$f"
+            fi
+          done

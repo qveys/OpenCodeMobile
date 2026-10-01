@@ -9,6 +9,10 @@ plugins {
     alias(libs.plugins.composeMultiplatform) apply false
     alias(libs.plugins.composeCompiler) apply false
     alias(libs.plugins.sqldelight) apply false
+    // OPE-14 — bug-focused static analysis. Applied to the root project so the
+    // `lint` gate is a single task/report (see the `detekt` block below and
+    // scripts/lint.sh). The config lives in config/detekt/detekt.yml.
+    alias(libs.plugins.detekt)
 }
 
 // Pin the Kotlin JVM bytecode target for every module so it always matches the
@@ -24,4 +28,30 @@ subprojects {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
     }
+}
+
+// OPE-14 — detekt scans every Kotlin source from one root task, so CI has a
+// single `lint` check (scripts/lint.sh -> ./gradlew detekt).
+//
+// Only `.kt` is scanned. Gradle `.kts` build scripts are excluded because
+// detekt cannot type-resolve the Gradle Kotlin DSL and flags the delegated
+// source-set properties (`val androidUnitTest by getting`) as unused.
+// Generated code is excluded because it is machine-owned; its correctness is
+// covered by the generated-types serialization tests instead.
+detekt {
+    buildUponDefaultConfig = true
+    parallel = true
+    config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
+    source.setFrom(
+        fileTree(rootDir) {
+            include("**/*.kt")
+            exclude(
+                "**/build/**",
+                "**/.gradle/**",
+                "**/.kotlin/**",
+                "**/.paperclip/**",
+                "**/generated/**",
+            )
+        },
+    )
 }
