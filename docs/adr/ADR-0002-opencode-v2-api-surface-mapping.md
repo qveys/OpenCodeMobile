@@ -8,6 +8,31 @@
   - Cahier des charges v1.0 (§5, §6.1, §14.2, D5, R3, R13)
   - Vendored OpenAPI Specification: `shared/networking/openapi/opencode-server-v2.json`
   - Target Server Version: OpenCode Server v2 (`1.18.32`), OpenAPI `3.1.0`
+  - Superseded target version: OpenCode Server v2 `2.0.6` (see §0)
+
+---
+
+## 0. Supersession note — target version moved to `2.0.6`
+
+The target server version recorded below has moved from `1.18.32` to
+**`2.0.6`**. The body of this ADR is left unchanged as the historical record of
+the `1.18.32` verification; where it names `1.18.32`, read it as the version
+that was verified at the time.
+
+What carries over to `2.0.6`:
+
+- The v2 event stream keeps the `OpenCodeEvent` SSE wire contract unchanged, so
+  the `/event` mapping in §3 and the `EventProcessor` design still apply.
+- Rules R3, R12, and R13 are unaffected by the version bump.
+
+What does not carry over:
+
+- The vendored specification and its SHA-256 were extracted from `1.18.32`. They
+  must be re-vendored from a `2.0.6` instance before the generated client is
+  trusted against a real v2 server. Until then, treat the `1.18.32` extraction
+  as provisional.
+
+The current pinned target is recorded in [docs/API.md](../API.md).
 
 ---
 
