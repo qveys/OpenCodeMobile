@@ -41,6 +41,7 @@ public actual fun createOpenCodeHttpClient(
         engine {
             preconfigured = okHttpClient
         }
+        applyConnectionTransportPolicy()
         configure()
     }
 }
