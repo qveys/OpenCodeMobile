@@ -1,3 +1,6 @@
+// Detekt: this file owns the session row and its status enum. The enum cannot
+// match the file name, and the row takes the design-system parameter surface.
+@file:Suppress("MatchingDeclarationName", "LongParameterList")
 package org.opencodemobile.design.system
 
 import androidx.compose.foundation.background

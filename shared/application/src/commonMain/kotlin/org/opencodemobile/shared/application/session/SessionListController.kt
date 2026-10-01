@@ -88,6 +88,10 @@ public data class SessionListState(
  * reloads the authoritative list from the server. The cache stays a
  * server-event projection (D8), never a source of truth.
  */
+// Detekt: every non-cancellation throwable is deliberately mapped to a typed
+// list error (unknown failures degrade to ServerUnavailable); cancellation is
+// always rethrown before the broad catch.
+@Suppress("TooGenericExceptionCaught")
 public class SessionListController(
     private val gateway: SessionGateway,
     private val cache: SessionCache,

@@ -207,6 +207,9 @@ private fun TechnicalStatus(state: SessionListState, onRetry: () -> Unit) {
     }
 }
 
+// Detekt: one composable renders all branches of the list (loading, empty,
+// rows); the explicit state machine is clearer inline than split further.
+@Suppress("LongParameterList", "LongMethod")
 @Composable
 private fun SessionsBody(
     state: SessionListState,
@@ -279,6 +282,9 @@ private fun SessionsBody(
     }
 }
 
+// Detekt: the row forwards one callback per available action; bundling them
+// into a holder would hide which actions the row offers.
+@Suppress("LongParameterList")
 @Composable
 private fun SessionItem(
     session: SessionSummary,
