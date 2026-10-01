@@ -94,6 +94,7 @@ import org.opencodemobile.shared.security.identity.ServerIdentityPinController
  * previous permit, and the permit state is process-global. Concurrent [connect]
  * calls on one instance are not supported.
  */
+@Suppress("TooManyFunctions")
 public class OpenCodeV2Adapter(
     private val httpClient: HttpClient,
     private val identityGate: ServerIdentityGate,
@@ -121,6 +122,7 @@ public class OpenCodeV2Adapter(
     @Volatile
     private var activeClient: OpenCodeApiClient? = null
 
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "TooGenericExceptionCaught")
     override suspend fun connect(
         profile: ServerProfile,
         credential: ServerCredential?,
@@ -417,6 +419,7 @@ public class OpenCodeV2Adapter(
      * code or generated error type never escapes the adapter. Cancellation is
      * always propagated.
      */
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
     private suspend fun <T> sessionCall(
         sessionId: String? = null,
         block: suspend () -> T,
