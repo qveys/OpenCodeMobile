@@ -1,0 +1,80 @@
+# detekt configuration — OpenCode Mobile (OPE-14)
+#
+# Policy: catch defects, do not fight over formatting taste.
+#
+# This file is layered on top of detekt's default configuration
+# (`buildUponDefaultConfig = true` in build.gradle.kts). Every rule keeps its
+# upstream default unless it is overridden here.
+#
+# Enabled rule sets are the ones that flag code that is likely to be wrong at
+# runtime:
+#   - potential-bugs   (unsafe casts, unreachable code, wrong equals, …)
+#   - coroutines       (cancellation, wrong dispatcher, blocking in suspend, …)
+#   - exceptions       (swallowed / too-generic exceptions, …)
+#   - empty-blocks     (empty catch / function / if bodies that hide mistakes)
+#   - complexity       (only to the extent that complexity hides bugs)
+#   - naming, performance
+#
+# Disabled:
+#   - `comments`       documentation completeness is reviewed in PRs, not gated
+#   - the loudest pure-style `style` rules (line length, magic numbers,
+#     wildcard imports, trailing newline, return count, `check` vs `throw`).
+#     `UnusedPrivateProperty` and the rest of `style` stay on.
+
+build:
+  # One issue fails the gate. Keep the bar at zero; if a rule proves noisy,
+  # disable that specific rule with a comment instead of relaxing this.
+  maxIssues: 0
+
+config:
+  validation: true
+  warningsAsErrors: false
+
+comments:
+  # Documentation coverage is a review concern, not a lint gate.
+  active: false
+
+complexity:
+  active: true
+
+coroutines:
+  active: true
+
+empty-blocks:
+  active: true
+
+exceptions:
+  active: true
+
+naming:
+  active: true
+  FunctionNaming:
+    # @Composable UI entry points are PascalCase by convention; the default
+    # lowerCamelCase pattern would flag every composable. Ignore annotated
+    # functions so the rule still checks the rest.
+    ignoreAnnotated: ['Composable']
+
+performance:
+  active: true
+
+potential-bugs:
+  active: true
+
+style:
+  active: true
+  # --- disabled pure-style rules (formatting taste, not defects) ----------
+  MaxLineLength:
+    active: false
+  MagicNumber:
+    active: false
+  WildcardImport:
+    active: false
+  NewLineAtEndOfFile:
+    active: false
+  ReturnCount:
+    active: false
+  UseCheckOrError:
+    active: false
+  # --- kept on: dead code is a real (small) defect ------------------------
+  UnusedPrivateProperty:
+    active: true
