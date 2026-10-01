@@ -45,7 +45,7 @@ permissions:
 jobs:
   build-android:
     name: Build Android (APK/AAB)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -68,7 +68,7 @@ jobs:
 
   build-ios:
     name: Build iOS/macOS frameworks
-    runs-on: macos-latest
+    runs-on: [self-hosted, mac]
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
