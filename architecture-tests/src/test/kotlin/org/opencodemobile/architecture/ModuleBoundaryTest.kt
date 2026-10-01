@@ -296,12 +296,8 @@ class ModuleBoundaryTest : StringSpec() {
         }
 
         "Koin modules must only be declared in composition root (androidApp) and features" {
-            // Koin modules should only be in androidApp and features
-            val allowedKoinLocations = listOf(
-                sourceDirs.files("**/androidApp/**"),
-                sourceDirs.files("**/features/**"),
-            )
-
+            // Koin modules should only be in features (shared/* and design-system
+            // must not declare one); androidApp is the composition root.
             sourceDirs
                 .files("**/shared/**")
                 .classes()
