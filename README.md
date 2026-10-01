@@ -52,7 +52,7 @@ Pinned versions live in [`gradle/libs.versions.toml`](gradle/libs.versions.toml)
 ├── androidApp/            # Android host app and Koin composition root
 ├── iosApp/                # iOS host (Swift entry point; not a Gradle module)
 ├── shared/
-│   ├── domain/            # Entities, value objects, ports (Kotlin stdlib only)
+│   ├── domain/            # Entities, value objects, ports (Kotlin stdlib + kotlinx-coroutines-core)
 │   ├── application/       # Use cases / interactors
 │   ├── data/              # Repository implementations and adapters
 │   ├── networking/        # Ktor client + generated OpenAPI client
