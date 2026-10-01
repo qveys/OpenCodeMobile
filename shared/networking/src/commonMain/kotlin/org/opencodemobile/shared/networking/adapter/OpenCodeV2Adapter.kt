@@ -54,6 +54,10 @@ public class OpenCodeV2Adapter(
     @Volatile
     private var plaintextWarning: String? = null
 
+    // The credential is released before the health probe, so any failure —
+    // including an `Error` — must revoke it before the failure propagates.
+    // Catching the generic supertype is deliberate; the throwable is rethrown.
+    @Suppress("TooGenericExceptionCaught")
     override suspend fun connect(
         profile: ServerProfile,
         credential: ServerCredential?,
