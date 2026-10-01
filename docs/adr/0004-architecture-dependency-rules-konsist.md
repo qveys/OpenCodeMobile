@@ -35,7 +35,7 @@ The architecture specification (*Cahier des charges d'architecture v1.0*, §5.2)
 
 The rules from §5.2 are:
 
-1. **Domain layer isolation**: `shared/domain` must depend only on Kotlin stdlib — no data, networking, persistence, Ktor, Compose, SQLDelight, Koin, or generated OpenAPI client.
+1. **Domain layer isolation**: `shared/domain` must depend only on the Kotlin stdlib and `kotlinx-coroutines-core` (amended by OPE-245: the coroutine types its port interfaces expose — `Flow`, `StateFlow`, `SharedFlow`, `CoroutineScope`) — no data, networking, persistence, Ktor, Compose, SQLDelight, Koin, or generated OpenAPI client.
 2. **Application layer**: `shared/application` may only depend on `shared/domain` and `kotlinx.coroutines`.
 3. **Data layer**: `shared/data` may depend on `shared/domain`, `shared/networking`, `shared/realtime`, `shared/persistence`, `shared/security`.
 4. **Networking layer**: `shared/networking` may depend on `shared/domain` and `shared/security` (the T1 identity seam, ARCHITECTURE.md §3.1), plus Ktor and serialization. It exclusively owns the generated OpenAPI client.
