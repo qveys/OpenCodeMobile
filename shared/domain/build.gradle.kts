@@ -19,8 +19,9 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-
-
+            // The EventSource port exposes StateFlow/SharedFlow, so the domain owns the
+            // coroutines types that define the contract. No infrastructure dependency.
+            api(libs.kotlinx.coroutines.core)
         }
 
         commonTest.dependencies {
