@@ -26,6 +26,8 @@ kotlin {
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            // The offline mutation-gate tests drive suspend writers with runBlocking.
+            implementation(libs.kotlinx.coroutines.core)
         }
     }
 }
