@@ -32,9 +32,9 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: iosApp/Info.plist
         ENABLE_PREVIEWS: YES
-        CODE_SIGNING_ALLOWED: NO
-        CODE_SIGNING_REQUIRED: NO
-        CODE_SIGN_IDENTITY: ""
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
 schemes:
   iosApp:
     build:
