@@ -1,20 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- OP4: signal a pending permission with a local notification. Informational
+         only; there is no approve action. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- T2: the biometric / device-credential gate before an approval. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
     <application
         android:name=".OpenCodeMobileApp"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/opencodemobile_cache_data_extraction_rules"
+        android:fullBackupContent="@xml/opencodemobile_cache_backup_rules"
         android:label="@string/app_name"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- No VIEW/BROWSABLE filter: the notification opens
+                 `opencodemobile://permission/confirmation/{id}` with an **explicit**
+                 Intent, which Android delivers without an intent-filter, and
+                 `singleTop` + FLAG_ACTIVITY_SINGLE_TOP routes it through
+                 onNewIntent. Dropping the filter removes the browser/app-reachable
+                 deep-link surface while keeping OP4 (N5): a guessed id can no
+                 longer be probed from outside the app. -->
         </activity>
+
+        <!-- Notification "Deny" action. Not exported: only the notification's own
+             PendingIntent can reach it, and denying grants no capability. -->
+        <receiver
+            android:name=".permission.PermissionDenyReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.opencodemobile.android.permission.DENY" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>
