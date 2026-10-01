@@ -4,7 +4,9 @@
 # Runs the shared/module test suites from a single revision so one commit is
 # verified on both target families:
 #   - Android (JVM-hosted) unit tests: Gradle `testDebugUnitTest`
-#   - Apple (Kotlin/Native iOS simulator): Gradle `iosSimulatorArm64Test`
+#   - Apple (Kotlin/Native iOS simulator): runs both `iosX64Test` and
+#     `iosSimulatorArm64Test`; Kotlin/Native skips the one that cannot execute
+#     on the host (see the `apple` case below)
 #   - JVM + all-native aggregate: Gradle `allTests`
 #
 # Every KMP module declares `commonTest.dependencies { implementation(kotlin-test) }`,
@@ -99,8 +101,20 @@ case "$MODE" in
         run_gradle testDebugUnitTest "$@"
         ;;
     apple)
-        # Runnable iOS simulator target (Apple Silicon host).
-        run_gradle iosSimulatorArm64Test "$@"
+        # Run both iOS simulator test targets and let Kotlin/Native skip the one
+        # that cannot execute on this host. The host arch must come from the JVM,
+        # not `uname`: the Actions runner can report x86_64 under Rosetta while
+        # the JDK (and thus KGP's host, which is `os.arch`) is arm64, and Xcode 26
+        # ships no x86_64 simulator runtime. Running both keeps the job correct
+        # for either JDK arch.
+        run_gradle iosX64Test iosSimulatorArm64Test "$@"
+        # Fail loudly if both targets were skipped: without this the job would be
+        # a false green (BUILD SUCCESSFUL with zero tests executed).
+        if [ -z "$(find . \( -path '*/build/test-results/iosX64Test/*.xml' -o -path '*/build/test-results/iosSimulatorArm64Test/*.xml' \) -print -quit)" ]; then
+            echo "error: neither iosX64Test nor iosSimulatorArm64Test produced JUnit reports;" >&2
+            echo "the iOS simulator suite was skipped, so the job would be a false green." >&2
+            exit 1
+        fi
         ;;
     all)
         run_gradle testDebugUnitTest "$@"
