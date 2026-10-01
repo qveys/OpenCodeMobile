@@ -55,7 +55,6 @@ class ModuleBoundaryTest : StringSpec({
     val composeAndroidx = "androidx.compose."
     val sqldelight = "app.cash.sqldelight."
     val koin = "io.insert.koin."
-    val coroutines = "kotlinx.coroutines."
     val secureStore = "androidx.security."
     val keystore = "android.security.keystore."
 
@@ -115,12 +114,15 @@ class ModuleBoundaryTest : StringSpec({
 
     // --- §5.2 / ADR 0004: layer directions -----------------------------------
 
-    "shared/domain depends only on the Kotlin standard library" {
+    // ADR 0001 §5, amended by OPE-245: the domain owns the coroutine types its port
+    // interfaces expose (`Flow`, `StateFlow`, `SharedFlow`, `CoroutineScope`), so
+    // `kotlinx-coroutines-core` is the one allowed dependency besides the stdlib.
+    "shared/domain depends only on the Kotlin stdlib and kotlinx-coroutines-core" {
         val scope = scopeOf("shared/domain/src/commonMain/kotlin")
         assertInternalDependencies(scope, selfPrefixes = listOf(domain), allowedPrefixes = emptyList())
         assertNoFrameworkImports(
             scope,
-            listOf(ktor, compose, composeAndroidx, sqldelight, koin, coroutines, secureStore, keystore),
+            listOf(ktor, compose, composeAndroidx, sqldelight, koin, secureStore, keystore),
         )
     }
 

@@ -66,7 +66,7 @@ Clean Architecture, dependency direction pointing inward only:
 
 | Ring | Modules | Responsibility |
 |---|---|---|
-| Domain | `shared/domain` | Entities, value objects, ports. Kotlin stdlib only. |
+| Domain | `shared/domain` | Entities, value objects, ports. Kotlin stdlib + `kotlinx-coroutines-core` (port types only). |
 | Application | `shared/application` | Use cases orchestrating domain ports and coroutines. |
 | Infrastructure | `shared/data`, `shared/networking`, `shared/realtime`, `shared/persistence`, `shared/security` | Adapters for server protocol, event stream, cache, and platform security. |
 | Presentation | `features/*`, `design-system`, `androidApp`, `iosApp`, `iosAppHost` | Compose UI, ViewModels, navigation, platform host shells. |
@@ -78,7 +78,7 @@ Clean Architecture, dependency direction pointing inward only:
 | `androidApp` | Android app | Host shell, Koin composition root, platform `actual` wiring. |
 | `iosApp` | Swift/Xcode host | Swift entry point; not a Gradle module. See `iosApp/README.md`. |
 | `iosAppHost` | KMP library | Kotlin half of the iOS host: Koin graph assembly + Compose hosting (ADR 0008). iOS targets only. |
-| `shared/domain` | KMP library | Entities, value objects, and ports. Kotlin stdlib only. |
+| `shared/domain` | KMP library | Entities, value objects, and ports. Kotlin stdlib + `kotlinx-coroutines-core` (port types only). |
 | `shared/application` | KMP library | Use cases that orchestrate domain ports and coroutines. |
 | `shared/data` | KMP library | Repository implementations, coordinating networking, realtime, persistence, and security. |
 | `shared/networking` | KMP library | Ktor client, `OpenCodeV2Adapter`, generated OpenAPI client, log redaction. |
@@ -120,9 +120,11 @@ Rules that hold across all of them:
   `shared/domain`, `shared/application`, `design-system`, Compose, and Koin —
   never Ktor, SQLDelight, the generated client, or another feature's
   internals.
-- **`shared/domain` stays pure.** Not even `kotlinx-coroutines-core`
-  (ADR 0001 §5); streaming ports that need `Flow` are resolved at the
-  application layer.
+- **`shared/domain` owns its reactive port types.** It depends only on the
+  Kotlin stdlib and `kotlinx-coroutines-core` (ADR 0001 §5, amended by
+  OPE-245): the ports it exposes are typed with `Flow`, `StateFlow`,
+  `SharedFlow`, and `CoroutineScope`, so the domain owns the coroutine types
+  that define its own contract. No other library crosses that boundary.
 
 ### 2.4 Enforced dependency rules
 
@@ -134,7 +136,9 @@ failing the job on any violation. (A red job only *blocks* merge once the
 `Architecture tests` context is listed in the `main` ruleset's required status
 checks; see ADR 0004 §Verification for the current state.)
 
-1. `shared/domain` depends only on the Kotlin stdlib.
+1. `shared/domain` depends only on the Kotlin stdlib and
+   `kotlinx-coroutines-core` (for the coroutine types in its port
+   interfaces).
 2. `shared/application` may depend only on `shared/domain` and
    `kotlinx.coroutines`.
 3. `shared/data` may depend on `shared/domain`, `shared/networking`,

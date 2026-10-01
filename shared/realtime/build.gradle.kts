@@ -29,6 +29,10 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
+            // End-to-end pipeline test: the mock server harness plus the raw
+            // Ktor client it exposes to build a real transport.
+            implementation(project(":shared:test-support"))
+            implementation(libs.ktor.client.core)
         }
     }
 }
