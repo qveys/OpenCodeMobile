@@ -26,16 +26,14 @@ jobs:
     name: Executable bits
     runs-on: [self-hosted, hostinger]
     timeout-minutes: 5
+    env:
+      # The self-hosted runner runs steps with no $HOME, so a global git
+      # config is never read. Trust the checkout for every git invocation in
+      # this job through the environment: no config file, no runner change.
+      GIT_CONFIG_COUNT: 1
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Mark the workspace safe for git
-        # The self-hosted runner runs steps without `$HOME`, so
-        # `git config --global …` fails with "fatal: $HOME not set".
-        # Export the safe.directory trust to the later steps via GITHUB_ENV
-        # instead: no config file, no HOME dependency, no runner-host change.
-        run: |
-          echo "GIT_CONFIG_COUNT=1" >> "$GITHUB_ENV"
-          echo "GIT_CONFIG_KEY_0=safe.directory" >> "$GITHUB_ENV"
-          echo "GIT_CONFIG_VALUE_0=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
       - name: Verify executable-intent files are mode 100755
         run: bash scripts/check-executable-bits.sh
