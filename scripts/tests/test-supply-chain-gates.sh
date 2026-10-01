@@ -4,8 +4,10 @@
 #
 # Covers action pinning (SEC-04) — repository actions, sub-path actions,
 # reusable workflows and container actions — and the four Gradle toolchain
-# controls (SEC-05): distributionSha256Sum, https distributionUrl, the
-# committed gradle-wrapper.jar digest, and the now-mandatory
+# controls (SEC-05): distributionSha256Sum, a distributionUrl whose host is a
+# publisher this repository trusts (official host or an entry in
+# gradle/wrapper/gradle-distribution-allowlist.txt), the committed
+# gradle-wrapper.jar digest, and the now-mandatory
 # gradle/verification-metadata.xml dependency-checksum metadata.
 #
 # Every gate is checked against a fixture that used to make it pass or fail,
@@ -78,6 +80,19 @@ write_workflow() { # dir uses-line...
   } > "$dir/.github/workflows/a.yml"
 }
 
+# Every fixture that reaches control 2 also needs the publisher allowlist, so it
+# is written by default alongside the wrapper properties. `empty` means no host
+# is trusted beyond the official one — the real repository's state.
+write_allowlist() { # dir [entry ...]
+  local dir="$1"; shift
+  mkdir -p "$dir/gradle/wrapper"
+  if [ "$#" -eq 0 ]; then
+    printf '# no additional trusted hosts\n' > "$dir/gradle/wrapper/gradle-distribution-allowlist.txt"
+  else
+    printf '%s\n' "$@" > "$dir/gradle/wrapper/gradle-distribution-allowlist.txt"
+  fi
+}
+
 write_wrapper() { # dir [sha_sum_line] [url]
   local dir="$1" sha="${2:-}" url="${3:-https\://services.gradle.org/distributions/gradle-8.10.2-bin.zip}"
   {
@@ -87,6 +102,7 @@ write_wrapper() { # dir [sha_sum_line] [url]
     printf 'networkTimeout=10000\n'
     printf 'validateDistributionUrl=true\n'
   } > "$dir/gradle/wrapper/gradle-wrapper.properties"
+  write_allowlist "$dir"
 }
 
 write_wrapper_jar() { # dir [digest_override]
@@ -500,8 +516,11 @@ write_verification_metadata "$d"
 NO_PYTHON_PATH="$(make_path_without_python "$TMP_ROOT/bin-no-python")"
 out="$(cd "$d" && PATH="$NO_PYTHON_PATH" bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
 # Without an interpreter the parse cannot run; the gate must say so, not pass.
+# The interpreter now backs two controls, so a runner without it must not be
+# able to pass a trusted-looking URL *or* a pinned-looking dependency file.
 check "no python3 on PATH exits nonzero (fail closed)" "1" "$code"
 check_contains "the missing interpreter is named" "$out" "python3 is required"
+check_contains "the publisher control is reported as unverifiable" "$out" "distributionUrl"
 
 d="$(make_repo sec05-no-sum)"
 write_wrapper "$d" ""
@@ -522,6 +541,189 @@ write_wrapper_jar "$d"
 out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
 check "http distributionUrl exits nonzero" "1" "$code"
 check_contains "http downgrade is named" "$out" "not https"
+
+# --- SEC-05 control 2: the distribution publisher is trusted ----------------
+#
+# `distributionUrl` and `distributionSha256Sum` were each checked on their own:
+# https on one hand, "64 hex characters" on the other. A pull request that
+# edits both at once — an attacker host plus the checksum of the attacker's own
+# archive — satisfied both and the gate exited 0, after which `./gradlew`
+# downloaded and ran the attacker's Gradle (threat T10). The digest says which
+# bytes; only the host says who published them. These fixtures pin the two
+# together.
+
+d="$(make_repo sec05-attacker-host)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://attacker.example/distributions/gradle-8.10.2-bin.zip'
+write_wrapper_jar "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "an untrusted distribution host exits nonzero" "1" "$code"
+check_contains "the rejected host is named" "$out" "attacker.example"
+check_contains "the official host is named as the alternative" "$out" "services.gradle.org"
+check_contains "the allowlist location is named" "$out" "gradle-distribution-allowlist.txt"
+check_contains "the finding cites SEC-05" "$out" "SEC-05"
+check_missing "the attacker's Gradle is not reported as pinned" "$out" "OK:"
+
+# The digest in that fixture is the real official one. Whatever value an
+# attacker writes, the host is what makes it theirs; assert the host rule holds
+# independently of the checksum so the two controls cannot be "fixed" apart.
+d="$(make_repo sec05-attacker-host-self-consistent)"
+write_wrapper "$d" 'distributionSha256Sum=0000000000000000000000000000000000000000000000000000000000000000' \
+  'https\://attacker.example/distributions/gradle-8.10.2-bin.zip'
+write_wrapper_jar "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "attacker host with a well-formed digest still exits nonzero" "1" "$code"
+check_contains "that attack is described as a two-line edit" "$out" "editing distributionUrl together with distributionSha256Sum"
+
+# A mirror is a legitimate Gradle configuration, so an allowlisted host must
+# pass — including on a path the official-host rule would reject, since a
+# corporate proxy may lay out its own paths.
+d="$(make_repo sec05-mirror-allowlisted)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://gradle.internal.example/dists/gradle-8.10.2-bin.zip'
+write_allowlist "$d" 'gradle.internal.example'
+write_wrapper_jar "$d"
+write_verification_metadata "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "an allowlisted mirror host exits zero" "0" "$code"
+check_contains "the allowlisted host is reported" "$out" "allowlisted mirror host gradle.internal.example"
+
+d="$(make_repo sec05-mirror-not-allowlisted)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://gradle.internal.example/dists/gradle-8.10.2-bin.zip'
+write_wrapper_jar "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "the same mirror without an allowlist entry exits nonzero" "1" "$code"
+check_contains "the unlisted mirror is named" "$out" "gradle.internal.example"
+
+# The host check parses the URL. A prefix test is impersonated for free by
+# anything that merely *starts* with the approved string; each of these used to
+# satisfy `https://*`, or would satisfy a naive `grep services.gradle.org`.
+echo ""
+echo "== SEC-05: the distribution host is parsed, not prefix-matched =="
+
+d="$(make_repo sec05-userinfo-trick)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://services.gradle.org@attacker.example/distributions/gradle-8.10.2-bin.zip'
+write_wrapper_jar "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+# Here services.gradle.org is URL userinfo; the connected host is attacker.example.
+check "userinfo impersonation exits nonzero" "1" "$code"
+check_contains "the real host is identified, not the userinfo" "$out" "attacker.example"
+
+d="$(make_repo sec05-host-in-query)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://attacker.example/gradle.zip?src=https\://services.gradle.org'
+write_wrapper_jar "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "the approved host appearing in the query string exits nonzero" "1" "$code"
+
+d="$(make_repo sec05-host-prefix-suffix)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://services.gradle.org.attacker.example/distributions/gradle-8.10.2-bin.zip'
+write_wrapper_jar "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "a host merely starting with the official name exits nonzero" "1" "$code"
+
+d="$(make_repo sec05-trailing-dot)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://services.gradle.org./distributions/gradle-8.10.2-bin.zip'
+write_wrapper_jar "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "a trailing-dot host exits nonzero" "1" "$code"
+
+# The official host is allowed, but only on the paths Gradle actually publishes
+# to. Accepting any path on it would let a valid host be pointed elsewhere.
+d="$(make_repo sec05-official-wrong-path)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://services.gradle.org/anything/gradle-8.10.2-bin.zip'
+write_wrapper_jar "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "the official host on a non-distribution path exits nonzero" "1" "$code"
+check_contains "the expected path shape is named" "$out" "/distributions/gradle-<version>-{bin,all}.zip"
+
+# Real official URLs must keep working, including the pre-release and uppercase
+# spellings a mirror or a hand-edit produces.
+d="$(make_repo sec05-official-all)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://services.gradle.org/distributions/gradle-8.10.2-all.zip'
+write_wrapper_jar "$d"
+write_verification_metadata "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "the official -all distribution exits zero" "0" "$code"
+
+d="$(make_repo sec05-official-rc)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://services.gradle.org/distributions/gradle-8.11-rc-1-all.zip'
+write_wrapper_jar "$d"
+write_verification_metadata "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "a pre-release official distribution exits zero" "0" "$code"
+
+d="$(make_repo sec05-uppercase-scheme)"
+write_wrapper "$d" "$GOOD_SHA" 'HTTPS\://services.gradle.org/distributions/gradle-8.10.2-bin.zip'
+write_wrapper_jar "$d"
+write_verification_metadata "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+# URL schemes are case-insensitive; the old glob was not, so this valid URL was
+# rejected for a reason that has nothing to do with security.
+check "an uppercase HTTPS scheme exits zero" "0" "$code"
+
+d="$(make_repo sec05-ftp-scheme)"
+write_wrapper "$d" "$GOOD_SHA" 'ftp\://services.gradle.org/distributions/gradle-8.10.2-bin.zip'
+write_wrapper_jar "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "a non-https scheme on the official host exits nonzero" "1" "$code"
+check_contains "the offending scheme is named" "$out" "ftp"
+
+# The allowlist is the one place a publisher is trusted, so an entry that could
+# never match — or that is broader than the host it names — must fail loudly
+# rather than be silently ignored.
+echo ""
+echo "== SEC-05: the publisher allowlist is validated, not ignored =="
+
+for bad_entry in 'https://gradle.internal.example' '*.internal.example' '.internal.example' 'localhost' 'gradle.internal.example/gradle' 'gradle.internal.example:8443' 'gradle internal example'; do
+  d="$(make_repo "sec05-bad-entry-$(printf '%s' "$bad_entry" | tr -c 'a-zA-Z0-9' '-')")"
+  write_wrapper "$d" "$GOOD_SHA" 'https\://gradle.internal.example/gradle.zip'
+  write_allowlist "$d" "$bad_entry"
+  write_wrapper_jar "$d"
+  out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+  check "allowlist entry '$bad_entry' exits nonzero" "1" "$code"
+  check_contains "allowlist entry '$bad_entry' is reported as malformed" "$out" "is not a bare host name"
+done
+
+d="$(make_repo sec05-allowlist-duplicate)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://gradle.internal.example/gradle.zip'
+write_allowlist "$d" 'gradle.internal.example' 'gradle.internal.example'
+write_wrapper_jar "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "a duplicated allowlist entry exits nonzero" "1" "$code"
+
+d="$(make_repo sec05-allowlist-comments)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://gradle.internal.example/gradle.zip'
+printf '# a comment\n\n   gradle.internal.example   # trailing comment\n' \
+  > "$d/gradle/wrapper/gradle-distribution-allowlist.txt"
+write_wrapper_jar "$d"
+write_verification_metadata "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "comments and blank lines in the allowlist are tolerated" "0" "$code"
+
+d="$(make_repo sec05-allowlist-case)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://gradle.internal.example/gradle.zip'
+write_allowlist "$d" 'GRADLE.Internal.Example'
+write_wrapper_jar "$d"
+write_verification_metadata "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "an allowlist entry differing only by case still matches" "0" "$code"
+
+# Listing a parent domain must not trust its subdomains: an entry for
+# example.com says nothing about who controls cdn.example.com.
+d="$(make_repo sec05-parent-domain-not-subdomain)"
+write_wrapper "$d" "$GOOD_SHA" 'https\://cdn.example.com/gradle.zip'
+write_allowlist "$d" 'example.com'
+write_wrapper_jar "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "listing a parent domain does not allow a subdomain" "1" "$code"
+
+# A deleted allowlist means the trusted-publisher set is unknown. Defaulting to
+# "whatever the pull request says" is the failure this control removes.
+d="$(make_repo sec05-allowlist-missing)"
+write_wrapper "$d" "$GOOD_SHA"
+rm -f "$d/gradle/wrapper/gradle-distribution-allowlist.txt"
+write_wrapper_jar "$d"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "a missing publisher allowlist exits nonzero (fail closed)" "1" "$code"
+check_contains "the missing allowlist is named" "$out" "gradle-distribution-allowlist.txt"
 
 d="$(make_repo sec05-tampered-jar)"
 write_wrapper "$d" "$GOOD_SHA"
@@ -556,6 +758,7 @@ check "real repository passes the SEC-05 gate" "0" "$code"
 # describing something other than what is committed.
 check_contains "the real metadata is measured, not assumed" "$out" "SHA-256 checksum(s) across"
 check_missing "the real repository does not trip the vacuous guard" "$out" "not one SHA-256"
+check_contains "the real distribution publisher is identified" "$out" "official Gradle publisher (services.gradle.org)"
 
 echo ""
 echo "== summary: $PASS passed, $FAIL failed =="
