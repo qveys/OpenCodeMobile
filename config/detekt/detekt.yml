@@ -48,6 +48,11 @@ exceptions:
 
 naming:
   active: true
+  FunctionNaming:
+    # @Composable UI entry points are PascalCase by convention; the default
+    # lowerCamelCase pattern would flag every composable. Ignore annotated
+    # functions so the rule still checks the rest.
+    ignoreAnnotated: ['Composable']
 
 performance:
   active: true
