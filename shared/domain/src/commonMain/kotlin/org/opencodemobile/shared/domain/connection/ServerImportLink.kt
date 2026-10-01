@@ -105,7 +105,13 @@ public object ServerImportLink {
         "key", "credential", "credentials", "creds",
     )
 
-    /** Decodes [raw], returning a candidate profile or a typed validation error. */
+    /**
+     * Decodes [raw], returning a candidate profile or a typed validation error.
+     *
+     * The branching is the link grammar itself; the rule is suppressed for this
+     * migrated parser (the baseline-vs-refactor policy is tracked in OPE-221).
+     */
+    @Suppress("CyclomaticComplexMethod", "LongMethod")
     public fun parse(raw: String): ServerImportResult {
         val input = raw.trim()
         if (input.isEmpty()) return malformed(ServerInputProblem.BLANK, raw)
@@ -153,7 +159,7 @@ public object ServerImportLink {
             }
         }
 
-        val tls = when (val tlsText = params[PARAM_TLS]?.lowercase()) {
+        val tls = when (params[PARAM_TLS]?.lowercase()) {
             null, "https" -> ServerProfile.TlsMode.Https
             "http" -> ServerProfile.TlsMode.PlaintextHttp
             else -> return malformed(ServerInputProblem.INVALID_TLS, raw)
