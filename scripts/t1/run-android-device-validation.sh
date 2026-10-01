@@ -38,8 +38,43 @@ echo "== System image: $SYSTEM_IMAGE =="
 echo "== Accepting SDK licenses =="
 yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
+# sdkmanager downloads are occasionally truncated on the shared runners. A
+# corrupt archive surfaces as "Error on ZipFile unknown archive" and leaves the
+# package uninstalled, which then fails AVD creation with the opaque
+# "Package path is not valid" error (OPE-150). Retry each package and clear the
+# partial-download cache between attempts so a bad archive is re-fetched rather
+# than reused.
+SYSTEM_IMAGE_DIR="$SDK/$(printf '%s' "$SYSTEM_IMAGE" | tr ';' '/')"
+install_sdk_package() {
+  local pkg="$1" attempt
+  for attempt in 1 2 3; do
+    if sdkmanager --install "$pkg"; then
+      return 0
+    fi
+    echo "WARNING: sdkmanager --install '$pkg' failed (attempt $attempt/3); clearing partial downloads and retrying"
+    rm -rf "$SDK/.temp" "$SDK/temp" 2>/dev/null || true
+    sleep $(( attempt * 15 ))
+  done
+  echo "FAIL: sdkmanager could not install '$pkg' after 3 attempts"
+  exit 1
+}
+
 echo "== Installing emulator + system image =="
-sdkmanager --install "platform-tools" "platforms;android-31" "$SYSTEM_IMAGE"
+install_sdk_package "platform-tools"
+install_sdk_package "platforms;android-31"
+install_sdk_package "$SYSTEM_IMAGE"
+install_sdk_package "emulator"
+
+# Fail with a clear message if a package is still missing, instead of letting
+# avdmanager report the opaque "Package path is not valid" error.
+if [ ! -x "$SDK/emulator/emulator" ]; then
+  echo "FAIL: emulator binary missing at $SDK/emulator/emulator after install"
+  exit 1
+fi
+if [ ! -d "$SYSTEM_IMAGE_DIR" ]; then
+  echo "FAIL: system image missing at $SYSTEM_IMAGE_DIR after install"
+  exit 1
+fi
 
 echo "== Creating AVD $AVD_NAME =="
 echo no | avdmanager create avd -n "$AVD_NAME" -k "$SYSTEM_IMAGE" --device "pixel_2" --force

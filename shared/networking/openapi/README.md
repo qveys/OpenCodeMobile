@@ -4,20 +4,25 @@ This directory vendors the pinned OpenAPI specification for **OpenCode Server v2
 
 ## Specification Metadata
 
-- **Server Version**: `1.18.32` (verified via `GET /global/health`)
+- **Target Server Version**: `2.0.6`
 - **OpenAPI Version**: `3.1.0`
 - **Spec Title**: `opencode` (version `1.0.0`)
-- **Pinned Date**: `2026-09-24`
+- **Extracted From**: `1.18.32`, on 2026-09-24, via `GET /doc` on a live `opencode serve` instance
 - **Source Endpoint**: `GET /doc` on live `opencode serve` instance
-- **File**: [`opencode-server-v2.json`](file:///app/data/instances/default/companies/OpenCodeMobile/projects/OpenCodeMobile/.paperclip/worktrees/OPE-11-create-roadmap-and-generate-initial-backlog/shared/networking/openapi/opencode-server-v2.json)
+- **File**: [`opencode-server-v2.json`](opencode-server-v2.json)
 - **SHA-256 Checksum**: `46db986090aae41846cd6dbe16225a1d883f0bbcb4c48814008d3f6ce140aa5c`
+
+> [!IMPORTANT]
+> The supported server version is `2.0.6`, but the vendored spec was extracted
+> from `1.18.32`. The checksum above covers only those bytes. Re-vendor against a
+> `2.0.6` instance and update the checksum when re-vendoring.
 
 ## Architecture Rules & Boundary Contracts
 
 1. **Rule R3 (Absolute)**: Generated types produced from this specification live exclusively inside `shared/networking` and **must never be exposed or imported outside `shared/networking`**. All communication between the rest of the application and the generated API client must pass through the `OpenCodeV2Adapter` implementing the `OpenCodeGateway` domain port.
 2. **Rule R12 (Absolute)**: Generated client code is **never manually edited**. Any updates must come from regenerating against this pinned specification.
 3. **Rule R13 (Absolute)**: Every protocol assumption and version idiosyncrasy is isolated behind `OpenCodeV2Adapter`.
-4. **ADR Mapping**: See [`docs/adr/ADR-0002-opencode-v2-api-surface-mapping.md`](file:///app/data/instances/default/companies/OpenCodeMobile/projects/OpenCodeMobile/.paperclip/worktrees/OPE-11-create-roadmap-and-generate-initial-backlog/docs/adr/ADR-0002-opencode-v2-api-surface-mapping.md) for the exhaustive mapping between Cahier des charges v1.0 §6.1 assumed endpoints and this specification.
+4. **ADR Mapping**: See [`docs/adr/ADR-0002-opencode-v2-api-surface-mapping.md`](../../../docs/adr/ADR-0002-opencode-v2-api-surface-mapping.md) for the exhaustive mapping between Cahier des charges v1.0 §6.1 assumed endpoints and this specification.
 
 ## Code Generation
 
