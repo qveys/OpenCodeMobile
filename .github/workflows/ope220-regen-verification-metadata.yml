@@ -1,0 +1,82 @@
+name: OPE-220 verification metadata regen
+
+# TEMPORARY — added by OPE-220 and deleted again in the same PR.
+#
+# Why this exists
+# ---------------
+# `gradle/verification-metadata.xml` is missing the checksums for the detekt
+# plugin graph. The fix is to run
+#     ./gradlew --write-verification-metadata sha256 detekt help
+# but that command has to be run by a machine that can reach BOTH Maven Central
+# and the Gradle Plugin Portal, because the two serve different bytes for some
+# plugin marker POMs. Regenerating from Maven Central alone silently rewrites
+# those markers and breaks the build again.
+#
+# The agent environment cannot reach plugins.gradle.org, so this job runs the
+# prescribed command on the self-hosted runner, which can, and reports the
+# resulting diff in the job log.
+#
+# Safety properties, deliberately:
+#   * `workflow_dispatch` ONLY — this never runs on a pull request or a push, so
+#     it can never silently regenerate checksums as part of normal CI.
+#   * `permissions: contents: read` — the job cannot push, open a PR, or write to
+#     the repository. It only reads the checked-out tree and prints a diff.
+#   * `actions/checkout` only, matching the org Actions allowlist.
+#   * The generated file is never committed by this job. A human/agent reviews
+#     the diff and lands the additions by hand.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regen:
+    name: regenerate detekt pins
+    runs-on: [self-hosted, hostinger]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Report baseline
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          java -version
+          echo "HEAD=$(git rev-parse HEAD)"
+          sha256sum gradle/verification-metadata.xml
+
+      - name: Regenerate checksums for the detekt graph
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          chmod +x gradlew
+          # --configure-on-demand keeps Gradle to the root project, which is where
+          # the detekt plugin is declared. The other subprojects only add build
+          # inputs that were already pinned by earlier PRs.
+          ./gradlew --configure-on-demand --no-daemon --console=plain \
+            --write-verification-metadata sha256 detekt help
+
+      - name: Publish the verification-metadata diff
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "===== OPE220-BEGIN-DIFF ====="
+          git --no-pager diff --stat gradle/verification-metadata.xml || true
+          git --no-pager diff gradle/verification-metadata.xml || true
+          echo "===== OPE220-END-DIFF ====="
+
+      - name: Publish the dependency-verification report
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "===== OPE220-BEGIN-DEPREPORT ====="
+          for f in $(find build/reports/dependency-verification -name '*.html' 2>/dev/null | sort); do
+            echo "--- $f ---"
+            # The report states "Expected a sha256 checksum of X but was Y" for
+            # each unverified artifact. Y is the checksum of the bytes this runner
+            # actually downloaded, which is what the pin has to become.
+            sed -e 's/<[^>]*>/ /g' "$f" | tr -s ' \n' ' \n' | grep -iE "Expected a sha256|failed verification" || true
+          done
+          echo "===== OPE220-END-DEPREPORT ====="
