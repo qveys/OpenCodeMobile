@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ressources Android de l'hôte (nom de l'application). La copie Compose visible
+     vit dans le catalogue composeResources de design-system. -->
+<resources>
+    <string name="app_name">OpenCode Mobile</string>
+</resources>
