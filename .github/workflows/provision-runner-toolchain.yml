@@ -11,9 +11,11 @@ name: Provision runner toolchain
 #
 #   ./gradlew :shared:networking:testDebugUnitTest --no-daemon
 #
-# It is idempotent and safe to re-run at any time. `workflow_dispatch` forces a
-# refresh; the `push` trigger is path-filtered to the provisioning script and its
-# helpers so ordinary pushes do not re-run it.
+# It is idempotent and safe to re-run at any time. Provisioning is restricted to
+# the trusted default branch: the `push` trigger is scoped to `main` and filtered
+# to the provisioning script/helpers, and `workflow_dispatch` is ignored on any
+# other ref. This workflow executes the repo's own shell on persistent company
+# machines, so an arbitrary feature branch must not be able to run it.
 #
 # Each job targets one machine by its *unique* self-hosted label. The shared
 # `hostinger` label matches two Linux runners (vps-dokploy / vps-openclaw), so a
@@ -26,8 +28,16 @@ name: Provision runner toolchain
 # `scripts/ci/runner-toolchain-env.sh` (see .github/workflows/security-logging.yml).
 
 on:
+  # Manual refresh. GitHub allows dispatch against any branch, so the trusted-ref
+  # guard lives on the job (`if: github.ref == 'refs/heads/main'`); a dispatch
+  # against a feature branch runs but is skipped before any shell executes.
   workflow_dispatch:
   push:
+    # Automatic provisioning only from the default branch. This workflow runs
+    # repo-controlled shell on the persistent self-hosted runners, so a feature
+    # branch (e.g. a PR) must not be able to trigger it by touching
+    # `scripts/ci/**`. Merge to `main` first; the push to `main` then provisions.
+    branches: [main]
     paths:
       # The provisioning script and its helpers.
       - 'scripts/ci/**'
@@ -38,15 +48,14 @@ on:
       - '.github/workflows/provision-runner-toolchain.yml'
 
 concurrency:
-  # At most one provisioning run repository-wide, and a newer provisioning
-  # change supersedes older pending/in-progress runs instead of queueing behind
-  # them. Without this, several branches touching scripts/ci/** each enqueue a
-  # provisioning job that piles up on the single `macbook-openclaw` runner
-  # (observed 2026-09-29: one stuck job blocked three later runs for hours).
-  # Provisioning is idempotent, so cancelling a superseded run is safe: the
-  # newer run re-installs/reuses the same pinned toolchain.
+  # At most one provisioning run repository-wide. Runs queue instead of
+  # cancelling: a provisioning job installs system packages (JDK, Android SDK) on
+  # persistent machines, and cancelling it mid-install can leave a runner half
+  # provisioned with no later run to repair it. Since automatic runs are scoped to
+  # `main` (see `on.push.branches`), the pile-up this group originally guarded
+  # against no longer comes from every feature branch.
   group: provision-runner-toolchain
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -54,6 +63,10 @@ permissions:
 jobs:
   provision:
     name: Provision ${{ matrix.label }}
+    # Trusted-ref guard: block `workflow_dispatch` (or any future trigger) from
+    # running repo shell on a non-default ref. `main` is the only ref allowed to
+    # provision the persistent runners.
+    if: github.ref == 'refs/heads/main'
     # One job per machine, keyed on the unique self-hosted label so no runner is
     # skipped. fail-fast: false so one wedged/offline runner does not cancel the
     # provisioning of the others.
