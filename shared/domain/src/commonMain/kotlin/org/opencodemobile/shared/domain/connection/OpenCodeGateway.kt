@@ -51,4 +51,8 @@ public data class ConnectionHandshake(
     public val profileId: String,
     public val health: ServerHealth,
     public val identity: ServerIdentityCheck,
+    /** The parsed server version that passed the [CompatibilityProfile] gate. */
+    public val version: ServerVersion,
+    /** Where the profile's host sits on the network path, per [HttpConnectionPolicy]. */
+    public val scope: ServerNetworkScope,
 )
