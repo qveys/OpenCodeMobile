@@ -84,12 +84,12 @@ jobs:
   # prescribed `--write-verification-metadata` command on the self-hosted runner,
   # which can, and prints the resulting diff to the log for review.
   #
-  # It is gated on `workflow_dispatch` only, so the `lint` gate above is
-  # untouched on every pull request and push. The job holds read-only
+  # It is gated so it never runs on a push to the default branch. The `lint` gate
+  # above is untouched. The job holds read-only
   # permissions and never commits anything.
   regen-verification-metadata:
     name: regen verification metadata (OPE-220)
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, hostinger]
     timeout-minutes: 30
     steps:
