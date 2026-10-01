@@ -25,6 +25,13 @@ kotlin {
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
+            // V1-05 chat: the transcript/composer tests drive the real adapter
+            // against MockOpenCodeServer and replay the EventProcessor pipeline.
+            implementation(project(":shared:realtime"))
+            implementation(project(":shared:networking"))
+            implementation(project(":shared:test-support"))
+            implementation(libs.ktor.client.core)
         }
     }
 }
