@@ -1,316 +1,278 @@
 package org.opencodemobile.architecture
 
-import com.lemonapp.konsist.Konsist
-import com.lemonapp.konsist.assertions.assertTrue
-import com.lemonapp.konsist.koin.KonsistKoin
-import com.lemonapp.konsist.scope.*
-import com.lemonapp.konsist.test.assertion.*
+import com.lemonappdev.konsist.api.Konsist
+import com.lemonappdev.konsist.api.container.KoScope
+import com.lemonappdev.konsist.api.declaration.KoImportDeclaration
+import com.lemonappdev.konsist.api.verify.assertEmpty
+import com.lemonappdev.konsist.api.verify.assertNotEmpty
+import com.lemonappdev.konsist.api.verify.assertTrue
 import io.kotest.core.spec.style.StringSpec
-import io.kotest.matchers.booleans.shouldBeTrue
-import io.kotest.matchers.collections.shouldBeEmpty
-import io.kotest.matchers.collections.shouldNotBeEmpty
-import java.io.File
 
-class ModuleBoundaryTest : StringSpec() {
+/**
+ * Executable form of the module-boundary rules in
+ * *Cahier des charges d'architecture v1.0* §5.2 (and ADR 0004).
+ *
+ * The spec names five forbidden shapes:
+ *   1. `domain` → data, platform, Ktor, Compose, SQLDelight, Koin, generated client
+ *   2. UI / ViewModel → HTTP, SSE, SQLDelight, SecureStore
+ *   3. UI → generated OpenAPI types
+ *   4. feature A → internals of feature B
+ *   5. manual modification of generated code
+ *
+ * ADR 0004 additionally fixes the direction of the shared layers (application,
+ * data, networking, realtime, persistence, security) and the Koin composition
+ * root. This test encodes all of them as static, import-level assertions so the
+ * gate is enforced by CI rather than by review.
+ *
+ * NOTE: the allowed `networking` dependency set is `domain` + `security`, not
+ * `domain` alone. `OpenCodeV2Adapter`/`HttpClientFactory` consume the T1
+ * `ServerIdentityGate` ports implemented by `shared/security`
+ * (ARCHITECTURE.md §3.1); this is the intended seam, not a violation.
+ */
+class ModuleBoundaryTest : StringSpec({
 
-    private val projectRoot = File("").absoluteFile.parentFile.parentFile
-    private val sourceDirs = Konsist
-        .scopeFromDirectories(
-            projectRoot.resolve("shared/domain/src/commonMain/kotlin"),
-            projectRoot.resolve("shared/application/src/commonMain/kotlin"),
-            projectRoot.resolve("shared/data/src/commonMain/kotlin"),
-            projectRoot.resolve("shared/networking/src/commonMain/kotlin"),
-            projectRoot.resolve("shared/realtime/src/commonMain/kotlin"),
-            projectRoot.resolve("shared/persistence/src/commonMain/kotlin"),
-            projectRoot.resolve("shared/security/src/commonMain/kotlin"),
-            projectRoot.resolve("shared/test-support/src/commonMain/kotlin"),
-            projectRoot.resolve("features/connection/src/commonMain/kotlin"),
-            projectRoot.resolve("features/projects/src/commonMain/kotlin"),
-            projectRoot.resolve("features/sessions/src/commonMain/kotlin"),
-            projectRoot.resolve("features/transcript/src/commonMain/kotlin"),
-            projectRoot.resolve("features/composer/src/commonMain/kotlin"),
-            projectRoot.resolve("features/files/src/commonMain/kotlin"),
-            projectRoot.resolve("features/permissions/src/commonMain/kotlin"),
-            projectRoot.resolve("features/settings/src/commonMain/kotlin"),
-            projectRoot.resolve("design-system/src/commonMain/kotlin"),
-            projectRoot.resolve("androidApp/src/main/kotlin"),
+    // The Gradle Test task runs from the root project (see build.gradle.kts), and
+    // Konsist resolves scope paths against the project root it detects there, so
+    // every path below is repository-relative.
+
+    // --- internal module package roots (import prefixes) ----------------------
+    val domain = "org.opencodemobile.shared.domain."
+    val application = "org.opencodemobile.shared.application."
+    val data = "org.opencodemobile.shared.data."
+    val networking = "org.opencodemobile.shared.networking."
+    val realtime = "org.opencodemobile.shared.realtime."
+    val persistence = "org.opencodemobile.shared.persistence."
+    val security = "org.opencodemobile.shared.security."
+    val testSupport = "org.opencodemobile.shared.testsupport."
+    val designSystem = "org.opencodemobile.design."
+    val features = "org.opencodemobile.features."
+    val androidApp = "org.opencodemobile.android."
+    val generated = "org.opencode.mobile.networking.client.generated."
+
+    // --- external frameworks --------------------------------------------------
+    val ktor = "io.ktor."
+    val compose = "org.jetbrains.compose."
+    val composeAndroidx = "androidx.compose."
+    val sqldelight = "app.cash.sqldelight."
+    val koin = "io.insert.koin."
+    val coroutines = "kotlinx.coroutines."
+    val secureStore = "androidx.security."
+    val keystore = "android.security.keystore."
+
+    val internalModules = listOf(
+        domain, application, data, networking, realtime, persistence,
+        security, testSupport, designSystem, features, androidApp, generated,
+    )
+
+    val featureNames = listOf(
+        "connection", "projects", "sessions", "transcript",
+        "composer", "files", "permissions", "settings",
+    )
+
+    val sharedCommonMain = listOf(
+        "shared/domain", "shared/application", "shared/data", "shared/networking",
+        "shared/realtime", "shared/persistence", "shared/security",
+        "shared/test-support", "shared/tls-test-support",
+    )
+
+    /**
+     * Builds a scope from a repository-relative source directory and fails fast
+     * if the directory contains no Kotlin file — an empty scope would make every
+     * assertion below pass vacuously, which is the exact failure this gate exists
+     * to prevent.
+     */
+    fun scopeOf(path: String): KoScope {
+        val scope = Konsist.scopeFromDirectory(path)
+        scope.files.assertNotEmpty()
+        return scope
+    }
+
+    fun KoScope.importsUnder(prefixes: Collection<String>): List<KoImportDeclaration> =
+        imports.filter { import -> prefixes.any { import.name.startsWith(it) } }
+
+    /** Every internal-module import must be either the module's own package or explicitly allowed. */
+    fun assertInternalDependencies(
+        scope: KoScope,
+        selfPrefixes: List<String>,
+        allowedPrefixes: List<String>,
+    ) {
+        scope.imports
+            .filter { import ->
+                val name = import.name
+                internalModules.any { name.startsWith(it) } &&
+                    selfPrefixes.none { name.startsWith(it) } &&
+                    allowedPrefixes.none { name.startsWith(it) }
+            }
+            .assertEmpty()
+    }
+
+    fun assertNoFrameworkImports(scope: KoScope, prefixes: Collection<String>) {
+        scope.importsUnder(prefixes).assertEmpty()
+    }
+
+    val uiForbiddenFrameworks = listOf(ktor, sqldelight, secureStore, keystore)
+    val uiForbiddenFrameworksAndGenerated = uiForbiddenFrameworks + generated
+
+    // --- §5.2 / ADR 0004: layer directions -----------------------------------
+
+    "shared/domain depends only on the Kotlin standard library" {
+        val scope = scopeOf("shared/domain/src/commonMain/kotlin")
+        assertInternalDependencies(scope, selfPrefixes = listOf(domain), allowedPrefixes = emptyList())
+        assertNoFrameworkImports(
+            scope,
+            listOf(ktor, compose, composeAndroidx, sqldelight, koin, coroutines, secureStore, keystore),
         )
+    }
 
-    init {
-        "Domain layer must not depend on data, networking, realtime, persistence, security, Ktor, Compose, SQLDelight, Koin, or generated client" {
-            val domain = Layer("Domain", sourceDirs.files("**/shared/domain/**"))
-            val forbiddenLayers = listOf(
-                Layer("Data", sourceDirs.files("**/shared/data/**")),
-                Layer("Networking", sourceDirs.files("**/shared/networking/**")),
-                Layer("Realtime", sourceDirs.files("**/shared/realtime/**")),
-                Layer("Persistence", sourceDirs.files("**/shared/persistence/**")),
-                Layer("Security", sourceDirs.files("**/shared/security/**")),
-                Layer("TestSupport", sourceDirs.files("**/shared/test-support/**")),
-                Layer("Features", sourceDirs.files("**/features/**")),
-                Layer("DesignSystem", sourceDirs.files("**/design-system/**")),
-                Layer("AndroidApp", sourceDirs.files("**/androidApp/**")),
+    "shared/application may only depend on shared/domain" {
+        val scope = scopeOf("shared/application/src/commonMain/kotlin")
+        assertInternalDependencies(scope, selfPrefixes = listOf(application), allowedPrefixes = listOf(domain))
+        assertNoFrameworkImports(
+            scope,
+            listOf(ktor, compose, composeAndroidx, sqldelight, koin, secureStore, keystore, generated),
+        )
+    }
+
+    "shared/data may only depend on domain, networking, realtime, persistence and security" {
+        val scope = scopeOf("shared/data/src/commonMain/kotlin")
+        assertInternalDependencies(
+            scope,
+            selfPrefixes = listOf(data),
+            allowedPrefixes = listOf(domain, networking, realtime, persistence, security),
+        )
+        assertNoFrameworkImports(scope, listOf(compose, composeAndroidx, koin, secureStore, keystore, generated))
+    }
+
+    "shared/networking may only depend on domain and security, and owns the generated client" {
+        val scope = scopeOf("shared/networking/src/commonMain/kotlin")
+        assertInternalDependencies(
+            scope,
+            selfPrefixes = listOf(networking),
+            allowedPrefixes = listOf(domain, security, generated),
+        )
+        assertNoFrameworkImports(scope, listOf(compose, composeAndroidx, sqldelight, koin, secureStore, keystore))
+    }
+
+    "shared/realtime may only depend on domain and networking" {
+        val scope = scopeOf("shared/realtime/src/commonMain/kotlin")
+        assertInternalDependencies(scope, selfPrefixes = listOf(realtime), allowedPrefixes = listOf(domain, networking))
+        assertNoFrameworkImports(
+            scope,
+            listOf(compose, composeAndroidx, sqldelight, koin, secureStore, keystore, generated),
+        )
+    }
+
+    "shared/persistence may only depend on domain" {
+        val scope = scopeOf("shared/persistence/src/commonMain/kotlin")
+        assertInternalDependencies(scope, selfPrefixes = listOf(persistence), allowedPrefixes = listOf(domain))
+        assertNoFrameworkImports(
+            scope,
+            listOf(ktor, compose, composeAndroidx, koin, secureStore, keystore, generated),
+        )
+    }
+
+    "shared/security may only depend on domain" {
+        val scope = scopeOf("shared/security/src/commonMain/kotlin")
+        assertInternalDependencies(scope, selfPrefixes = listOf(security), allowedPrefixes = listOf(domain))
+        assertNoFrameworkImports(
+            scope,
+            listOf(ktor, compose, composeAndroidx, sqldelight, koin, secureStore, keystore, generated),
+        )
+    }
+
+    "shared/test-support may only depend on domain, application and networking" {
+        val scope = scopeOf("shared/test-support/src/commonMain/kotlin")
+        assertInternalDependencies(
+            scope,
+            selfPrefixes = listOf(testSupport),
+            allowedPrefixes = listOf(domain, application, networking),
+        )
+        assertNoFrameworkImports(scope, listOf(compose, composeAndroidx, koin, secureStore, keystore, generated))
+    }
+
+    "shared/tls-test-support may only depend on domain and test-support" {
+        val scope = scopeOf("shared/tls-test-support/src/commonMain/kotlin")
+        assertInternalDependencies(
+            scope,
+            selfPrefixes = listOf(testSupport),
+            allowedPrefixes = listOf(domain, testSupport),
+        )
+        assertNoFrameworkImports(scope, listOf(compose, composeAndroidx, koin, secureStore, keystore, generated))
+    }
+
+    "design-system may only depend on Compose and the Kotlin standard library" {
+        val scope = scopeOf("design-system/src/commonMain/kotlin")
+        assertInternalDependencies(scope, selfPrefixes = listOf(designSystem), allowedPrefixes = emptyList())
+        assertNoFrameworkImports(scope, listOf(ktor, sqldelight, koin, secureStore, keystore, generated))
+    }
+
+    // --- §5.2: feature isolation ---------------------------------------------
+
+    for (featureName in featureNames) {
+        "feature '$featureName' may only depend on domain, application and design-system" {
+            val scope = scopeOf("features/$featureName/src/commonMain/kotlin")
+            assertInternalDependencies(
+                scope,
+                selfPrefixes = listOf("$features$featureName."),
+                allowedPrefixes = listOf(domain, application, designSystem),
             )
-            KonsistLayerAssertions
-                .layer(domain)
-                .shouldNotDependOnAny(forbiddenLayers)
-                .assertTrue()
-
-            // Also check for forbidden imports
-            domain
-                .classes()
-                .imports("io.ktor.**", "org.jetbrains.compose.**", "androidx.compose.**", "app.cash.sqldelight.**", "io.insert-koin.**", "org.opencode.mobile.networking.client.generated.**")
-                .shouldBeEmpty()
-                .assertTrue()
-        }
-
-        "Application layer must only depend on Domain and Kotlin stdlib" {
-            val application = Layer("Application", sourceDirs.files("**/shared/application/**"))
-            val domain = Layer("Domain", sourceDirs.files("**/shared/domain/**"))
-
-            KonsistLayerAssertions
-                .layer(application)
-                .shouldOnlyDependOn(domain)
-                .assertTrue()
-
-            application
-                .classes()
-                .imports("io.ktor.**", "org.jetbrains.compose.**", "androidx.compose.**", "app.cash.sqldelight.**", "io.insert-koin.**", "org.opencode.mobile.networking.client.generated.**")
-                .shouldBeEmpty()
-                .assertTrue()
-        }
-
-        "Data layer must only depend on Domain, Networking, Realtime, Persistence, Security" {
-            val data = Layer("Data", sourceDirs.files("**/shared/data/**"))
-            val allowedLayers = listOf(
-                Layer("Domain", sourceDirs.files("**/shared/domain/**")),
-                Layer("Networking", sourceDirs.files("**/shared/networking/**")),
-                Layer("Realtime", sourceDirs.files("**/shared/realtime/**")),
-                Layer("Persistence", sourceDirs.files("**/shared/persistence/**")),
-                Layer("Security", sourceDirs.files("**/shared/security/**")),
+            assertNoFrameworkImports(
+                scope,
+                listOf(ktor, sqldelight, secureStore, keystore, generated),
             )
-            KonsistLayerAssertions
-                .layer(data)
-                .shouldOnlyDependOn(*allowedLayers)
-                .assertTrue()
-
-            data
-                .classes()
-                .imports("org.jetbrains.compose.**", "androidx.compose.**", "io.insert-koin.**")
-                .shouldBeEmpty()
-                .assertTrue()
-        }
-
-        "Networking layer must only depend on Domain and Ktor" {
-            val networking = Layer("Networking", sourceDirs.files("**/shared/networking/**"))
-            val domain = Layer("Domain", sourceDirs.files("**/shared/domain/**"))
-
-            KonsistLayerAssertions
-                .layer(networking)
-                .shouldOnlyDependOn(domain)
-                .assertTrue()
-
-            networking
-                .classes()
-                .imports("org.jetbrains.compose.**", "androidx.compose.**", "app.cash.sqldelight.**", "io.insert-koin.**")
-                .shouldBeEmpty()
-                .assertTrue()
-
-            // Generated client must stay in networking
-            networking
-                .classes()
-                .imports("org.opencode.mobile.networking.client.generated.**")
-                .shouldNotBeEmpty()
-                .assertTrue()
-        }
-
-        "Realtime layer must only depend on Domain and Networking" {
-            val realtime = Layer("Realtime", sourceDirs.files("**/shared/realtime/**"))
-            val allowedLayers = listOf(
-                Layer("Domain", sourceDirs.files("**/shared/domain/**")),
-                Layer("Networking", sourceDirs.files("**/shared/networking/**")),
-            )
-            KonsistLayerAssertions
-                .layer(realtime)
-                .shouldOnlyDependOn(*allowedLayers)
-                .assertTrue()
-
-            realtime
-                .classes()
-                .imports("org.jetbrains.compose.**", "androidx.compose.**", "app.cash.sqldelight.**", "io.insert-koin.**", "org.opencode.mobile.networking.client.generated.**")
-                .shouldBeEmpty()
-                .assertTrue()
-        }
-
-        "Persistence layer must only depend on Domain and SQLDelight" {
-            val persistence = Layer("Persistence", sourceDirs.files("**/shared/persistence/**"))
-            val domain = Layer("Domain", sourceDirs.files("**/shared/domain/**"))
-
-            KonsistLayerAssertions
-                .layer(persistence)
-                .shouldOnlyDependOn(domain)
-                .assertTrue()
-
-            persistence
-                .classes()
-                .imports("io.ktor.**", "org.jetbrains.compose.**", "androidx.compose.**", "io.insert-koin.**", "org.opencode.mobile.networking.client.generated.**")
-                .shouldBeEmpty()
-                .assertTrue()
-        }
-
-        "Security layer must only depend on Domain" {
-            val security = Layer("Security", sourceDirs.files("**/shared/security/**"))
-            val domain = Layer("Domain", sourceDirs.files("**/shared/domain/**"))
-
-            KonsistLayerAssertions
-                .layer(security)
-                .shouldOnlyDependOn(domain)
-                .assertTrue()
-
-            security
-                .classes()
-                .imports("io.ktor.**", "org.jetbrains.compose.**", "androidx.compose.**", "app.cash.sqldelight.**", "io.insert-koin.**", "org.opencode.mobile.networking.client.generated.**")
-                .shouldBeEmpty()
-                .assertTrue()
-        }
-
-        "Test-support layer can depend on shared layers for test utilities" {
-            val testSupport = Layer("TestSupport", sourceDirs.files("**/shared/test-support/**"))
-            val allowedLayers = listOf(
-                Layer("Domain", sourceDirs.files("**/shared/domain/**")),
-                Layer("Application", sourceDirs.files("**/shared/application/**")),
-                Layer("Networking", sourceDirs.files("**/shared/networking/**")),
-            )
-            KonsistLayerAssertions
-                .layer(testSupport)
-                .shouldOnlyDependOn(*allowedLayers)
-                .assertTrue()
-        }
-
-        "Each feature must only depend on Domain, Application, DesignSystem, Compose, Koin, and stdlib" {
-            val features = listOf(
-                "connection", "projects", "sessions", "transcript", "composer",
-                "files", "permissions", "settings"
-            )
-
-            for (featureName in features) {
-                val feature = Layer("Feature:$featureName", sourceDirs.files("**/features/$featureName/**"))
-                val domain = Layer("Domain", sourceDirs.files("**/shared/domain/**"))
-                val application = Layer("Application", sourceDirs.files("**/shared/application/**"))
-                val designSystem = Layer("DesignSystem", sourceDirs.files("**/design-system/**"))
-
-                KonsistLayerAssertions
-                    .layer(feature)
-                    .shouldOnlyDependOn(domain, application, designSystem)
-                    .assertTrue()
-
-                // Features must not depend on other features
-                val otherFeatures = features.filter { it != featureName }
-                    .map { Layer("Feature:$it", sourceDirs.files("**/features/$it/**")) }
-                KonsistLayerAssertions
-                    .layer(feature)
-                    .shouldNotDependOnAny(otherFeatures)
-                    .assertTrue()
-
-                // Features must not directly import forbidden modules
-                feature
-                    .classes()
-                    .imports("io.ktor.**", "app.cash.sqldelight.**", "org.opencode.mobile.networking.client.generated.**", "org.opencodemobile.shared.persistence.**", "org.opencodemobile.shared.realtime.**", "org.opencodemobile.shared.networking.**", "org.opencodemobile.shared.security.**", "org.opencodemobile.shared.data.**")
-                    .shouldBeEmpty()
-                    .assertTrue()
-            }
-        }
-
-        "Features must not reach into another feature's internals (no cross-feature imports)" {
-            val features = listOf(
-                "connection", "projects", "sessions", "transcript", "composer",
-                "files", "permissions", "settings"
-            )
-
-            for (featureName in features) {
-                val featureScope = sourceDirs.files("**/features/$featureName/**")
-                val otherFeatures = features.filter { it != featureName }
-                    .flatMap { sourceDirs.files("**/features/$it/**").directories() }
-
-                featureScope
-                    .classes()
-                    .imports("org.opencodemobile.features.*")
-                    .filter { importEntry ->
-                        otherFeatures.any { other -> importEntry.packageName.startsWith("org.opencodemobile.features.${other.name}") }
-                    }
-                    .shouldBeEmpty()
-                    .assertTrue()
-            }
-        }
-
-        "Design system must only depend on Compose and Kotlin stdlib" {
-            val designSystem = Layer("DesignSystem", sourceDirs.files("**/design-system/**"))
-
-            designSystem
-                .classes()
-                .imports("io.ktor.**", "app.cash.sqldelight.**", "io.insert-koin.**", "org.opencode.mobile.networking.client.generated.**", "org.opencodemobile.shared.**", "org.opencodemobile.features.**")
-                .shouldBeEmpty()
-                .assertTrue()
-        }
-
-        "Generated OpenAPI client must not be hand-edited (no non-generated code in generated package)" {
-            val generatedClient = sourceDirs.files("**/shared/networking/src/commonMain/kotlin/org/opencode/mobile/networking/client/generated/**")
-
-            generatedClient
-                .files()
-                .filter { file ->
-                    file.name.endsWith(".kt") &&
-                    !file.name.contains("Models") &&
-                    !file.name.contains("OpenCodeApiClient")
-                }
-                .shouldBeEmpty()
-                .assertTrue()
-
-            // Check that generated files have the generated marker comment
-            generatedClient
-                .files()
-                .filter { it.name.endsWith(".kt") }
-                .forEach { file ->
-                    val content = file.readText()
-                    (content.contains("@file:Suppress(\"UNUSED_PARAMETER\")") ||
-                     content.contains("Generated by") ||
-                     content.contains("DO NOT EDIT"))
-                        .shouldBeTrue()
-                }
-        }
-
-        "UI/ViewModel code must not directly touch HTTP/SSE/SQLDelight/SecureStore" {
-            // Features (UI/ViewModel) should not import these directly
-            val features = sourceDirs.files("**/features/**")
-            val designSystem = sourceDirs.files("**/design-system/**")
-            val androidApp = sourceDirs.files("**/androidApp/**")
-
-            val uiLayers = listOf(features, designSystem, androidApp)
-
-            for (layer in uiLayers) {
-                layer
-                    .classes()
-                    .imports("io.ktor.**", "io.ktor.client.**", "app.cash.sqldelight.**", "androidx.security.**", "androidx.datastore.preferences.**")
-                    .shouldBeEmpty()
-                    .assertTrue()
-            }
-        }
-
-        "Koin modules must only be declared in composition root (androidApp) and features" {
-            // Koin modules should only be in features (shared/* and design-system
-            // must not declare one); androidApp is the composition root.
-            sourceDirs
-                .files("**/shared/**")
-                .classes()
-                .annotatedWith("io.insert.koin.module")
-                .shouldBeEmpty()
-                .assertTrue()
-
-            sourceDirs
-                .files("**/design-system/**")
-                .classes()
-                .annotatedWith("io.insert.koin.module")
-                .shouldBeEmpty()
-                .assertTrue()
         }
     }
-}
+
+    "features must not reach into another feature's internals" {
+        val otherFeatures = featureNames.flatMap { featureName ->
+            scopeOf("features/$featureName/src/commonMain/kotlin")
+                .importsUnder(listOf(features))
+                .filter { import -> !import.name.startsWith("$features$featureName.") }
+        }
+        otherFeatures.assertEmpty()
+    }
+
+    // --- §5.2: UI / ViewModel must not touch infrastructure --------------------
+
+    "UI/ViewModel code must not import HTTP/SSE, SQLDelight, SecureStore or generated types" {
+        val uiScopes = featureNames.map { scopeOf("features/$it/src/commonMain/kotlin") } +
+            scopeOf("design-system/src/commonMain/kotlin") +
+            scopeOf("androidApp/src/main/kotlin")
+        uiScopes.forEach { scope -> scope.importsUnder(uiForbiddenFrameworksAndGenerated).assertEmpty() }
+    }
+
+    "androidApp may depend on any module except the generated OpenAPI client" {
+        val scope = scopeOf("androidApp/src/main/kotlin")
+        assertInternalDependencies(
+            scope,
+            selfPrefixes = listOf(androidApp),
+            allowedPrefixes = listOf(
+                domain, application, data, networking, realtime,
+                persistence, security, testSupport, designSystem, features,
+            ),
+        )
+        assertNoFrameworkImports(scope, uiForbiddenFrameworks)
+    }
+
+    // --- ADR 0004: Koin composition root --------------------------------------
+
+    "Koin module declarations live only in androidApp and features/*" {
+        sharedCommonMain.forEach { module ->
+            scopeOf("$module/src/commonMain/kotlin").importsUnder(listOf(koin)).assertEmpty()
+        }
+        scopeOf("design-system/src/commonMain/kotlin").importsUnder(listOf(koin)).assertEmpty()
+    }
+
+    // --- §5.2: generated code is never hand-edited ----------------------------
+
+    "the generated OpenAPI client is never hand-edited" {
+        val generatedFiles = scopeOf(
+            "shared/networking/src/commonMain/kotlin/org/opencode/mobile/networking/client/generated",
+        ).files
+
+        generatedFiles.assertNotEmpty()
+        generatedFiles.forEach { file ->
+            file.assertTrue { it.text.contains("AUTO-GENERATED") || it.text.contains("DO NOT MODIFY") }
+        }
+    }
+})

@@ -38,6 +38,10 @@ public object OpenCodeHttpClient {
         identityPin: ServerIdentityPinController,
         configure: HttpClientConfig<*>.() -> Unit = {},
     ): HttpClient = createOpenCodeHttpClient(identityPin) {
+        // Session operations distinguish "server refused" from "server
+        // unreachable" by status; without this a 4xx/5xx body would fail
+        // deserialization instead of surfacing a typed failure.
+        expectSuccess = true
         install(ContentNegotiation) {
             json(defaultJson)
         }

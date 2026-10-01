@@ -48,3 +48,8 @@ include(":features:settings")
 
 // design-system/ — theme, typography, CMP components
 include(":design-system")
+
+// architecture-tests/ — JVM-only Konsist assertions enforcing §5.2 module boundaries.
+// It analyzes source code rather than linking against it, so it is not a
+// dependency of any shipped module.
+include(":architecture-tests")
