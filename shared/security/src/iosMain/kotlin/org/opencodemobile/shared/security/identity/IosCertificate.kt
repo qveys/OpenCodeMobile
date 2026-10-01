@@ -6,6 +6,7 @@ import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.usePinned
 import org.opencodemobile.shared.domain.connection.ServerFingerprint
 import org.opencodemobile.shared.domain.connection.ServerIdentityException
+import platform.CoreFoundation.CFArrayGetCount
 import platform.CoreFoundation.CFArrayGetValueAtIndex
 import platform.CoreFoundation.CFDataGetBytes
 import platform.CoreFoundation.CFDataGetLength
@@ -60,6 +61,15 @@ internal object IosCertificate {
     fun fingerprint(trust: SecTrustRef): ServerFingerprint? {
         val chain = SecTrustCopyCertificateChain(trust) ?: return null
         try {
+            // SecTrustCopyCertificateChain returns a leaf-first CFArray, but an
+            // empty (still non-null) array is possible for a trust object that
+            // carries no certificate. CFArrayGetValueAtIndex is not bounds
+            // checked, so indexing 0 there is an out-of-bounds read whose
+            // garbage pointer would then be dereferenced by
+            // SecCertificateCopyData. Bound-check first: the Android
+            // X509TrustManager already fails closed on an empty chain, and T1
+            // requires both platforms to reach the same decision.
+            if (CFArrayGetCount(chain) <= 0) return null
             @Suppress("UNCHECKED_CAST")
             val leaf = CFArrayGetValueAtIndex(chain, 0) as SecCertificateRef?
                 ?: return null
