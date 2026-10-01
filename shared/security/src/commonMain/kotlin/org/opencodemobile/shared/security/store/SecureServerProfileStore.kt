@@ -71,18 +71,28 @@ public class SecureServerProfileStore(
             }
             fields[line.substring(0, separator)] = unescape(line.substring(separator + 1))
         }
+        return profileFrom(fields)
+    }
 
-        val id = fields[FIELD_ID].orEmpty()
-        val host = fields[FIELD_HOST].orEmpty()
+    /** Builds the [ServerProfile] from the decoded fields, validating port and TLS. */
+    private fun profileFrom(fields: Map<String, String>): ServerProfile {
         val port = fields[FIELD_PORT]?.toIntOrNull()
-            ?: throw SecureStoreException.CorruptedEntry(entryKey, "Stored server profile has no valid port")
         val tls = fields[FIELD_TLS]?.let { name ->
             ServerProfile.TlsMode.entries.firstOrNull { it.name == name }
-        } ?: throw SecureStoreException.CorruptedEntry(entryKey, "Stored server profile has no valid TLS mode")
+        }
+        if (port == null || tls == null) {
+            val detail = if (port == null) "no valid port" else "no valid TLS mode"
+            throw SecureStoreException.CorruptedEntry(entryKey, "Stored server profile has $detail")
+        }
         val label = fields[FIELD_LABEL]?.takeIf { it.isNotEmpty() }
-
         return try {
-            ServerProfile(id = id, host = host, port = port, label = label, tls = tls)
+            ServerProfile(
+                id = fields[FIELD_ID].orEmpty(),
+                host = fields[FIELD_HOST].orEmpty(),
+                port = port,
+                label = label,
+                tls = tls,
+            )
         } catch (failure: IllegalArgumentException) {
             throw SecureStoreException.CorruptedEntry(entryKey, "Stored server profile is invalid", failure)
         }

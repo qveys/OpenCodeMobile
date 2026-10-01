@@ -18,6 +18,7 @@ import org.opencodemobile.shared.domain.connection.ServerCredential
 import org.opencodemobile.shared.domain.connection.ServerHealth
 import org.opencodemobile.shared.domain.connection.ServerIdentityCheck
 import org.opencodemobile.shared.domain.connection.ServerIdentityException
+import org.opencodemobile.shared.domain.connection.ServerNetworkScope
 import org.opencodemobile.shared.domain.connection.ServerProfile
 import org.opencodemobile.shared.domain.connection.ServerVersion
 import org.opencodemobile.shared.security.identity.ServerIdentityAuthorization
@@ -87,15 +88,45 @@ public class OpenCodeV2Adapter(
         disconnect()
 
         // 1. Connection policy: fail closed before any request or credential release.
-        val scope = when (val policy = HttpConnectionPolicy.decide(profile)) {
+        val scope = decideScope(profile)
+
+        // 2. Identity is verified: only now may the credential be released.
+        val identityCheck = authorizeIdentity(profile)
+
+        credentialPermit = credential
+        authorizationsEnabled = true
+
+        val client = OpenCodeApiClient(
+            baseUrl = profile.baseUrl,
+            httpClient = httpClient,
+            authTokenProvider = { currentCredential() },
+        )
+
+        return try {
+            // 3. Health probe: the first request on the connection.
+            val health = probeHealth(client)
+            if (!health.healthy) throw HandshakeException.ServerUnhealthy()
+
+            // 4. Version gate, then the handshake.
+            buildHandshake(profile, health, identityCheck, scope)
+        } catch (failure: Throwable) {
+            disconnect()
+            throw failure
+        }
+    }
+
+    /** Evaluates [HttpConnectionPolicy] first, so a rejected profile never releases the credential. */
+    private fun decideScope(profile: ServerProfile): ServerNetworkScope =
+        when (val policy = HttpConnectionPolicy.decide(profile)) {
             is HttpConnectionPolicyDecision.Rejected ->
                 throw ConnectionPolicyException.Rejected(policy)
 
             is HttpConnectionPolicyDecision.Allowed -> policy.scope
         }
 
-        // 2. Identity is verified: only now may the credential be released.
-        val identityCheck = when (val authorization = identityGate.authorize(profile)) {
+    /** Runs the T1 identity gate and returns the identity descriptor to report. */
+    private suspend fun authorizeIdentity(profile: ServerProfile): ServerIdentityCheck =
+        when (val authorization = identityGate.authorize(profile)) {
             is ServerIdentityAuthorization.Authorized -> {
                 identityPin.setExpectedPin(authorization.fingerprint)
                 plaintextWarning = authorization.plaintextWarning
@@ -116,54 +147,47 @@ public class OpenCodeV2Adapter(
                 )
         }
 
-        credentialPermit = credential
-        authorizationsEnabled = true
+    /** Health probe: the first request on the connection. */
+    private suspend fun probeHealth(client: OpenCodeApiClient): ServerHealth {
+        val health = try {
+            client.getHealth()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (expected: Throwable) {
+            throw HandshakeException.HealthUnavailable(expected)
+        }
+        return ServerHealth(healthy = health.healthy, version = health.version)
+    }
 
-        val client = OpenCodeApiClient(
-            baseUrl = profile.baseUrl,
-            httpClient = httpClient,
-            authTokenProvider = { currentCredential() },
-        )
+    /** Applies the version gate and builds the handshake for an accepted server. */
+    private fun buildHandshake(
+        profile: ServerProfile,
+        health: ServerHealth,
+        identityCheck: ServerIdentityCheck,
+        scope: ServerNetworkScope,
+    ): ConnectionHandshake {
+        // Version gate: an absent, unparseable, or unknown version is
+        // incomplete, never implicitly compatible.
+        val compatibility = health.version
+            ?.let { raw -> ServerVersion.parseOrNull(raw) }
+            ?.let { version -> compatibilityProfile.evaluate(version) }
 
-        return try {
-            // 3. Health probe: the first request on the connection.
-            val health = try {
-                client.getHealth()
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (failure: Throwable) {
-                throw HandshakeException.HealthUnavailable(failure)
-            }
-
-            if (!health.healthy) throw HandshakeException.ServerUnhealthy()
-
-            // 4. Version gate: an absent or unparseable version is incomplete,
-            //    never implicitly compatible.
-            val version = ServerVersion.parseOrNull(health.version)
-                ?: throw HandshakeException.Incomplete(
+        return when (compatibility) {
+            null, CompatibilityResult.Unknown ->
+                throw HandshakeException.Incomplete(
                     "GET /global/health returned no parseable version ('${health.version}')",
                 )
 
-            when (val compatibility = compatibilityProfile.evaluate(version)) {
-                is CompatibilityResult.Compatible -> ConnectionHandshake(
-                    profileId = profile.id,
-                    health = ServerHealth(healthy = health.healthy, version = health.version),
-                    identity = identityCheck,
-                    version = compatibility.version,
-                    scope = scope,
-                )
+            is CompatibilityResult.Compatible -> ConnectionHandshake(
+                profileId = profile.id,
+                health = health,
+                identity = identityCheck,
+                version = compatibility.version,
+                scope = scope,
+            )
 
-                is CompatibilityResult.Incompatible ->
-                    throw HandshakeException.Incompatible(compatibility.serverVersion, compatibility.profile)
-
-                CompatibilityResult.Unknown ->
-                    throw HandshakeException.Incomplete(
-                        "GET /global/health returned no parseable version ('${health.version}')",
-                    )
-            }
-        } catch (failure: Throwable) {
-            disconnect()
-            throw failure
+            is CompatibilityResult.Incompatible ->
+                throw HandshakeException.Incompatible(compatibility.serverVersion, compatibility.profile)
         }
     }
 

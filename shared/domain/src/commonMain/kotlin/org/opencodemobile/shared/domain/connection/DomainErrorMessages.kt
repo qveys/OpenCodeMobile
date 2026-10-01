@@ -36,7 +36,16 @@ public data class DomainErrorPresentation(
  */
 public object DomainErrorMessages {
 
-    /** Renders [error] as user-facing text. */
+    /**
+     * Renders [error] as user-facing text.
+     *
+     * This is a pure, exhaustive mapping over the sealed [DomainError]
+     * hierarchy: one branch per failure mode, no branching logic of its own.
+     * The size comes from the number of failure modes, not from decision
+     * complexity, so `CyclomaticComplexMethod`/`LongMethod` are disabled here
+     * rather than shattering the mapping across a dozen one-line helpers.
+     */
+    @Suppress("CyclomaticComplexMethod", "LongMethod")
     public fun present(error: DomainError): DomainErrorPresentation = when (error) {
         is DomainError.Unreachable -> DomainErrorPresentation(
             titleKey = "domain_error.connection_unreachable.title",

@@ -116,56 +116,53 @@ public object ServerImportLink {
             return malformed(ServerInputProblem.UNKNOWN_SCHEME, raw)
         }
 
-        val rest = input.substring(schemeSeparator + 3)
-        if (rest.contains('#')) return malformed(ServerInputProblem.MALFORMED, raw)
-
-        val queryStart = rest.indexOf('?')
-        val target = if (queryStart >= 0) rest.substring(0, queryStart) else rest
-        val query = if (queryStart >= 0) rest.substring(queryStart + 1) else ""
-
-        if (target.trimEnd('/') != HOST) return malformed(ServerInputProblem.MALFORMED, raw)
+        val query = extractQuery(input.substring(schemeSeparator + 3))
+            ?: return malformed(ServerInputProblem.MALFORMED, raw)
         if (query.isEmpty()) return malformed(ServerInputProblem.MISSING_HOST, raw)
 
         val params = parseQuery(query) ?: return malformed(ServerInputProblem.MALFORMED, raw)
+        envelopeProblem(params)?.let { return malformed(it, raw) }
 
-        if (params.keys.any { it in CREDENTIAL_PARAMS }) {
-            return malformed(ServerInputProblem.CREDENTIALS_NOT_ALLOWED, raw)
-        }
-        params.keys.firstOrNull { it !in ALLOWED_PARAMS }?.let {
-            return malformed(ServerInputProblem.UNKNOWN_PARAMETER, raw)
-        }
+        return decodeProfile(params, raw)
+    }
 
-        params[PARAM_VERSION]?.let { version ->
-            if (version != SUPPORTED_VERSION.toString()) {
-                return malformed(ServerInputProblem.UNSUPPORTED_VERSION, raw)
-            }
-        }
+    /** Reads the query string from `import?…` (or `import`); null when the target is wrong. */
+    private fun extractQuery(rest: String): String? {
+        if (rest.contains('#')) return null
+        val queryStart = rest.indexOf('?')
+        val target = if (queryStart >= 0) rest.substring(0, queryStart) else rest
+        if (target.trimEnd('/') != HOST) return null
+        return if (queryStart >= 0) rest.substring(queryStart + 1) else ""
+    }
 
+    /** Validates the envelope: allowed names only, no credential (T8), supported version. */
+    private fun envelopeProblem(params: Map<String, String>): ServerInputProblem? {
+        if (params.keys.any { it in CREDENTIAL_PARAMS }) return ServerInputProblem.CREDENTIALS_NOT_ALLOWED
+        if (params.keys.any { it !in ALLOWED_PARAMS }) return ServerInputProblem.UNKNOWN_PARAMETER
+        val version = params[PARAM_VERSION] ?: return null
+        return if (version == SUPPORTED_VERSION.toString()) null else ServerInputProblem.UNSUPPORTED_VERSION
+    }
+
+    /** Turns validated parameters into a candidate profile. */
+    private fun decodeProfile(params: Map<String, String>, raw: String): ServerImportResult {
         val host = params[PARAM_HOST]?.takeIf { it.isNotBlank() }
             ?: return malformed(ServerInputProblem.MISSING_HOST, raw)
         ServerHostGrammar.problem(host)?.let { return malformed(it, raw) }
 
-        val port = when (val portText = params[PARAM_PORT]) {
-            null -> ServerAddressParser.DEFAULT_PORT
-            else -> {
-                ServerHostGrammar.portProblem(portText)?.let { return malformed(it, raw) }
-                portText.toIntOrNull() ?: return malformed(ServerInputProblem.INVALID_PORT, raw)
-            }
+        val portText = params[PARAM_PORT]
+        val port = if (portText == null) {
+            ServerAddressParser.DEFAULT_PORT
+        } else {
+            ServerHostGrammar.portProblem(portText)?.let { return malformed(it, raw) }
+            portText.toIntOrNull() ?: return malformed(ServerInputProblem.INVALID_PORT, raw)
         }
 
-        val tls = when (val tlsText = params[PARAM_TLS]?.lowercase()) {
-            null, "https" -> ServerProfile.TlsMode.Https
-            "http" -> ServerProfile.TlsMode.PlaintextHttp
-            else -> return malformed(ServerInputProblem.INVALID_TLS, raw)
-        }
+        val tls = parseTls(params[PARAM_TLS]) ?: return malformed(ServerInputProblem.INVALID_TLS, raw)
 
-        val fingerprint = when (val fpText = params[PARAM_FINGERPRINT]) {
-            null, "" -> null
-            else -> try {
-                ServerFingerprint.fromHex(fpText)
-            } catch (_: IllegalArgumentException) {
-                return malformed(ServerInputProblem.FINGERPRINT_INVALID, raw)
-            }
+        val fingerprint = try {
+            decodeFingerprint(params[PARAM_FINGERPRINT])
+        } catch (_: IllegalArgumentException) {
+            return malformed(ServerInputProblem.FINGERPRINT_INVALID, raw)
         }
 
         return ServerImportResult.Valid(
@@ -178,6 +175,15 @@ public object ServerImportLink {
             ),
         )
     }
+
+    private fun parseTls(value: String?): ServerProfile.TlsMode? = when (value?.lowercase()) {
+        null, "https" -> ServerProfile.TlsMode.Https
+        "http" -> ServerProfile.TlsMode.PlaintextHttp
+        else -> null
+    }
+
+    private fun decodeFingerprint(value: String?): ServerFingerprint? =
+        if (value.isNullOrEmpty()) null else ServerFingerprint.fromHex(value)
 
     /** Convenience: the decoded candidate, or null when [raw] is malformed. */
     public fun parseOrNull(raw: String): ImportedServerProfile? =

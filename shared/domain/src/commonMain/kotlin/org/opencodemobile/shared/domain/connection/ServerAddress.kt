@@ -86,31 +86,12 @@ public object ServerAddressParser {
             return invalid(ServerInputProblem.BLANK, raw, ServerAddressField.HOST)
         }
 
-        var rest = input
-        var tls = ServerProfile.TlsMode.Https
+        val scheme = parseScheme(input)
+            ?: return invalid(ServerInputProblem.UNKNOWN_SCHEME, raw, ServerAddressField.SCHEME)
 
-        val schemeSeparator = input.indexOf("://")
-        if (schemeSeparator >= 0) {
-            when (input.substring(0, schemeSeparator).lowercase()) {
-                "http" -> tls = ServerProfile.TlsMode.PlaintextHttp
-                "https" -> tls = ServerProfile.TlsMode.Https
-                else -> return invalid(ServerInputProblem.UNKNOWN_SCHEME, raw, ServerAddressField.SCHEME)
-            }
-            rest = input.substring(schemeSeparator + 3)
-        }
-
-        if (rest.contains('#') || rest.contains('?')) {
-            return invalid(ServerInputProblem.MALFORMED, raw, ServerAddressField.PATH)
-        }
-
-        val slash = rest.indexOf('/')
-        val authority = if (slash >= 0) rest.substring(0, slash) else rest
-        val path = if (slash >= 0) rest.substring(slash) else ""
-        if (path.isNotEmpty() && path != "/") {
-            return invalid(ServerInputProblem.PATH_NOT_ALLOWED, raw, ServerAddressField.PATH)
-        }
-        if (authority.contains('@')) {
-            return invalid(ServerInputProblem.CREDENTIALS_NOT_ALLOWED, raw, ServerAddressField.USER_INFO)
+        val authority = when (val extracted = extractAuthority(scheme.rest)) {
+            is AuthorityResult.Ok -> extracted.authority
+            is AuthorityResult.Failed -> return invalid(extracted.problem, raw, extracted.field)
         }
 
         val split = splitAuthority(authority)
@@ -136,12 +117,48 @@ public object ServerAddressParser {
             }
         }
 
-        return ServerAddressResult.Valid(ServerAddress(host = split.host, port = port, tls = tls))
+        return ServerAddressResult.Valid(ServerAddress(host = split.host, port = port, tls = scheme.tls))
     }
 
     /** Convenience: the parsed address, or null when [raw] is invalid. */
     public fun parseOrNull(raw: String): ServerAddress? =
         (parse(raw) as? ServerAddressResult.Valid)?.address
+
+    private data class ParsedScheme(val tls: ServerProfile.TlsMode, val rest: String)
+
+    /** Splits the optional `scheme://` prefix; null only for an unknown scheme. */
+    private fun parseScheme(input: String): ParsedScheme? {
+        val separator = input.indexOf("://")
+        if (separator < 0) return ParsedScheme(ServerProfile.TlsMode.Https, input)
+        val rest = input.substring(separator + 3)
+        return when (input.substring(0, separator).lowercase()) {
+            "http" -> ParsedScheme(ServerProfile.TlsMode.PlaintextHttp, rest)
+            "https" -> ParsedScheme(ServerProfile.TlsMode.Https, rest)
+            else -> null
+        }
+    }
+
+    private sealed interface AuthorityResult {
+        data class Ok(val authority: String) : AuthorityResult
+        data class Failed(val problem: ServerInputProblem, val field: ServerAddressField) : AuthorityResult
+    }
+
+    /** Validates and strips the path/query/fragment; user-info is rejected (T8). */
+    private fun extractAuthority(rest: String): AuthorityResult {
+        if (rest.contains('#') || rest.contains('?')) {
+            return AuthorityResult.Failed(ServerInputProblem.MALFORMED, ServerAddressField.PATH)
+        }
+        val slash = rest.indexOf('/')
+        val authority = if (slash >= 0) rest.substring(0, slash) else rest
+        val path = if (slash >= 0) rest.substring(slash) else ""
+        if (path.isNotEmpty() && path != "/") {
+            return AuthorityResult.Failed(ServerInputProblem.PATH_NOT_ALLOWED, ServerAddressField.PATH)
+        }
+        if (authority.contains('@')) {
+            return AuthorityResult.Failed(ServerInputProblem.CREDENTIALS_NOT_ALLOWED, ServerAddressField.USER_INFO)
+        }
+        return AuthorityResult.Ok(authority)
+    }
 
     private fun invalid(
         problem: ServerInputProblem,
@@ -183,25 +200,28 @@ public object ServerAddressParser {
  */
 internal object ServerHostGrammar {
 
+    /** Characters that can never appear in a host (path/query/user-info delimiters). */
+    private const val FORBIDDEN_HOST_CHARS = "/@?#[]"
+
+    /** IPv6 literal: hex groups, colons, and possibly an embedded IPv4 tail. */
+    private const val IPV6_HOST_CHARS = "0123456789abcdefABCDEF:."
+
+    /** Extra hostname characters on top of letters and digits. */
+    private const val HOSTNAME_EXTRA_CHARS = ".-_"
+
     /** Returns the problem with [host], or null when it is a valid host. */
     fun problem(host: String): ServerInputProblem? {
         if (host.isEmpty()) return ServerInputProblem.MISSING_HOST
         if (host.any { it.isWhitespace() }) return ServerInputProblem.INVALID_HOST
-        if (host.any { it == '/' || it == '@' || it == '?' || it == '#' || it == '[' || it == ']' }) {
-            return ServerInputProblem.INVALID_HOST
-        }
-        if (host.contains(':')) {
-            // IPv6 literal: hex groups, colons, and possibly an embedded IPv4 tail.
-            if (!host.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' || it == ':' || it == '.' }) {
-                return ServerInputProblem.INVALID_HOST
-            }
-            return null
-        }
-        if (!host.all { it.isLetterOrDigit() || it == '.' || it == '-' || it == '_' }) {
-            return ServerInputProblem.INVALID_HOST
-        }
-        return null
+        if (host.any { it in FORBIDDEN_HOST_CHARS }) return ServerInputProblem.INVALID_HOST
+        val valid = if (host.contains(':')) host.all(::isIpv6HostChar) else host.all(::isHostnameChar)
+        return if (valid) null else ServerInputProblem.INVALID_HOST
     }
+
+    private fun isIpv6HostChar(character: Char): Boolean = character in IPV6_HOST_CHARS
+
+    private fun isHostnameChar(character: Char): Boolean =
+        character.isLetterOrDigit() || character in HOSTNAME_EXTRA_CHARS
 
     /** Returns the problem with [portText], or null when it is a valid port. */
     fun portProblem(portText: String): ServerInputProblem? {

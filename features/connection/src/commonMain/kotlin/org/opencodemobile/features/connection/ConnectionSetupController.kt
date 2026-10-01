@@ -92,7 +92,10 @@ public class ConnectionSetupController(
     /** Persists the reviewed profile (the "Add server" / "Update server" action). */
     public fun confirmReview() {
         val plan = lastPlan ?: return
-        connect(plan)
+        scope.launch {
+            mutableState.update { it.copy(busy = true, failure = null) }
+            proceed(plan)
+        }
     }
 
     /** Dismisses the review screen without persisting anything. */
@@ -112,14 +115,7 @@ public class ConnectionSetupController(
         val presented = mutableState.value.identityPrompt ?: return
         scope.launch {
             mutableState.update { it.copy(identityPrompt = null, busy = true) }
-            try {
-                identityConfirmer(plan.profile, presented)
-            } catch (failure: CancellationException) {
-                throw failure
-            } catch (failure: Throwable) {
-                mutableState.update { it.copy(busy = false, failure = failure.toDomainError().failureMessage()) }
-                return@launch
-            }
+            if (guarded(mutableState) { identityConfirmer(plan.profile, presented) }.isFailure) return@launch
             proceed(plan)
         }
     }
@@ -127,22 +123,9 @@ public class ConnectionSetupController(
     private fun openReview(plan: ServerSetupPlan) {
         lastPlan = plan
         scope.launch {
-            val existing = try {
-                existingProfileProvider()
-            } catch (failure: CancellationException) {
-                throw failure
-            } catch (failure: Throwable) {
-                mutableState.update { it.copy(busy = false, failure = failure.toDomainError().failureMessage()) }
-                return@launch
-            }
-            val pinned = try {
-                existing?.let { existingFingerprintProvider(it) }
-            } catch (failure: CancellationException) {
-                throw failure
-            } catch (failure: Throwable) {
-                mutableState.update { it.copy(busy = false, failure = failure.toDomainError().failureMessage()) }
-                return@launch
-            }
+            val existing = guarded(mutableState) { existingProfileProvider() }.getOrElse { return@launch }
+            val pinned = existing
+                ?.let { guarded(mutableState) { existingFingerprintProvider(it) }.getOrElse { return@launch } }
             mutableState.update {
                 it.copy(
                     review = plan,
@@ -156,22 +139,9 @@ public class ConnectionSetupController(
         }
     }
 
-    private fun connect(plan: ServerSetupPlan) {
-        scope.launch {
-            mutableState.update { it.copy(busy = true, failure = null) }
-            proceed(plan)
-        }
-    }
-
     private suspend fun proceed(plan: ServerSetupPlan) {
-        val credential = try {
-            credentialProvider(plan.profile)
-        } catch (failure: CancellationException) {
-            throw failure
-        } catch (failure: Throwable) {
-            mutableState.update { it.copy(busy = false, failure = failure.toDomainError().failureMessage()) }
-            return
-        }
+        val credential = guarded(mutableState) { credentialProvider(plan.profile) }
+            .getOrElse { return }
 
         when (val result = setup.validate(plan, credential)) {
             is ConnectionValidation.Connected -> {
@@ -193,3 +163,25 @@ public class ConnectionSetupController(
         mutableState.update { it.copy(failure = null) }
     }
 }
+
+/**
+ * Runs an injected provider, mapping any non-cancellation failure to the
+ * controller's failure banner and returning a failed [Result] so the caller
+ * can abort.
+ * Cancellation is rethrown so coroutine teardown is never swallowed. The
+ * generic [Throwable] catch is deliberate — the ports may fail in any way and
+ * the UI needs a single typed decision surface — and is marked as deliberate
+ * by the `expected` name detekt recognises.
+ */
+private suspend fun <T> guarded(
+    state: MutableStateFlow<ConnectionSetupUiState>,
+    block: suspend () -> T,
+): Result<T> =
+    try {
+        Result.success(block())
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (expected: Throwable) {
+        state.update { it.copy(busy = false, failure = expected.toDomainError().failureMessage()) }
+        Result.failure(expected)
+    }

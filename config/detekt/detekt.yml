@@ -20,6 +20,16 @@
 #   - the loudest pure-style `style` rules (line length, magic numbers,
 #     wildcard imports, trailing newline, return count, `check` vs `throw`).
 #     `UnusedPrivateProperty` and the rest of `style` stay on.
+#
+# Baseline (OPE-221) — paid down by OPE-233; no baseline file remains.
+#
+# The L1 connection lot (PR #30) briefly carried a `detekt-baseline.xml` so its
+# approved, security-reviewed diff could merge without a lint-only rewrite that
+# would have invalidated the review. OPE-233 paid that debt down: the real
+# defects (exception handling, dead code, declaration name) are fixed and the
+# complexity hotspots are refactored or documented, so the baseline file is
+# deleted. Do not reintroduce one: fix the finding, or disable the single noisy
+# rule with a comment here.
 
 build:
   # One issue fails the gate. Keep the bar at zero; if a rule proves noisy,
@@ -36,6 +46,14 @@ comments:
 
 complexity:
   active: true
+  LongParameterList:
+    # Compose entry points thread one state object plus one callback per event
+    # through the tree by design; that is the documented Compose pattern, not a
+    # design smell. The rule still checks every non-composable function.
+    ignoreAnnotated: ['Composable']
+    # Optional dependencies and Compose `modifier` defaults are not parameter
+    # coupling; only required parameters count toward the threshold.
+    ignoreDefaultParameters: true
 
 coroutines:
   active: true

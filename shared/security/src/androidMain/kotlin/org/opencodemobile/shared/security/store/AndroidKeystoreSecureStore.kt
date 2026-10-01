@@ -99,7 +99,10 @@ public class AndroidKeystoreSecureStore(
     override suspend fun destroy(): Unit = withContext(ioDispatcher) {
         mutex.withLock {
             preferences.edit().clear().commit()
-            deleteKey()
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            if (keyStore.containsAlias(keyAlias)) {
+                keyStore.deleteEntry(keyAlias)
+            }
         }
     }
 
@@ -117,9 +120,13 @@ public class AndroidKeystoreSecureStore(
         if (parts.size != 2) {
             throw SecureStoreException.CorruptedEntry(key, "Malformed ciphertext for key '$key'")
         }
-        return try {
-            val iv = Base64.decode(parts[0], Base64.NO_WRAP)
-            val ciphertext = Base64.decode(parts[1], Base64.NO_WRAP)
+        return decryptParts(key, parts[0], parts[1])
+    }
+
+    private fun decryptParts(key: String, encodedIv: String, encodedCiphertext: String): String =
+        try {
+            val iv = Base64.decode(encodedIv, Base64.NO_WRAP)
+            val ciphertext = Base64.decode(encodedCiphertext, Base64.NO_WRAP)
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.DECRYPT_MODE, secretKey(createIfMissing = false), GCMParameterSpec(GCM_TAG_BITS, iv))
             cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
@@ -128,7 +135,6 @@ public class AndroidKeystoreSecureStore(
         } catch (failure: IllegalArgumentException) {
             throw SecureStoreException.CorruptedEntry(key, "Could not decode the entry for key '$key'", failure)
         }
-    }
 
     /**
      * Reads the dedicated key from the Keystore without creating it. Returns
@@ -151,11 +157,14 @@ public class AndroidKeystoreSecureStore(
      * API 31) and reports the TEE and StrongBox cases alike.
      */
     private fun isHardwareBacked(): Boolean {
+        // A missing key or an unreadable descriptor is the documented "not
+        // hardware-backed" answer, not a failure: the exceptions are expected
+        // and intentionally discarded (detekt names this `expected`).
         val key = try {
             readSecretKey()
-        } catch (failure: GeneralSecurityException) {
+        } catch (expected: GeneralSecurityException) {
             null
-        } catch (failure: IOException) {
+        } catch (expected: IOException) {
             null
         } ?: return false
 
@@ -167,9 +176,9 @@ public class AndroidKeystoreSecureStore(
                 KeyProperties.SECURITY_LEVEL_STRONGBOX -> true
                 else -> false
             }
-        } catch (failure: GeneralSecurityException) {
+        } catch (expected: GeneralSecurityException) {
             false
-        } catch (failure: IllegalArgumentException) {
+        } catch (expected: IllegalArgumentException) {
             false
         }
     }
@@ -200,13 +209,6 @@ public class AndroidKeystoreSecureStore(
                 "The dedicated key '$keyAlias' is unavailable; refusing to fall back to plaintext",
                 failure,
             )
-        }
-    }
-
-    private fun deleteKey() {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        if (keyStore.containsAlias(keyAlias)) {
-            keyStore.deleteEntry(keyAlias)
         }
     }
 

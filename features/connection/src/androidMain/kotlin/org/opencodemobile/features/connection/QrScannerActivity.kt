@@ -117,14 +117,38 @@ private fun QrScannerContent(
 ) {
     val context = LocalContext.current
     val previewView = remember { PreviewView(context) }
-    val analysisExecutor: ExecutorService = remember { Executors.newSingleThreadExecutor() }
-    val scanner: BarcodeScanner = remember {
-        BarcodeScanning.getClient(
-            BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-                .build(),
-        )
+    val scanner = remember { createQrScanner() }
+
+    CameraBinding(lifecycleOwner, previewView, scanner, onPayload)
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+        OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp),
+        ) {
+            Text("Cancel")
+        }
     }
+}
+
+private fun createQrScanner(): BarcodeScanner =
+    BarcodeScanning.getClient(
+        BarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .build(),
+    )
+
+/** Binds the camera preview and analyzer to [lifecycleOwner], releasing both on dispose. */
+@Composable
+private fun CameraBinding(
+    lifecycleOwner: LifecycleOwner,
+    previewView: PreviewView,
+    scanner: BarcodeScanner,
+    onPayload: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val analysisExecutor: ExecutorService = remember { Executors.newSingleThreadExecutor() }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     val delivered = remember { AtomicBoolean(false) }
 
@@ -169,16 +193,6 @@ private fun QrScannerContent(
         onDispose {
             scanner.close()
             analysisExecutor.shutdown()
-        }
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
-        OutlinedButton(
-            onClick = onCancel,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp),
-        ) {
-            Text("Cancel")
         }
     }
 }

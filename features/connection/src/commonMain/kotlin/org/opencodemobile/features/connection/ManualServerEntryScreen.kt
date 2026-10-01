@@ -42,63 +42,82 @@ public fun ManualServerEntryScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(text = "Connect to a server", style = MaterialTheme.typography.headlineSmall)
-
-        OutlinedTextField(
-            value = state.address,
-            onValueChange = onAddressChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Server address") },
-            placeholder = { Text("192.168.1.10:4096 or https://host") },
-            singleLine = true,
-            isError = state.manualError != null,
-            enabled = !state.busy,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
-        )
-
-        OutlinedTextField(
-            value = state.label,
-            onValueChange = onLabelChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Label (optional)") },
-            singleLine = true,
-            enabled = !state.busy,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-        )
-
-        state.manualError?.let { error ->
-            Text(text = error.message(), color = MaterialTheme.colorScheme.error)
-        }
-        if (state.scanFailed) {
-            Text(
-                text = "That QR code is not an OpenCode Mobile import link.",
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-        state.failure?.let { failure ->
-            Text(text = failure, color = MaterialTheme.colorScheme.error)
-        }
-
-        Button(
-            onClick = onSubmit,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !state.busy,
-        ) {
-            Text("Connect")
-        }
-
-        if (onScanRequest != null) {
-            OutlinedButton(
-                onClick = onScanRequest,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.busy,
-            ) {
-                Text("Scan QR code")
-            }
-        }
-
+        AddressField(state, onAddressChange)
+        LabelField(state, onLabelChange)
+        ManualEntryMessages(state)
+        ManualEntryActions(state, onSubmit, onScanRequest)
         if (state.busy) {
             Spacer(Modifier.height(4.dp))
             CircularProgressIndicator()
+        }
+    }
+}
+
+@Composable
+private fun AddressField(state: ConnectionSetupUiState, onAddressChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = state.address,
+        onValueChange = onAddressChange,
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text("Server address") },
+        placeholder = { Text("192.168.1.10:4096 or https://host") },
+        singleLine = true,
+        isError = state.manualError != null,
+        enabled = !state.busy,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+    )
+}
+
+@Composable
+private fun LabelField(state: ConnectionSetupUiState, onLabelChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = state.label,
+        onValueChange = onLabelChange,
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text("Label (optional)") },
+        singleLine = true,
+        enabled = !state.busy,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+    )
+}
+
+@Composable
+private fun ManualEntryMessages(state: ConnectionSetupUiState) {
+    state.manualError?.let { error ->
+        Text(text = error.message(), color = MaterialTheme.colorScheme.error)
+    }
+    if (state.scanFailed) {
+        Text(
+            text = "That QR code is not an OpenCode Mobile import link.",
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+    state.failure?.let { failure ->
+        Text(text = failure, color = MaterialTheme.colorScheme.error)
+    }
+}
+
+@Composable
+private fun ManualEntryActions(
+    state: ConnectionSetupUiState,
+    onSubmit: () -> Unit,
+    onScanRequest: (() -> Unit)?,
+) {
+    Button(
+        onClick = onSubmit,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = !state.busy,
+    ) {
+        Text("Connect")
+    }
+
+    if (onScanRequest != null) {
+        OutlinedButton(
+            onClick = onScanRequest,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.busy,
+        ) {
+            Text("Scan QR code")
         }
     }
 }

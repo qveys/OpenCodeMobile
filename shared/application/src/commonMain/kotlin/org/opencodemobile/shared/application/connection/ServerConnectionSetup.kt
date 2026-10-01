@@ -141,10 +141,12 @@ public class ServerConnectionSetup(
     ): ConnectionValidation {
         return try {
             ConnectionValidation.Connected(gateway.connect(plan.profile, credential))
-        } catch (failure: CancellationException) {
-            throw failure
-        } catch (failure: Throwable) {
-            ConnectionValidation.Rejected(failure.toDomainError())
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (expected: Throwable) {
+            // Any non-cancellation gateway failure is mapped to the typed
+            // DomainError hierarchy; `expected` marks the intended generic catch.
+            ConnectionValidation.Rejected(expected.toDomainError())
         }
     }
 }

@@ -13,6 +13,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import org.opencodemobile.shared.application.connection.ServerSetupPlan
+import org.opencodemobile.shared.domain.connection.ServerFingerprint
 
 /**
  * The single review screen every import source (manual entry, QR, deep link)
@@ -38,7 +40,6 @@ public fun ServerImportReviewScreen(
     modifier: Modifier = Modifier,
 ) {
     val plan = state.review ?: return
-    val profile = plan.profile
     val updating = state.updatesExistingProfile
 
     Column(
@@ -49,78 +50,101 @@ public fun ServerImportReviewScreen(
             text = if (updating) "Update existing server?" else "Add server",
             style = MaterialTheme.typography.headlineSmall,
         )
-
-        // Full target disclosure: nothing elided.
-        ReviewRow("Host", profile.host)
-        ReviewRow("Port", profile.port.toString())
-        ReviewRow("Transport", if (profile.isPlaintextHttp) "Plaintext HTTP (no TLS)" else "HTTPS")
-        plan.fingerprint?.let { fingerprint ->
-            ReviewRow("Fingerprint", fingerprint.colonSeparated)
-        }
-        ReviewRow("Source", plan.source.displayName())
-
+        TargetDetails(plan)
         if (plan.isPlaintext) {
-            Text(
-                text = "Warning: this server uses plaintext HTTP. Traffic and credentials are readable on the network.",
-                color = MaterialTheme.colorScheme.error,
-            )
+            PlaintextWarning()
         }
-
         if (updating) {
-            HorizontalDivider()
-            Text(text = "A server with this address is already stored.", style = MaterialTheme.typography.bodyMedium)
-            val existing = state.existingProfile
-            if (existing != null) {
-                ReviewRow("Current label", existing.label ?: "(none)")
-                ReviewRow("Current address", existing.authority)
-                state.existingFingerprint?.let { pinned ->
-                    ReviewRow("Current fingerprint", pinned.colonSeparated)
-                }
-            }
+            ExistingProfileSection(state)
         }
-
         state.identityPrompt?.let { presented ->
-            HorizontalDivider()
-            Text(
-                text = "First contact with this server. Confirm its identity before connecting:",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            ReviewRow("Presented fingerprint", presented.colonSeparated)
+            IdentityPromptSection(presented)
         }
-
         state.failure?.let { failure ->
             Text(text = failure, color = MaterialTheme.colorScheme.error)
         }
-
-        if (state.identityPrompt != null) {
-            Button(
-                onClick = onConfirmIdentity,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.busy,
-            ) {
-                Text("Trust this server")
-            }
-        } else {
-            Button(
-                onClick = onConfirm,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.busy,
-            ) {
-                Text(if (updating) "Update server" else "Add server")
-            }
-        }
-
-        TextButton(
-            onClick = onCancel,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !state.busy,
-        ) {
-            Text("Cancel")
-        }
-
+        ReviewActions(state, onConfirm, onConfirmIdentity, onCancel)
         if (state.busy) {
             CircularProgressIndicator()
         }
+    }
+}
+
+/** Full target disclosure: nothing is elided. */
+@Composable
+private fun TargetDetails(plan: ServerSetupPlan) {
+    val profile = plan.profile
+    ReviewRow("Host", profile.host)
+    ReviewRow("Port", profile.port.toString())
+    ReviewRow("Transport", if (profile.isPlaintextHttp) "Plaintext HTTP (no TLS)" else "HTTPS")
+    plan.fingerprint?.let { fingerprint ->
+        ReviewRow("Fingerprint", fingerprint.colonSeparated)
+    }
+    ReviewRow("Source", plan.source.displayName())
+}
+
+@Composable
+private fun PlaintextWarning() {
+    Text(
+        text = "Warning: this server uses plaintext HTTP. Traffic and credentials are readable on the network.",
+        color = MaterialTheme.colorScheme.error,
+    )
+}
+
+@Composable
+private fun ExistingProfileSection(state: ConnectionSetupUiState) {
+    HorizontalDivider()
+    Text(text = "A server with this address is already stored.", style = MaterialTheme.typography.bodyMedium)
+    state.existingProfile?.let { existing ->
+        ReviewRow("Current label", existing.label ?: "(none)")
+        ReviewRow("Current address", existing.authority)
+        state.existingFingerprint?.let { pinned ->
+            ReviewRow("Current fingerprint", pinned.colonSeparated)
+        }
+    }
+}
+
+@Composable
+private fun IdentityPromptSection(presented: ServerFingerprint) {
+    HorizontalDivider()
+    Text(
+        text = "First contact with this server. Confirm its identity before connecting:",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    ReviewRow("Presented fingerprint", presented.colonSeparated)
+}
+
+@Composable
+private fun ReviewActions(
+    state: ConnectionSetupUiState,
+    onConfirm: () -> Unit,
+    onConfirmIdentity: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    if (state.identityPrompt != null) {
+        Button(
+            onClick = onConfirmIdentity,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.busy,
+        ) {
+            Text("Trust this server")
+        }
+    } else {
+        Button(
+            onClick = onConfirm,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.busy,
+        ) {
+            Text(if (state.updatesExistingProfile) "Update server" else "Add server")
+        }
+    }
+
+    TextButton(
+        onClick = onCancel,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = !state.busy,
+    ) {
+        Text("Cancel")
     }
 }
 
