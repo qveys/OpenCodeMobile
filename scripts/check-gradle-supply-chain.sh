@@ -13,14 +13,18 @@
 #   3. gradle/wrapper/gradle-wrapper.jar matches its committed SHA-256. The JAR
 #      is executable code that every build runs before Gradle even starts, and it
 #      is not covered by the distribution checksum.
-#   4. gradle/verification-metadata.xml is present, so every resolved artifact
-#      (including transitive OkHttp/Netty/etc.) is pinned to a SHA-256 and a
-#      substitution from Maven Central becomes detectable. It is committed and
-#      required; regenerating it needs a JDK and Maven Central access. See
-#      docs/SECURITY-REVIEW.md SEC-05.
+#   4. gradle/verification-metadata.xml is present AND actually pins artifacts:
+#      at least one component carrying at least one SHA-256, no artifact left
+#      without a checksum or a signature entry, and <verify-metadata> not
+#      downgraded to false. A presence check cannot tell "pins 1609 artifacts"
+#      from "pins none", so this one is parsed rather than grepped. It is
+#      committed and required; regenerating it needs a JDK and Maven Central
+#      access. See docs/SECURITY-REVIEW.md SEC-05.
 #
 # Deliberately independent of the Gradle build (no JDK required) so it can run on
-# every pull request.
+# every pull request. Control 4 parses XML with python3 (standard library only,
+# no network); python3 must exist on the runner and the gate fails closed when
+# it does not.
 #
 # Exit 0 when the toolchain is pinned, exit 1 otherwise.
 
@@ -82,12 +86,129 @@ fi
 
 VERIFICATION_METADATA="gradle/verification-metadata.xml"
 
-if [ ! -f "$VERIFICATION_METADATA" ]; then
+# This control used to be `grep -q '<components>'`. A substring test is not a
+# parse: it cannot tell a document that pins 1609 artifacts from one that pins
+# none. An empty <components> element — or a file whose only occurrence of the
+# string is inside an XML comment — passed, and the gate then printed
+# "[ok] ... pins resolved dependency checksums". A one-line deletion of every
+# <component> block would therefore have turned dependency verification off
+# while the required SEC-05 check stayed green. The document is now parsed and
+# its content measured: at least one component, at least one SHA-256 checksum,
+# no artifact left without either a checksum or a signature entry, and
+# <verify-metadata> not downgraded to false.
+#
+# python3 does that parse with the standard library (no third-party module, no
+# network). It is required, and it fails closed: a runner without it reports the
+# control as unverifiable rather than skipping it.
+verify_metadata() {
+  python3 - "$1" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+PATH = sys.argv[1]
+CHECKSUM_TAGS = frozenset(("sha256", "sha1", "md5"))
+SIGNATURE_TAGS = frozenset(("trusting-key", "trusted-key"))
+
+
+def local(tag):
+    """Element name without the XML namespace Gradle declares."""
+    return tag.rsplit("}", 1)[-1]
+
+
+def refuse(message):
+    print(message)
+    sys.exit(1)
+
+
+try:
+    root = ET.parse(PATH).getroot()
+except ET.ParseError as exc:
+    refuse("%s is not well-formed XML (%s); Gradle cannot read it, so it pins nothing (SEC-05)." % (PATH, exc))
+except OSError as exc:
+    refuse("%s cannot be read (%s) (SEC-05)." % (PATH, exc))
+
+if local(root.tag) != "verification-metadata":
+    refuse("%s has root element <%s>, not <verification-metadata>: this is not Gradle dependency-verification metadata (SEC-05)." % (PATH, local(root.tag)))
+
+components_sections = [child for child in root if local(child.tag) == "components"]
+if not components_sections:
+    refuse("%s declares no <components> section; it pins no artifact checksum at all (SEC-05)." % PATH)
+
+components = [
+    component
+    for section in components_sections
+    for component in section
+    if local(component.tag) == "component"
+]
+if not components:
+    refuse("%s has an empty <components> section; it pins no component, so dependency verification proves nothing (SEC-05)." % PATH)
+
+sha256_count = 0
+artifact_count = 0
+unpinned = []
+for component in components:
+    for artifact in component:
+        if local(artifact.tag) != "artifact":
+            continue
+        artifact_count += 1
+        children = frozenset(local(child.tag) for child in artifact)
+        sha256_count += len([child for child in artifact if local(child.tag) == "sha256"])
+        if not children & (CHECKSUM_TAGS | SIGNATURE_TAGS):
+            unpinned.append(
+                "%s:%s:%s/%s"
+                % (
+                    component.get("group", "?"),
+                    component.get("name", "?"),
+                    component.get("version", "?"),
+                    artifact.get("name", "?"),
+                )
+            )
+
+if unpinned:
+    shown = ", ".join(unpinned[:5])
+    rest = " (+%d more)" % (len(unpinned) - 5) if len(unpinned) > 5 else ""
+    refuse(
+        "%s leaves %d artifact(s) with neither a checksum nor a signature entry: %s%s (SEC-05)."
+        % (PATH, len(unpinned), shown, rest)
+    )
+
+if sha256_count == 0:
+    refuse(
+        "%s pins %d artifact(s) but not one SHA-256 checksum; without SHA-256 an artifact substitution is cheap to arrange (SEC-05)."
+        % (PATH, artifact_count)
+    )
+
+for configuration in root:
+    if local(configuration.tag) != "configuration":
+        continue
+    for flag in configuration:
+        if local(flag.tag) == "verify-metadata" and (flag.text or "").strip().lower() != "true":
+            refuse(
+                "%s sets <verify-metadata> to '%s', which turns POM metadata verification off (SEC-05)."
+                % (PATH, (flag.text or "").strip())
+            )
+
+print(
+    "gradle/verification-metadata.xml pins %d SHA-256 checksum(s) across %d component(s) / %d artifact(s)."
+    % (sha256_count, len(components), artifact_count)
+)
+PY
+}
+
+if ! command -v python3 >/dev/null 2>&1; then
+  fail_with "python3 is required to parse $VERIFICATION_METADATA and is not on PATH; the SEC-05 dependency-checksum control cannot be verified. Install it (Debian/Ubuntu: apt-get install -y python3)."
+elif [ ! -f "$VERIFICATION_METADATA" ]; then
   fail_with "Missing $VERIFICATION_METADATA; transitive dependency resolution is not pinned to checksums (SEC-05). Generate it with: ./gradlew --write-verification-metadata sha256 <task>"
-elif ! grep -q '<components>' "$VERIFICATION_METADATA"; then
-  fail_with "$VERIFICATION_METADATA has no <components> section; it does not pin any artifact checksums (SEC-05)."
 else
-  printf '  [ok] gradle/verification-metadata.xml is present and pins resolved dependency checksums.\n'
+  # On success the parser prints one `pinned N checksum(s)` line. On failure it
+  # prints one `refuse` line per violated rule and exits non-zero.
+  if metadata_report="$(verify_metadata "$VERIFICATION_METADATA" 2>&1)"; then
+    printf '  [ok] %s\n' "$metadata_report"
+  else
+    while IFS= read -r problem; do
+      [ -n "$problem" ] && fail_with "$problem"
+    done <<< "$metadata_report"
+  fi
 fi
 
 if [ "$fail" -ne 0 ]; then

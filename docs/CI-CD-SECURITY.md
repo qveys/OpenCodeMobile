@@ -20,7 +20,7 @@ against this policy:
 | Fork PR CI uses `pull_request`, not `pull_request_target` | **Compliant** | `ci.yml` triggers on `pull_request: branches: [main]` only |
 | CI workflow has no secrets | **Compliant** | `ci.yml` references no `secrets.*` |
 | CD/signing restricted to protected-branch pushes | **Compliant so far** | `cd.yml` triggers on `push: branches: [main]` only, no tag/PR triggers |
-| Actions pinned to full commit SHA (not floating tags) | **Compliant** | all `uses:` steps pin `@<sha> # vX.Y.Z` |
+| Actions pinned to full commit SHA (not floating tags) | **Compliant** | all `uses:` steps pin `@<sha> # vX.Y.Z`; enforced by `scripts/check-workflow-action-pinning.sh` (SEC-04), which also rejects a container action on a tag |
 | Explicit least-privilege `permissions:` block | **Gap** | neither workflow sets `permissions:`, so jobs run with the repo's default token scope instead of an explicit minimum |
 | Signing/upload implemented with short-lived creds | **N/A yet** | `deploy` job in `cd.yml` is a placeholder (OPE-19); no signing secrets exist yet — this policy governs how it must be built |
 | GitHub Environment protection (required reviewers) on deploy job | **Gap** | `deploy` has no `environment:` — nothing currently stops it from running unattended on every `main` push once implemented |
@@ -109,12 +109,12 @@ implement against, so verification isn't duplicated inside T10/OPE-23 itself.
 - [ ] No secret is readable by a job triggered from a fork PR
 - [ ] Signing/upload jobs are gated by a GitHub Environment with required reviewers
 - [ ] Signing/upload jobs only trigger on protected `main`/release-tag pushes
-- [ ] New/changed `uses:` steps are pinned to a full commit SHA, not a floating tag
+- [ ] New/changed `uses:` steps are pinned to a full commit SHA, not a floating tag. This covers a repository action, a sub-path action (`owner/repo/path/to/action`) and a reusable workflow (`owner/repo/.github/workflows/x.yml`) alike; a container action (`docker://`) is pinned to an image digest, never to a tag. Local `./path` steps are exempt
       (enforced by `scripts/check-workflow-action-pinning.sh`, SEC-04)
 - [ ] `gradle/wrapper/gradle-wrapper.properties` still carries a `distributionSha256Sum` and an `https` `distributionUrl`, and `gradle/wrapper/gradle-wrapper.jar.sha256` matches the committed wrapper JAR
       (enforced by `scripts/check-gradle-supply-chain.sh`, SEC-05)
-- [ ] `gradle/verification-metadata.xml` is committed and still pins a SHA-256 for every resolved artifact, and every Gradle invocation in CI still resolves cleanly under strict dependency verification
-      (enforced by `scripts/check-gradle-supply-chain.sh`, SEC-05)
+- [ ] `gradle/verification-metadata.xml` is committed, parses, and still pins a SHA-256 for every resolved artifact, and every Gradle invocation in CI still resolves cleanly under strict dependency verification
+      (enforced by `scripts/check-gradle-supply-chain.sh`, SEC-05; the gate needs `python3` on the runner and fails closed without it)
 - [ ] `permissions:` is explicit and least-privilege
 - [ ] No credential value is printed to logs (`::add-mask::` used for any dynamically generated secret)
 - [ ] Static long-lived store credentials are used only where OIDC/short-lived auth isn't supported by the target platform
