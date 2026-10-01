@@ -28,5 +28,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Mark the workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Verify executable-intent files are mode 100755
         run: bash scripts/check-executable-bits.sh
