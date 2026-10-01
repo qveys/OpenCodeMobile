@@ -71,3 +71,46 @@ jobs:
               cat "$f"
             fi
           done
+
+  # -------------------------------------------------------------------------
+  # OPE-220 — TEMPORARY. Removed again before PR #24 is final.
+  #
+  # Regenerating gradle/verification-metadata.xml correctly needs a machine that
+  # can reach BOTH Maven Central and the Gradle Plugin Portal: the Portal serves
+  # different bytes than Central for some plugin marker POMs, so regenerating
+  # from Central alone silently corrupts those pins.
+  #
+  # The agent environment cannot reach plugins.gradle.org. This job runs the
+  # prescribed `--write-verification-metadata` command on the self-hosted runner,
+  # which can, and prints the resulting diff to the log for review.
+  #
+  # It is gated on `workflow_dispatch` only, so the `lint` gate above is
+  # untouched on every pull request and push. The job holds read-only
+  # permissions and never commits anything.
+  regen-verification-metadata:
+    name: regen verification metadata (OPE-220)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, hostinger]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Regenerate detekt checksums
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          chmod +x gradlew
+          java -version
+          echo "OPE220-REGEN-HEAD=$(git rev-parse HEAD)"
+          echo "OPE220-REGEN-BASELINE=$(sha256sum gradle/verification-metadata.xml | cut -d' ' -f1)"
+          # --configure-on-demand keeps Gradle to the root project, where the
+          # detekt plugin is declared.
+          ./gradlew --configure-on-demand --no-daemon --console=plain \
+            --write-verification-metadata sha256 detekt help || true
+      - name: Publish the verification-metadata diff
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "===== OPE220-BEGIN-DIFF ====="
+          git --no-pager diff --stat gradle/verification-metadata.xml || true
+          git --no-pager diff gradle/verification-metadata.xml || true
+          echo "===== OPE220-END-DIFF ====="
