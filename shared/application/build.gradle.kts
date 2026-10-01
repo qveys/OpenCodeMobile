@@ -25,6 +25,13 @@ kotlin {
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
+            // V1-06 ingress end to end: the permission surface is driven by the
+            // real EventProcessor pipeline + gateway against MockOpenCodeServer.
+            implementation(project(":shared:realtime"))
+            implementation(project(":shared:networking"))
+            implementation(project(":shared:test-support"))
+            implementation(libs.ktor.client.core)
         }
     }
 }
