@@ -39,6 +39,8 @@ include(":features:transcript")
 include(":features:composer")
 include(":features:files")
 include(":features:permissions")
+include(":features:questions")
+include(":features:catalog")
 include(":features:settings")
 
 // design-system/ — theme, typography, CMP components
