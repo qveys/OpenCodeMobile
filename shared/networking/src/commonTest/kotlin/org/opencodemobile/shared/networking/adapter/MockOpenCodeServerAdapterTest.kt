@@ -42,7 +42,9 @@ class MockOpenCodeServerAdapterTest {
 
     private val profile = ServerProfile(
         id = "mock-profile",
-        host = "mock.opencode.test",
+        // Loopback so the plaintext-HTTP profile passes HttpConnectionPolicy
+        // (a public plaintext host is rejected by design, OPE-218 S3).
+        host = "localhost",
         port = 4096,
         tls = ServerProfile.TlsMode.PlaintextHttp,
     )
