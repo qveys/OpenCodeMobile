@@ -22,10 +22,13 @@ kotlin {
             implementation(project(":shared:domain"))
             implementation(project(":shared:networking"))
             implementation(libs.kotlinx.coroutines.core)
+            // Payload validation (malformed events) only; the domain stays JSON-free.
+            implementation(libs.kotlinx.serialization.json)
         }
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
 }
