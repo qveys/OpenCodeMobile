@@ -92,6 +92,7 @@ public class TranscriptController(
      * Applies one decoded realtime event. An event that names another session is
      * ignored, so a busy server cannot inject another session's text here.
      */
+    @Suppress("CyclomaticComplexMethod")
     public fun onEvent(event: ChatEvent) {
         val sessionId = mutableState.value.sessionId ?: return
         when (event) {
