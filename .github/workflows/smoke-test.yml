@@ -54,9 +54,20 @@ jobs:
     name: Smoke script self-test
     runs-on: [self-hosted, hostinger]
     timeout-minutes: 10
-    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    # SECURITY: never execute fork-PR code on the company self-hosted pool — it
+    # is shared with the deployment jobs. Only same-repository PRs (collaborator
+    # branches, the same trust level as a push) run the self-test here. Full
+    # ephemeral-runner isolation for untrusted PRs is tracked by OPE-212.
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Do not leave the workflow token in .git/config on a shared runner.
+          persist-credentials: false
       - name: Run smoke script self-test
         run: bash scripts/tests/test-deployment-smoke-test.sh
 
@@ -76,25 +87,48 @@ jobs:
         with:
           # Smoke the exact revision CD deployed, not the default-branch tip.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
 
       - name: Resolve smoke-test parameters
         id: params
         env:
           DISPATCH_BASE_URL: ${{ inputs.base_url }}
           DISPATCH_VERSION: ${{ inputs.expected_version }}
+          # Environment-scoped targets. A single shared URL cannot prove that
+          # the right environment was deployed (Codex finding, OPE-215).
+          REPO_SMOKE_BASE_URL_STAGING: ${{ vars.SMOKE_BASE_URL_STAGING }}
+          REPO_SMOKE_BASE_URL_PRODUCTION: ${{ vars.SMOKE_BASE_URL_PRODUCTION }}
+          # Legacy single target, kept only as a deprecated fallback.
           REPO_SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL }}
+          # The triggering CD run: a `v*` ref deploys to production, anything
+          # else to staging (matches `cd.yml`'s trigger model).
+          TRIGGERING_REF: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            target_env="manual"
             base_url="${DISPATCH_BASE_URL}"
             version="${DISPATCH_VERSION}"
           else
-            base_url="${REPO_SMOKE_BASE_URL}"
+            case "${TRIGGERING_REF}" in
+              v*) target_env="production" ;;
+              *)  target_env="staging" ;;
+            esac
+            if [ "${target_env}" = "production" ]; then
+              base_url="${REPO_SMOKE_BASE_URL_PRODUCTION}"
+            else
+              base_url="${REPO_SMOKE_BASE_URL_STAGING}"
+            fi
+            if [ -z "${base_url}" ] && [ -n "${REPO_SMOKE_BASE_URL}" ]; then
+              echo "::warning::SMOKE_BASE_URL is not environment-scoped; set SMOKE_BASE_URL_STAGING and SMOKE_BASE_URL_PRODUCTION instead. Smoking '${REPO_SMOKE_BASE_URL}' for '${target_env}'."
+              base_url="${REPO_SMOKE_BASE_URL}"
+            fi
             version=""
           fi
           if [ -z "${version}" ]; then
             version="$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' androidApp/build.gradle.kts | head -n1)"
           fi
+          echo "target_env=${target_env}" >>"$GITHUB_OUTPUT"
           echo "base_url=${base_url}" >>"$GITHUB_OUTPUT"
           echo "version=${version}" >>"$GITHUB_OUTPUT"
 
@@ -111,4 +145,4 @@ jobs:
       - name: No smoke target configured
         if: steps.params.outputs.base_url == ''
         run: |
-          echo "::notice::No smoke target configured (repository variable SMOKE_BASE_URL is empty). Set it to the deployed environment's base URL to enable post-deployment smoke tests."
+          echo "::notice::No smoke target configured for '${{ steps.params.outputs.target_env }}'. Set the repository variable SMOKE_BASE_URL_STAGING (staging) and/or SMOKE_BASE_URL_PRODUCTION (production) to the deployed environment's base URL to enable post-deployment smoke tests."

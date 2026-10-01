@@ -33,6 +33,18 @@ check() { # description, actual, expected
   fi
 }
 
+# JSON helpers use python3 (already required) instead of jq, so the suite keeps
+# its documented "bash, curl and python3 only" dependency set.
+json_field() { # file, top-level key
+  python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get(sys.argv[2], ""))' "$1" "$2"
+}
+json_check_names() { # file -> sorted, comma-joined check names
+  python3 -c 'import json, sys; print(",".join(sorted(c["name"] for c in json.load(open(sys.argv[1]))["checks"])))' "$1"
+}
+json_check_status() { # file, check name -> status
+  python3 -c 'import json, sys; name = sys.argv[2]; print(next((c.get("status", "") for c in json.load(open(sys.argv[1]))["checks"] if c.get("name") == name), ""))' "$1" "$2"
+}
+
 [ -f "$SMOKE" ] || { echo "smoke script not found: $SMOKE" >&2; exit 1; }
 chmod +x "$SMOKE"
 
@@ -146,20 +158,20 @@ start_server "0.1.0"
 "$SMOKE" --base-url "$BASE" --expected-version "0.1.0" \
   --endpoint /health --report "$TMP_DIR/ok.json" --retries 2 --retry-delay 0 >/dev/null 2>&1
 check "healthy deployment exits 0" "$?" "0"
-check "report status success" "$(jq -r .status "$TMP_DIR/ok.json")" "success"
-check "report records endpoint+version" "$(jq -r '[.checks[].name]|sort|join(",")' "$TMP_DIR/ok.json")" "endpoint:/health,version"
+check "report status success" "$(json_field "$TMP_DIR/ok.json" status)" "success"
+check "report records endpoint+version" "$(json_check_names "$TMP_DIR/ok.json")" "endpoint:/health,version"
 
 # --- version drift ---
 "$SMOKE" --base-url "$BASE" --expected-version "9.9.9" \
   --endpoint /health --report "$TMP_DIR/drift.json" --retries 2 --retry-delay 0 >/dev/null 2>&1
 check "version mismatch exits 1" "$?" "1"
-check "version mismatch report" "$(jq -r '.checks[]|select(.name=="version")|.status' "$TMP_DIR/drift.json")" "fail"
+check "version mismatch report" "$(json_check_status "$TMP_DIR/drift.json" version)" "fail"
 
 # --- unhealthy key endpoint ---
 "$SMOKE" --base-url "$BASE" --expected-version "0.1.0" \
   --endpoint /unhealthy --report "$TMP_DIR/bad.json" --retries 2 --retry-delay 0 >/dev/null 2>&1
 check "unhealthy endpoint exits 1" "$?" "1"
-check "unhealthy endpoint report" "$(jq -r '.checks[]|select(.name=="endpoint:/unhealthy")|.status' "$TMP_DIR/bad.json")" "fail"
+check "unhealthy endpoint report" "$(json_check_status "$TMP_DIR/bad.json" endpoint:/unhealthy)" "fail"
 
 # --- transient warm-up recovers via retries ---
 "$SMOKE" --base-url "$BASE" --expected-version "0.1.0" \
@@ -173,7 +185,7 @@ start_server "0.1.0" "$ALERT_FILE"
 "$SMOKE" --base-url "$BASE" --expected-version "9.9.9" \
   --report "$TMP_DIR/al.json" --alert-webhook "${BASE}/alert" --retries 1 --retry-delay 0 >/dev/null 2>&1
 check "alerting failure exits 1" "$?" "1"
-check "alert webhook received payload" "$( [ -s "$ALERT_FILE" ] && jq -r .status "$ALERT_FILE" || echo missing )" "failure"
+check "alert webhook received payload" "$( [ -s "$ALERT_FILE" ] && json_field "$ALERT_FILE" status || echo missing )" "failure"
 stop_server
 
 echo

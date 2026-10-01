@@ -3,11 +3,12 @@
 #
 # OPE-161 / OPE-19 — Google Play deployment leg of the CD workflow.
 #
-# Runs directly on a GitHub-hosted runner (only `actions/checkout` is allowlisted
-# in this repo) and degrades safely while the project is still in its bootstrap
-# phase: with no upload credentials it records exactly what would have been
-# deployed and exits 0, so the CD run completes and the post-deployment smoke
-# test (OPE-20) still gets triggered.
+# Runs on the company self-hosted runner (only `actions/checkout` is allowlisted
+# in this repo). While the project is in its bootstrap phase (no upload
+# credentials) it records exactly what would have been deployed and exits 0, so
+# the CD run completes and the post-deployment smoke test (OPE-20) still gets
+# triggered. Once Play credentials ARE configured it fails closed: if it cannot
+# actually upload, it exits non-zero rather than reporting a false success.
 #
 # Credentials (all optional, scoped to the target GitHub Environment):
 #   ANDROID_KEYSTORE_BASE64            re-sign the bundle locally
@@ -36,6 +37,18 @@ echo "=========================================="
 [ -n "${ANDROID_KEYSTORE_PASSWORD:-}" ] && echo "::add-mask::$ANDROID_KEYSTORE_PASSWORD"
 [ -n "${ANDROID_KEY_PASSWORD:-}" ] && echo "::add-mask::$ANDROID_KEY_PASSWORD"
 [ -n "${PLAY_CONSOLE_SERVICE_ACCOUNT_JSON:-}" ] && echo "::add-mask::$PLAY_CONSOLE_SERVICE_ACCOUNT_JSON"
+
+# Temporary secret files are always removed — including when a command fails
+# mid-script under `set -e` (Codex finding, OPE-215). One central trap, because
+# a later `trap ... EXIT` silently replaces an earlier one.
+KEYSTORE_PATH=""
+SA_FILE=""
+cleanup_secrets() {
+  [ -n "${KEYSTORE_PATH:-}" ] && rm -f "$KEYSTORE_PATH"
+  [ -n "${SA_FILE:-}" ] && rm -f "$SA_FILE"
+  return 0
+}
+trap cleanup_secrets EXIT
 
 # Step 1 — locate the release bundle. CD builds in-job (no upload-artifact is
 # allowed), so the AAB lives under androidApp/build/outputs.
@@ -78,7 +91,6 @@ if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
   else
     echo "::notice::jarsigner not available on this runner; assuming the bundle is already signed (Play App Signing)."
   fi
-  rm -f "$KEYSTORE_PATH"
 else
   echo "::notice::No ANDROID_KEYSTORE_BASE64 provided; assuming Play App Signing manages the release key."
 fi
@@ -89,7 +101,6 @@ if [ -n "${PLAY_CONSOLE_SERVICE_ACCOUNT_JSON:-}" ]; then
   SA_FILE="$(mktemp)"
   printf '%s' "$PLAY_CONSOLE_SERVICE_ACCOUNT_JSON" > "$SA_FILE"
   chmod 600 "$SA_FILE"
-  trap 'rm -f "$SA_FILE"' EXIT
 else
   echo "::notice::No Play upload credentials found in environment '${TARGET_ENV}'."
   echo "::notice::Required: PLAY_CONSOLE_SERVICE_ACCOUNT_JSON (or GitHub OIDC/WIF once the auth action is allowlisted)."
@@ -104,9 +115,22 @@ if [ "$DRY_RUN" = "true" ]; then
 fi
 
 echo "Deploying $AAB_PATH to Play track '$PLAY_TRACK' in environment '$TARGET_ENV'..."
-if [ -f ./gradlew ] && ./gradlew tasks --all 2>/dev/null | grep -qE '^\s*publishBundle'; then
+
+# Hand the decoded service account to the publisher. Gradle Play Publisher
+# reads the JSON *contents* from ANDROID_PUBLISHER_CREDENTIALS; the standard
+# Google auth libraries read the file path from GOOGLE_APPLICATION_CREDENTIALS.
+# Without this, the credentials were decoded but never used, and the step
+# reported success without uploading anything (Codex finding, OPE-215).
+export ANDROID_PUBLISHER_CREDENTIALS
+ANDROID_PUBLISHER_CREDENTIALS="$(cat "$SA_FILE")"
+export GOOGLE_APPLICATION_CREDENTIALS="$SA_FILE"
+
+if [ -f ./gradlew ] && ./gradlew tasks --all 2>/dev/null | grep -q 'publishBundle'; then
   echo "Invoking Gradle Play Publisher..."
   ./gradlew publishBundle --track "$PLAY_TRACK"
+  echo "Uploaded $AAB_PATH to the Play track '$PLAY_TRACK' (environment '$TARGET_ENV')."
 else
-  echo "::notice::Gradle Play Publisher is not configured; the signed bundle is ready for track '$PLAY_TRACK'."
+  echo "::error::Google Play credentials are configured but Gradle Play Publisher is unavailable, so nothing was uploaded. Refusing to report a successful deployment."
+  echo "::error::Install the Gradle Play Publisher plugin, or dispatch the workflow with dry_run=true to validate without uploading."
+  exit 1
 fi

@@ -90,12 +90,20 @@ jobs:
     steps:
       - name: Determine deployment parameters
         id: determine
+        # SECURITY: dispatch inputs are attacker-influenced free text. They are
+        # passed through `env` (never interpolated with `${{ }}` inside the
+        # shell body, which would allow quote/command injection) and validated
+        # against an allowlist before they reach any later step.
+        env:
+          DISPATCH_ENVIRONMENT: ${{ inputs.environment }}
+          DISPATCH_TRACK: ${{ inputs.track }}
+          DISPATCH_DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            ENV='${{ inputs.environment }}'
-            TRACK='${{ inputs.track }}'
-            DRY_RUN='${{ inputs.dry_run }}'
+            ENV="${DISPATCH_ENVIRONMENT}"
+            TRACK="${DISPATCH_TRACK}"
+            DRY_RUN="${DISPATCH_DRY_RUN}"
             TAG=''
           elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             ENV='production'
@@ -108,6 +116,18 @@ jobs:
             DRY_RUN='false'
             TAG=''
           fi
+          case "${ENV}" in
+            staging|production) ;;
+            *) echo "::error::Invalid environment '${ENV}' (allowed: staging, production)."; exit 1 ;;
+          esac
+          case "${TRACK}" in
+            internal|alpha|beta|production) ;;
+            *) echo "::error::Invalid track '${TRACK}' (allowed: internal, alpha, beta, production)."; exit 1 ;;
+          esac
+          case "${DRY_RUN}" in
+            true|false) ;;
+            *) echo "::error::Invalid dry_run '${DRY_RUN}' (allowed: true, false)."; exit 1 ;;
+          esac
           {
             echo "target_env=${ENV}"
             echo "play_track=${TRACK}"
@@ -130,6 +150,11 @@ jobs:
       - name: Build Android release bundle
         id: package
         env:
+          # SECURITY: pass `needs` outputs through `env` rather than inlining
+          # `${{ }}` in the shell body. `version_tag` derives from a git tag,
+          # which can legally contain a single quote.
+          TARGET_ENV: ${{ needs.prepare.outputs.target_env }}
+          VERSION_TAG: ${{ needs.prepare.outputs.version_tag }}
           DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           PLAY_CONSOLE_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_CONSOLE_SERVICE_ACCOUNT_JSON }}
@@ -143,9 +168,6 @@ jobs:
               > build/outputs/bootstrap/build-manifest.json
             echo "::notice::Bootstrap build manifest written; there is no Android release bundle yet."
           }
-
-          VERSION_TAG='${{ needs.prepare.outputs.version_tag }}'
-          TARGET_ENV='${{ needs.prepare.outputs.target_env }}'
 
           if [ ! -f ./gradlew ]; then
             echo "::notice::No Gradle project checked in yet (bootstrap phase)."

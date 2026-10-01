@@ -37,15 +37,27 @@ Both jobs run on the company self-hosted pool
 the workflow needs only bash, curl and python3, so no toolchain step is
 required.
 
+The `self-test` job executes script code from the checked-out revision. To keep
+that code off the pool shared with deployments, it runs only for same-repository
+PRs (`github.event.pull_request.head.repo.full_name == github.repository`), plus
+`push` and `workflow_dispatch`; fork-PR runs are skipped. Turning the pool into
+ephemeral, per-job runners is tracked by OPE-212.
+
 ## Configuration
 
 Repository variables (Settings → Secrets and variables → Actions → Variables):
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `SMOKE_BASE_URL` | Base URL of the deployed environment (e.g. `https://staging.example.test`). | empty — the smoke job skips with a notice until set |
+| `SMOKE_BASE_URL_STAGING` | Base URL of the staging deployment (e.g. `https://staging.example.test`). Used when the triggering CD run was a push to `main`. | empty — the staging smoke job skips with a notice until set |
+| `SMOKE_BASE_URL_PRODUCTION` | Base URL of the production deployment. Used when the triggering CD run was a `v*` tag push. | empty — the production smoke job skips with a notice until set |
 | `SMOKE_ENDPOINTS` | Comma-separated health paths. | `/health` |
 | `SMOKE_VERSION_PATH` | Path returning deployment version metadata. | `/version` |
+
+Staging and production have **separate** targets, so a smoke run can never pass
+by checking the wrong environment. `SMOKE_BASE_URL` (no suffix) is a deprecated
+fallback used only when the environment-specific variable is unset; it emits a
+`::warning::` and should not be relied on to serve both environments.
 
 Repository secret:
 
@@ -58,7 +70,8 @@ supported, e.g. `build.version`) or plain text. A leading `v` is ignored on
 both sides, so `v0.1.0` and `0.1.0` match.
 
 If no smoke target exists yet, the workflow is a no-op with a notice rather
-than a false failure; set `SMOKE_BASE_URL` to start guarding deployments.
+than a false failure; set `SMOKE_BASE_URL_STAGING` and/or
+`SMOKE_BASE_URL_PRODUCTION` to start guarding deployments.
 
 ## Running locally
 
