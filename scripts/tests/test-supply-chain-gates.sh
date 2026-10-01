@@ -1,23 +1,31 @@
 #!/usr/bin/env bash
 # scripts/tests/test-supply-chain-gates.sh
-# Local tests for the SEC-04 / SEC-05 supply-chain gates.
+# Local tests for the SEC-04 / SEC-05 / SEC-05b supply-chain gates.
 #
 # Covers action pinning (SEC-04) — repository actions, sub-path actions,
-# reusable workflows and container actions — and the four Gradle toolchain
-# controls (SEC-05): distributionSha256Sum, a distributionUrl whose host is a
-# publisher this repository trusts (official host or an entry in
+# reusable workflows and container actions — the four Gradle toolchain controls
+# (SEC-05): distributionSha256Sum, a distributionUrl whose host is a publisher
+# this repository trusts (official host or an entry in
 # gradle/wrapper/gradle-distribution-allowlist.txt), the committed
 # gradle-wrapper.jar digest, and the now-mandatory
 # gradle/verification-metadata.xml dependency-checksum metadata.
+#
+# And the three pin-coverage controls (SEC-05b, OPE-238): every coordinate the
+# build scripts declare must already be pinned; a declaration the gate cannot
+# resolve must be registered with a reason; and no workflow may rewrite the
+# pins. Those three exist because of the incident they follow — OPE-220 — which
+# added a dependency without regenerating the pin file while every other gate
+# stayed green, so the omission only surfaced when the build ran.
 #
 # Every gate is checked against a fixture that used to make it pass or fail,
 # not only against the happy path: a control that cannot be shown to reject a
 # defective input is not evidence of anything.
 #
-# Runs scripts/check-workflow-action-pinning.sh and
-# scripts/check-gradle-supply-chain.sh against synthetic fixtures in a temp
-# directory. It never contacts GitHub or any artifact repository, and never
-# touches the real repository files.
+# Runs scripts/check-workflow-action-pinning.sh,
+# scripts/check-gradle-supply-chain.sh and
+# scripts/check-verification-metadata-coverage.sh against synthetic fixtures in
+# a temp directory. It never contacts GitHub or any artifact repository, and
+# never touches the real repository files.
 #
 # Run: bash scripts/tests/test-supply-chain-gates.sh
 
@@ -26,6 +34,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PINNING="$ROOT/scripts/check-workflow-action-pinning.sh"
 GRADLE_GATE="$ROOT/scripts/check-gradle-supply-chain.sh"
+COVERAGE_GATE="$ROOT/scripts/check-verification-metadata-coverage.sh"
 
 PASS=0
 FAIL=0
@@ -63,7 +72,7 @@ check_missing() { # description haystack needle
 make_repo() { # name
   local dir="$TMP_ROOT/$1"
   mkdir -p "$dir/.github/workflows" "$dir/gradle/wrapper" "$dir/scripts"
-  cp "$PINNING" "$GRADLE_GATE" "$dir/scripts/"
+  cp "$PINNING" "$GRADLE_GATE" "$COVERAGE_GATE" "$dir/scripts/"
   printf '%s' "$dir"
 }
 
@@ -138,6 +147,80 @@ XML
 # be as broken (or as empty) as the defect being tested.
 write_metadata_raw() { # dir xml
   cat > "$1/gradle/verification-metadata.xml"
+}
+
+# --- SEC-05b fixtures -------------------------------------------------------
+
+# A version catalog with one library (via version.ref) and one plugin alias.
+write_catalog() { # dir
+  cat > "$1/gradle/libs.versions.toml" <<'TOML'
+[versions]
+kotlin = "2.1.0"
+
+[libraries]
+stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
+
+[plugins]
+thing = { id = "com.example.thing", version = "1.0.0" }
+TOML
+}
+
+# The pin file covering exactly what write_catalog declares: the library and the
+# plugin marker.
+write_covering_metadata() { # dir
+  cat > "$1/gradle/verification-metadata.xml" <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata xmlns="https://schema.gradle.org/dependency-verification">
+   <configuration>
+      <verify-metadata>true</verify-metadata>
+      <verify-signatures>false</verify-signatures>
+   </configuration>
+   <components>
+      <component group="org.jetbrains.kotlin" name="kotlin-stdlib" version="2.1.0">
+         <artifact name="kotlin-stdlib-2.1.0.jar">
+            <sha256 value="0000000000000000000000000000000000000000000000000000000000000000"/>
+         </artifact>
+      </component>
+      <component group="com.example.thing" name="com.example.thing.gradle.plugin" version="1.0.0">
+         <artifact name="com.example.thing.gradle.plugin-1.0.0.pom">
+            <sha256 value="0000000000000000000000000000000000000000000000000000000000000000"/>
+         </artifact>
+      </component>
+   </components>
+</verification-metadata>
+XML
+}
+
+write_empty_exemptions() { # dir
+  printf '# no exemptions\n' > "$1/gradle/verification-coverage-exemptions.txt"
+  printf '# no exemptions\n' > "$1/gradle/verification-regeneration-exemptions.txt"
+}
+
+# A minimal project whose only declarations are the catalog entries, so a
+# fixture's outcome is attributable to the change the test makes.
+make_coverage_repo() { # name
+  local dir="$TMP_ROOT/$1"
+  mkdir -p "$dir/.github/workflows" "$dir/gradle" "$dir/scripts" "$dir/app"
+  cp "$COVERAGE_GATE" "$dir/scripts/"
+  write_catalog "$dir"
+  write_covering_metadata "$dir"
+  write_empty_exemptions "$dir"
+  printf 'name: x\njobs:\n  a:\n    steps:\n%s\n' "$PINNED" > "$dir/.github/workflows/a.yml"
+  cat > "$dir/app/build.gradle.kts" <<'KTS'
+plugins {
+    alias(libs.plugins.thing)
+}
+
+dependencies {
+    implementation(libs.stdlib)
+    implementation(project(":other"))
+}
+KTS
+  cat > "$dir/settings.gradle.kts" <<'KTS'
+rootProject.name = "fixture"
+include(":app")
+KTS
+  printf '%s' "$dir"
 }
 
 # A PATH directory holding every executable currently reachable except python*.
@@ -743,10 +826,209 @@ write_wrapper_jar "$d"
 out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
 check "missing wrapper properties exits nonzero" "1" "$code"
 
-# --- the real repository must satisfy both gates ---------------------------
+# --- SEC-05b control 1: the pins cover the declared build inputs ------------
 
 echo ""
-echo "== The real repository satisfies both gates =="
+echo "== SEC-05b control 1: an uncovered declared dependency fails =="
+
+d="$(make_coverage_repo sec05b-covered)"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "a fully covered repository exits zero" "0" "$code"
+check_contains "the count of declared dependencies is measured" "$out" "covers all 2 declared external dependencies"
+
+# The OPE-220 shape: a dependency added to a build script, pin file untouched.
+# Every SEC-04/SEC-05 gate passes this — the pin file exists, parses and pins
+# plenty — so only this control catches it.
+d="$(make_coverage_repo sec05b-uncovered-library)"
+printf '    implementation("com.example.evil:evil-lib:1.0.0")\n' >> "$d/app/build.gradle.kts"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "an unpinned library dependency fails the gate" "1" "$code"
+check_contains "the failing coordinate is named" "$out" "com.example.evil:evil-lib:1.0.0"
+check_contains "the remediation names the regeneration procedure" "$out" "Maven Central and the Gradle Plugin Portal"
+
+# The plugin-marker variant. A marker resolves during plugin resolution, before
+# any job runs, which is why every job went red together on OPE-220.
+d="$(make_coverage_repo sec05b-uncovered-plugin)"
+python3 - "$d/gradle/libs.versions.toml" "$d/app/build.gradle.kts" <<'PY'
+import sys
+catalog, build = sys.argv[1], sys.argv[2]
+text = open(catalog).read()
+text += 'evilPlugin = { id = "com.example.evil", version = "1.0.0" }\n'
+open(catalog, "w").write(text)
+# `alias(...) apply false`, the root-build form for a plugin declared but not
+# applied in this module.
+source = open(build).read()
+source = source.replace(
+    '    alias(libs.plugins.thing)\n',
+    '    alias(libs.plugins.thing)\n    alias(libs.plugins.evilPlugin) apply false\n',
+    1,
+)
+open(build, "w").write(source)
+PY
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "an unpinned plugin marker fails the gate" "1" "$code"
+check_contains "the marker coordinate is reported in its resolved form" "$out" "com.example.evil:com.example.evil.gradle.plugin:1.0.0"
+
+# A coordinate that IS pinned must not be reported, otherwise the control
+# degrades into noise a contributor learns to ignore.
+d="$(make_coverage_repo sec05b-no-false-positive)"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check_missing "a pinned coordinate is not reported as missing" "$out" "not covered by"
+
+# An empty pin file must not read as "everything is covered". This is the
+# failure mode of a presence-only check, restated for this control.
+d="$(make_coverage_repo sec05b-empty-pins)"
+write_metadata_raw "$d" <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata xmlns="https://schema.gradle.org/dependency-verification">
+   <configuration>
+      <verify-metadata>true</verify-metadata>
+   </configuration>
+   <components>
+   </components>
+</verification-metadata>
+XML
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "an empty pin file fails the gate" "1" "$code"
+
+# --- SEC-05b control 2: unresolvable declarations need a reason ------------
+
+echo ""
+echo "== SEC-05b control 2: an unresolvable declaration fails unless exempt =="
+
+d="$(make_coverage_repo sec05b-unresolvable)"
+printf '    implementation(compose.runtime)\n' >> "$d/app/build.gradle.kts"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "a declaration with no readable coordinate fails" "1" "$code"
+check_contains "the unresolvable declaration is named" "$out" "compose.runtime"
+check_contains "the remediation names the exemption file" "$out" "verification-coverage-exemptions.txt"
+
+d="$(make_coverage_repo sec05b-exempted)"
+printf '    implementation(compose.runtime)\n' >> "$d/app/build.gradle.kts"
+printf 'compose.runtime  fixture: plugin extension whose coordinates are pinned\n' \
+  >> "$d/gradle/verification-coverage-exemptions.txt"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "a registered exemption makes the gate pass" "0" "$code"
+
+d="$(make_coverage_repo sec05b-exemption-without-reason)"
+printf '    implementation(compose.runtime)\n' >> "$d/app/build.gradle.kts"
+printf 'compose.runtime\n' >> "$d/gradle/verification-coverage-exemptions.txt"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "an exemption with no reason fails" "1" "$code"
+check_contains "the reasonless exemption is reported" "$out" "the reason it is exempt"
+
+# An unreadable catalog entry is a dependency whose pin cannot be checked, so
+# it is refused rather than ignored.
+d="$(make_coverage_repo sec05b-unreadable-catalog)"
+printf 'evil = someGradleCall("x")\n' >> "$d/gradle/libs.versions.toml"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "a catalog entry the gate cannot read fails" "1" "$code"
+check_contains "the unreadable entry is quoted back" "$out" "someGradleCall"
+
+# An unknown alias is a dependency with no known coordinate, which is the same
+# hole in a different spelling.
+d="$(make_coverage_repo sec05b-unknown-alias)"
+printf '    implementation(libs.does.not.exist)\n' >> "$d/app/build.gradle.kts"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "an unknown libs alias fails the gate" "1" "$code"
+check_contains "the unknown alias is reported" "$out" "does-not-exist"
+
+# --- SEC-05b control 3: CI must not rewrite the pins -----------------------
+
+echo ""
+echo "== SEC-05b control 3: no workflow rewrites the pins =="
+
+d="$(make_coverage_repo sec05b-no-write-flag)"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "a repository with no regeneration flag passes" "0" "$code"
+check_contains "the number of workflows checked is reported" "$out" "workflow(s) checked"
+
+d="$(make_coverage_repo sec05b-write-flag)"
+cat > "$d/.github/workflows/regen.yml" <<'YML'
+name: regen
+on:
+  pull_request:
+jobs:
+  a:
+    steps:
+      - run: ./gradlew --write-verification-metadata sha256 detekt
+YML
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "a workflow passing the regeneration flag fails" "1" "$code"
+check_contains "the offending workflow is named" "$out" "regen.yml"
+
+# An exemption only helps a workflow that is manual. The trigger list is read
+# from the workflow's own `on:` block, so the flag and a `pull_request` trigger
+# cannot be added together.
+d="$(make_coverage_repo sec05b-exempted-regen-pr)"
+cat > "$d/.github/workflows/regen.yml" <<'YML'
+name: regen
+on:
+  pull_request:
+jobs:
+  a:
+    steps:
+      - run: ./gradlew --write-verification-metadata sha256 detekt
+YML
+printf '.github/workflows/regen.yml  fixture exemption\n' >> "$d/gradle/verification-regeneration-exemptions.txt"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "an exemption on a pull_request workflow still fails" "1" "$code"
+check_contains "the extra trigger is named" "$out" "pull_request"
+
+d="$(make_coverage_repo sec05b-exempted-regen-dispatch)"
+cat > "$d/.github/workflows/regen.yml" <<'YML'
+name: regen
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      - run: ./gradlew --write-verification-metadata sha256 detekt
+YML
+printf '.github/workflows/regen.yml  fixture exemption\n' >> "$d/gradle/verification-regeneration-exemptions.txt"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "an exemption on a dispatch-only workflow passes" "0" "$code"
+check_contains "the dispatch-only exemption is reported" "$out" "manual dispatch only"
+
+# The trigger reader must find the `on:` block rather than reading the first
+# top-level key as the end of it. A `name:` line before `on:` used to make every
+# workflow look trigger-less.
+d="$(make_coverage_repo sec05b-dispatch-with-name-first)"
+cat > "$d/.github/workflows/regen.yml" <<'YML'
+name: regen
+
+on:
+  workflow_dispatch:
+
+jobs:
+  a:
+    steps:
+      - run: ./gradlew --write-verification-metadata sha256 detekt
+YML
+printf '.github/workflows/regen.yml  fixture exemption\n' >> "$d/gradle/verification-regeneration-exemptions.txt"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "a dispatch-only workflow with a leading name: still passes" "0" "$code"
+
+# A comment naming the flag must not trip the control — a control that flags
+# documentation pushes contributors toward exempting real workflows.
+d="$(make_coverage_repo sec05b-flag-in-comment)"
+cat > "$d/.github/workflows/a.yml" <<'YML'
+name: x
+# This workflow must never pass --write-verification-metadata.
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      - run: bash scripts/check-verification-metadata-coverage.sh
+YML
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "the flag named only in a comment passes" "0" "$code"
+
+# --- the real repository must satisfy every gate ---------------------------
+
+echo ""
+echo "== The real repository satisfies every gate =="
 
 out="$(cd "$ROOT" && bash "$PINNING" 2>&1)"; code=$?
 check "real repository passes the SEC-04 gate" "0" "$code"
@@ -759,6 +1041,12 @@ check "real repository passes the SEC-05 gate" "0" "$code"
 check_contains "the real metadata is measured, not assumed" "$out" "SHA-256 checksum(s) across"
 check_missing "the real repository does not trip the vacuous guard" "$out" "not one SHA-256"
 check_contains "the real distribution publisher is identified" "$out" "official Gradle publisher (services.gradle.org)"
+
+out="$(cd "$ROOT" && bash "$COVERAGE_GATE" 2>&1)"; code=$?
+check "real repository passes the SEC-05b gate" "0" "$code"
+check_contains "the real repository's declared dependencies are counted" "$out" "covers all"
+check_missing "the real repository has no uncovered dependency" "$out" "not covered by"
+check_contains "the real repository has no CI pin writer" "$out" "no workflow under"
 
 echo ""
 echo "== summary: $PASS passed, $FAIL failed =="

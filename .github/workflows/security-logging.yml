@@ -44,11 +44,11 @@ jobs:
     # The job name is the required status check on `main`; do not rename it or
     # every pull request would be left permanently "Expected" and blocked.
     #
-    # This job is also the required gate for the SEC-04 / SEC-05 supply-chain
-    # controls. They run here rather than in a new job so that no branch
-    # protection change is needed to make them blocking — a new job name would
-    # not be a required check until branch protection is edited, and the gates
-    # would be advisory only in the meantime.
+    # This job is also the required gate for the SEC-04 / SEC-05 / SEC-05b
+    # supply-chain controls. They run here rather than in a new job so that no
+    # branch protection change is needed to make them blocking — a new job name
+    # would not be a required check until branch protection is edited, and the
+    # gates would be advisory only in the meantime.
     runs-on: [self-hosted, hostinger]
     timeout-minutes: 5
     steps:
@@ -59,6 +59,19 @@ jobs:
         run: bash scripts/check-workflow-action-pinning.sh
       - name: Require an integrity-pinned Gradle toolchain (SEC-05)
         run: bash scripts/check-gradle-supply-chain.sh
+      # SEC-05b (OPE-238). SEC-05 proves gradle/verification-metadata.xml exists
+      # and pins something; it cannot prove the pins cover what the build
+      # resolves. OPE-220 is that gap: `main` added a dependency, the pin file
+      # was never regenerated, and every job went red at once during plugin
+      # resolution. This step fails a pull request that changes a build input
+      # without the pins catching up, and refuses any workflow that lets CI
+      # rewrite the pins from an unreviewed environment. See
+      # docs/CI-CD-SECURITY.md §8 — this comment deliberately does not spell
+      # out the regeneration flag, because the gate matches the flag anywhere
+      # in a workflow file, comments included, so a commented-out regeneration
+      # step cannot be left waiting to be re-enabled.
+      - name: Require dependency pins to cover the declared build inputs (SEC-05b)
+        run: bash scripts/check-verification-metadata-coverage.sh
 
   redaction-tests:
     name: Redaction unit tests
