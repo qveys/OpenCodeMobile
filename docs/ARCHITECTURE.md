@@ -51,8 +51,10 @@ Seven properties define every choice below:
 6. **Platform-native where the platform owns it.** Secure storage,
    biometrics, notifications, and speech recognition are per-platform behind
    `expect`/`actual`; everything else is shared Kotlin.
-7. **One maintainer.** Boundaries are enforced by machine-checked rules and
-   CI, not by review capacity.
+7. **One maintainer.** Boundaries are to be enforced by machine-checked rules and
+   CI, not by review capacity. That enforcement is **not live yet**: the Konsist
+   module exists but is not in the Gradle build and no CI workflow runs it (see
+   the status note in [ADR 0004](adr/0004-architecture-dependency-rules-konsist.md)).
 
 ---
 
@@ -86,7 +88,7 @@ Clean Architecture, dependency direction pointing inward only:
 | `shared/test-support` | KMP library | Fakes, fixtures, and the deterministic `MockOpenCodeServer`. |
 | `features/{connection,projects,sessions,transcript,composer,files,permissions,settings}` | KMP libraries | One module per user-facing capability. |
 | `design-system` | KMP library | Design tokens, typography, and reusable Compose components. |
-| `architecture-tests` | JVM test module | Konsist assertions that enforce the dependency rules below. |
+| `architecture-tests` | JVM test module | Konsist assertions for the dependency rules below; not in the build, so not yet executed. |
 
 The Gradle module list is authoritative in `settings.gradle.kts`; the scaffold
 is recorded in ADR 0001. `iosApp` is intentionally not a Gradle subproject: it

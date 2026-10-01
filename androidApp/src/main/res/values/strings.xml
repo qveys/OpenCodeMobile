@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android host strings. User-visible Compose copy lives in design-system's
+     composeResources catalog; this file only holds platform resources (app label). -->
+<resources>
+    <string name="app_name">OpenCode Mobile</string>
+</resources>

@@ -52,6 +52,8 @@ dependencies {
     implementation(compose.foundation)
     implementation(compose.material3)
     implementation(compose.ui)
+    // The host renders copy through the CMP resource API (design-system's public `Res`).
+    implementation(compose.components.resources)
     implementation(libs.androidx.activity.compose)
 
     implementation(libs.koin.android)
