@@ -37,7 +37,7 @@ permissions:
 jobs:
   jvm-handshake:
     name: T1 handshake (JVM)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -51,7 +51,7 @@ jobs:
 
   android-instrumented-compile:
     name: T1 Android instrumented test compiles
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -64,7 +64,7 @@ jobs:
 
   android-emulator:
     name: T1 handshake (Android emulator)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -73,7 +73,7 @@ jobs:
 
   ios-simulator:
     name: T1 handshake (iOS simulator)
-    runs-on: macos-latest
+    runs-on: [self-hosted, mac]
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
