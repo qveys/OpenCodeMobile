@@ -1,7 +1,9 @@
 package org.opencodemobile.shared.testsupport.tls
 
 import java.io.BufferedInputStream
+import java.io.BufferedReader
 import java.io.Closeable
+import java.io.IOException
 import java.net.Socket
 import java.security.KeyFactory
 import java.security.KeyStore
@@ -83,10 +85,16 @@ public class SelfSignedTlsServer(
         while (running) {
             val client = try {
                 serverSocket.accept()
-            } catch (failure: Exception) {
-                if (running) continue else break
+            } catch (_: IOException) {
+                // The listening socket was closed on shutdown, or the peer
+                // aborted the handshake. Either way there is nothing to serve;
+                // stop once the server is no longer running, otherwise retry.
+                if (!running) return
+                null
             }
-            thread(isDaemon = true, name = "t1-self-signed-tls-server-conn") { serve(client) }
+            if (client != null) {
+                thread(isDaemon = true, name = "t1-self-signed-tls-server-conn") { serve(client) }
+            }
         }
     }
 
@@ -102,17 +110,7 @@ public class SelfSignedTlsServer(
                 val method = parts.getOrNull(0) ?: return
                 val path = parts.getOrNull(1) ?: ""
 
-                val headers = LinkedHashMap<String, MutableList<String>>()
-                while (true) {
-                    val line = reader.readLine() ?: break
-                    if (line.isEmpty()) break
-                    val separator = line.indexOf(':')
-                    if (separator > 0) {
-                        val name = line.substring(0, separator).trim()
-                        val value = line.substring(separator + 1).trim()
-                        headers.getOrPut(name) { mutableListOf() }.add(value)
-                    }
-                }
+                val headers = readHeaders(reader)
 
                 observedRequests.add(RecordedHttpRequest(method, path, headers))
 
@@ -132,6 +130,22 @@ public class SelfSignedTlsServer(
             // A client that aborts the handshake is the expected fail-closed
             // outcome; nothing to record and nothing to report.
         }
+    }
+
+    /** Reads HTTP/1.1 request headers until the blank separator line. */
+    private fun readHeaders(reader: BufferedReader): LinkedHashMap<String, MutableList<String>> {
+        val headers = LinkedHashMap<String, MutableList<String>>()
+        var line = reader.readLine()
+        while (line != null && line.isNotEmpty()) {
+            val separator = line.indexOf(':')
+            if (separator > 0) {
+                val name = line.substring(0, separator).trim()
+                val value = line.substring(separator + 1).trim()
+                headers.getOrPut(name) { mutableListOf() }.add(value)
+            }
+            line = reader.readLine()
+        }
+        return headers
     }
 
     override fun close() {

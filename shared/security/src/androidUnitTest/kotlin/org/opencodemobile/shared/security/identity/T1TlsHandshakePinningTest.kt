@@ -33,7 +33,6 @@ import org.opencodemobile.shared.testsupport.tls.T1TlsTestCertificates
 class T1TlsHandshakePinningTest {
 
     private val fingerprintA = ServerFingerprint.fromHex(T1TlsTestCertificates.FINGERPRINT_A_HEX)
-    private val fingerprintB = ServerFingerprint.fromHex(T1TlsTestCertificates.FINGERPRINT_B_HEX)
 
     @Test
     fun firstContactCapturesPresentedFingerprint() {
