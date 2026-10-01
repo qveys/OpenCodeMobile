@@ -25,6 +25,9 @@ kotlin-test = "2.1.0"
 # Architecture tests
 kotest = "5.9.1"
 
+# Static analysis (OPE-14) — bug-focused lint gate
+detekt = "1.23.8"
+
 # androidApp host
 androidx-activity-compose = "1.9.3"
 
@@ -78,3 +81,4 @@ androidLibrary = { id = "com.android.library", version.ref = "agp" }
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }

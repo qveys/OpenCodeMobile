@@ -19,12 +19,15 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-
-
+            // The EventSource port exposes StateFlow/SharedFlow, so the domain owns the
+            // coroutines types that define the contract. No infrastructure dependency.
+            api(libs.kotlinx.coroutines.core)
         }
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            // The offline mutation-gate tests drive suspend writers with runBlocking.
+            implementation(libs.kotlinx.coroutines.core)
         }
     }
 }

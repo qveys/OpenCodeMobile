@@ -1,6 +1,7 @@
 name: Build
 
-# OPE-18 — Build step.
+# OPE-18 — Build step (jobs: build-android, build-ios).
+# OPE-17 — Test step (jobs: test-android, test-ios, further down).
 #
 # Compiles/bundles the application into deployable artifacts for BOTH target
 # families from the SAME revision (one workflow run => one github.sha):
@@ -15,7 +16,10 @@ name: Build
 #   `android-actions/setup-android`, `actions/upload-artifact`) is rejected with
 #   `startup_failure` before the job starts. This workflow therefore uses ONLY
 #   `actions/checkout` and relies on the JDK / Gradle / Android SDK / Xcode that
-#   GitHub-hosted runners already provide. Reproducibility across environments
+#   the runner image already provides: the build jobs run on GitHub-hosted
+#   runners, while the OPE-17 test jobs run on the company self-hosted pool
+#   (see the test-job comment below and docs/CI-RUNNER-STRATEGY.md).
+#   Reproducibility across environments
 #   comes from the checked-in pinning instead:
 #     - Gradle 8.10.2, pinned by gradle/wrapper/gradle-wrapper.properties
 #     - Kotlin / AGP / Compose Multiplatform, pinned in gradle/libs.versions.toml
@@ -83,3 +87,63 @@ jobs:
           test -n "$(find . -path '*/build/bin/iosArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/security/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/domain/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
+
+  # OPE-17 — Test step. Runs the full KMP test suite from the SAME revision as
+  # the build jobs above (one workflow run => one github.sha):
+  #   - test-android: Android/JVM unit tests (`testDebugUnitTest`) on Linux.
+  #   - test-ios: Apple Kotlin/Native simulator tests on macOS. Runs both
+  #     `iosX64Test` and `iosSimulatorArm64Test`; Kotlin/Native skips the target
+  #     that cannot run on the host, and the job fails if neither produced tests.
+  #
+  # Both jobs delegate the Gradle task list to scripts/test.sh (OPE-16), the
+  # single test entry point. `--continue` makes every module report its failures
+  # in one run instead of stopping at the first one, and the always-run
+  # `Report test results` step inlines the failing tests (name, message, stack
+  # trace) into the job log via scripts/ci/report-test-results.sh, because the
+  # org Actions allowlist has no `actions/upload-artifact` to download reports.
+  #
+  # `test-ios` runs under scripts/ci/with-t1-tls-servers.sh: the iOS
+  # `IosTlsHandshakePinningTest` dials a host-side TLS recorder
+  # (`tests/t1/tls_recording_server.py`, ports 9943/9944) because Kotlin/Native
+  # cannot build an in-process TLS server. Without those servers the full iOS
+  # suite fails with "could not connect to the server".
+  #
+  # Runner policy (docs/CI-RUNNER-STRATEGY.md §2): the test jobs run on the
+  # company self-hosted pool, not GitHub-hosted runners —
+  #   - test-android -> [self-hosted, hostinger] (JDK 21 + Android SDK)
+  #   - test-ios     -> [self-hosted, mac]       (Xcode + JDK 21)
+  # Each test step sources scripts/ci/runner-toolchain-env.sh (OPE-98) to
+  # resolve JAVA_HOME / ANDROID_HOME; the allowlist permits only `actions/checkout`.
+  test-android:
+    name: Test Android (JVM unit tests)
+    runs-on: [self-hosted, hostinger]
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Run Android/JVM unit tests
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          chmod +x gradlew
+          java -version
+          CI=1 bash scripts/test.sh android -- --continue
+      - name: Report test results
+        if: always()
+        run: bash scripts/ci/report-test-results.sh
+
+  test-ios:
+    name: Test iOS simulator (Kotlin/Native)
+    runs-on: [self-hosted, mac]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Run iOS simulator tests
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          chmod +x gradlew
+          java -version
+          CI=1 bash scripts/ci/with-t1-tls-servers.sh bash scripts/test.sh apple -- --continue
+      - name: Report test results
+        if: always()
+        run: bash scripts/ci/report-test-results.sh
