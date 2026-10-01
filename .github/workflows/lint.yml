@@ -100,8 +100,11 @@ jobs:
           . scripts/ci/runner-toolchain-env.sh
           chmod +x gradlew
           java -version
+          # The self-hosted runner checks the tree out as a different user, so
+          # git refuses to read it without this exception.
+          git config --global --add safe.directory '*'
           echo "OPE220-REGEN-HEAD=$(git rev-parse HEAD)"
-          echo "OPE220-REGEN-BASELINE=$(sha256sum gradle/verification-metadata.xml | cut -d' ' -f1)"
+          echo "OPE220-REGEN-BEFORE=$(sha256sum gradle/verification-metadata.xml | cut -d' ' -f1)"
           # --configure-on-demand keeps Gradle to the root project, where the
           # detekt plugin is declared.
           ./gradlew --configure-on-demand --no-daemon --console=plain \
@@ -110,7 +113,13 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
+          git config --global --add safe.directory '*'
+          echo "OPE220-REGEN-AFTER=$(sha256sum gradle/verification-metadata.xml | cut -d' ' -f1)"
+          echo "===== OPE220-BEGIN-DETECT-LINES ====="
+          grep -n -A3 'io.gitlab.arturbosch.detekt.gradle.plugin' \
+            gradle/verification-metadata.xml || echo "(no detekt marker entry)"
+          echo "===== OPE220-END-DETECT-LINES ====="
           echo "===== OPE220-BEGIN-DIFF ====="
-          git --no-pager diff --stat gradle/verification-metadata.xml || true
-          git --no-pager diff gradle/verification-metadata.xml || true
+          git --no-pager diff --stat -- gradle/verification-metadata.xml || true
+          git --no-pager diff -- gradle/verification-metadata.xml || true
           echo "===== OPE220-END-DIFF ====="
