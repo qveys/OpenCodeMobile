@@ -107,6 +107,9 @@ public data class MockAbort(
  * See `README.md` in this module for the full scenario matrix and the disconnect/reconnect
  * semantics.
  */
+// The mock server intentionally exposes the whole scenario surface on one type;
+// the function-count rule is waived rather than scattering the fixture surface.
+@Suppress("TooManyFunctions")
 public class MockOpenCodeServer(
     public val scenario: MockOpenCodeScenario = MockOpenCodeScenario.Default,
     private val requiredBearerToken: String? = null,
@@ -252,6 +255,10 @@ public class MockOpenCodeServer(
             handle(data, callContext())
     }
 
+    // One routing switch over the pinned endpoint surface. The length and
+    // branching come from covering every endpoint explicitly, which the tests
+    // depend on; splitting it into per-path handlers would not reduce real risk.
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     private suspend fun handle(request: HttpRequestData, callContext: CoroutineContext): HttpResponseData {
         val method = request.method
         val path = request.url.encodedPath
@@ -541,6 +548,7 @@ public class MockOpenCodeServer(
      * (with `tailDelayMillis` / `keepOpenMillis`) emits activity later on a connection that
      * stays open ("resume live") instead of ending the body as soon as the script is empty.
      */
+    @Suppress("CyclomaticComplexMethod")
     private fun eventStreamResponse(callContext: CoroutineContext): HttpResponseData {
         val script = scriptFor(scenario)
         val start = eventCursor

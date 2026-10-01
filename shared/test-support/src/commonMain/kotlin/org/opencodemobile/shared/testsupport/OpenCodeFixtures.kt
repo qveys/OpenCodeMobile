@@ -27,6 +27,9 @@ public data class MockSession(
  * v1.18.32) used to generate `OpenCodeApiClient`, so a mock response is byte-stable
  * across runs and platforms.
  */
+// A fixture catalog is a long but flat list of small pure builders; splitting it
+// would hurt readability without reducing risk, so the size rule is waived here.
+@Suppress("TooManyFunctions")
 public object OpenCodeFixtures {
     public const val SERVER_VERSION: String = "1.18.32"
     public const val UNSUPPORTED_SERVER_VERSION: String = "0.9.0"
@@ -197,6 +200,7 @@ public object OpenCodeFixtures {
      * One spec-conformant `message.part.updated` event
      * (`EventMessagePartUpdated`: `properties = {sessionID, part, time}`).
      */
+    @Suppress("LongParameterList")
     public fun partUpdatedSseEvent(
         eventId: String,
         partId: String,
