@@ -256,7 +256,12 @@ public object PermissionPolicy {
  * encoding; no byte masking is applied. Masking to the low byte would make any
  * two code points that share a low byte collide, which would let changed content
  * evade the confirmation screen's content binding.
+ *
+ * The explicit field parameters keep the digest contract grep-able at each call
+ * site; `LongParameterList` is suppressed for this migrated helper (the
+ * baseline-vs-refactor policy is tracked in OPE-221).
  */
+@Suppress("LongParameterList")
 public fun permissionContentFingerprint(
     id: String,
     sessionId: String?,
