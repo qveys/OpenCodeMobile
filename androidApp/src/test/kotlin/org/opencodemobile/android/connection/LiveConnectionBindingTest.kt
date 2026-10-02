@@ -131,14 +131,12 @@ class LiveConnectionBindingTest {
      * to the resolved seam.
      */
     private class BoundApp(
-        val server: MockOpenCodeServer,
         val binder: ConnectionBinder,
         val controller: ConnectionBindingController,
         val store: RecordingPendingPermissionStore,
         val biometric: ScriptedBiometricAuthenticator,
         val coordinator: PermissionCoordinator,
         val bridge: PermissionRealtimeBridge,
-        val scope: CoroutineScope,
     )
 
     private suspend fun connectAndBind(
@@ -165,7 +163,7 @@ class LiveConnectionBindingTest {
         val bridge = PermissionRealtimeBridge(permission.source, permission.decoder, coordinator)
         scope.launch { coordinator.start() }
         bridge.start(scope)
-        return BoundApp(server, binder, controller, store, biometric, coordinator, bridge, scope)
+        return BoundApp(binder, controller, store, biometric, coordinator, bridge)
     }
 
     @Test
