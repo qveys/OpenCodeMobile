@@ -38,8 +38,6 @@ dependencies {
     implementation(project(":features:composer"))
     implementation(project(":features:files"))
     implementation(project(":features:permissions"))
-    implementation(project(":features:questions"))
-    implementation(project(":features:catalog"))
     implementation(project(":features:settings"))
 
     implementation(project(":shared:domain"))
@@ -57,10 +55,6 @@ dependencies {
     // The host renders copy through the CMP resource API (design-system's public `Res`).
     implementation(compose.components.resources)
     implementation(libs.androidx.activity.compose)
-    // V1-06/T2: MainActivity is a FragmentActivity (BiometricPrompt) and the
-    // notification uses NotificationCompat.
-    implementation(libs.androidx.fragment)
-    implementation(libs.androidx.core.ktx)
 
     implementation(libs.koin.android)
     implementation(libs.koin.compose)
@@ -71,12 +65,4 @@ dependencies {
     // variant that provides `kotlin.test.Test` and the assertions.
     testImplementation(kotlin("test"))
     testImplementation(libs.koin.core)
-    // OPE-176: the live-connection binding is proven against MockOpenCodeServer,
-    // the same harness the app-e2e recette uses. Ktor is test-only: the app shell
-    // main classpath must not name `io.ktor.client.HttpClient` (ModuleBoundaryTest
-    // scans `src/main/kotlin` only), but the test builds the real adapter over the
-    // mock's in-process client.
-    testImplementation(project(":shared:test-support"))
-    testImplementation(libs.ktor.client.core)
-    testImplementation(libs.kotlinx.coroutines.test)
 }
