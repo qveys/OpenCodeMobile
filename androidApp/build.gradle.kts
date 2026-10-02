@@ -58,4 +58,11 @@ dependencies {
 
     implementation(libs.koin.android)
     implementation(libs.koin.compose)
+    implementation(libs.kotlinx.coroutines.core)
+
+    // Unit test for the composition-root resolver (OPE-170): a JVM-hosted test
+    // that drives the real Koin graph. `kotlin("test")` selects the JVM/JUnit
+    // variant that provides `kotlin.test.Test` and the assertions.
+    testImplementation(kotlin("test"))
+    testImplementation(libs.koin.core)
 }
