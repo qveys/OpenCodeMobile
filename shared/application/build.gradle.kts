@@ -27,21 +27,6 @@ kotlin {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
         }
-
-        // OPE-180 / D8: the cache write path is proven through the production
-        // surface — CacheWritePipeline + a real CacheStack over an in-memory
-        // SQLite driver (the Android driver is not usable off-device). The
-        // cache/data modules are test-only dependencies; commonMain stays
-        // Domain-only (D-architecture tests scan commonMain).
-        val androidUnitTest by getting {
-            dependencies {
-                implementation(libs.kotlin.test)
-                implementation(libs.kotlinx.coroutines.test)
-                implementation(project(":shared:data"))
-                implementation(project(":shared:persistence"))
-                implementation(libs.sqldelight.sqlite.driver)
-            }
-        }
     }
 }
 
