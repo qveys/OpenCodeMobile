@@ -1,0 +1,46 @@
+name: Architecture tests
+
+# OPE-137 — the §5.2 module-boundary gate.
+#
+# Runs the Konsist boundary assertions in `architecture-tests/` on every PR and
+# push to `main`, so a forbidden dependency fails CI instead of relying on code
+# review (ADR 0004, ARCHITECTURE.md principle 7, Cahier des charges §5.2).
+#
+# Repo Actions allowlist: only `actions/checkout@*` may run. Every other action
+# (`actions/setup-java`, `gradle/actions/setup-gradle`, `actions/upload-artifact`,
+# ...) is rejected by the org policy with `startup_failure` before the job starts
+# (same constraint as build.yml / security-logging.yml). This workflow therefore
+# uses ONLY `actions/checkout` and relies on the self-hosted runner toolchain,
+# resolved through `scripts/ci/runner-toolchain-env.sh` (provisioned by OPE-98).
+#
+# Runner: `[self-hosted, hostinger]` per docs/CI-RUNNER-STRATEGY.md §2 — this is
+# JDK/Android/Gradle work with no Xcode or simulator requirement.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: architecture-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  architecture-tests:
+    name: Architecture tests
+    runs-on: [self-hosted, hostinger]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Run §5.2 module-boundary tests
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          chmod +x gradlew
+          java -version
+          ./gradlew :architecture-tests:test --no-daemon --stacktrace
