@@ -26,13 +26,6 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
-            // V1-07/V1-09 app wiring end to end: the controllers and their
-            // realtime bridge are driven by the real EventProcessor pipeline +
-            // OpenCodeV2Adapter against MockOpenCodeServer.
-            implementation(project(":shared:realtime"))
-            implementation(project(":shared:networking"))
-            implementation(project(":shared:test-support"))
-            implementation(libs.ktor.client.core)
         }
     }
 }
