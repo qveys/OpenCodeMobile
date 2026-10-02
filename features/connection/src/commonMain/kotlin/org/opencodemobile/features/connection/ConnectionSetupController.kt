@@ -32,6 +32,7 @@ import org.opencodemobile.shared.domain.connection.toDomainError
  * are mapped to the failure state rather than escaping the coroutine, so the UI
  * always has a single, typed decision surface.
  */
+@Suppress("LongParameterList", "TooManyFunctions", "TooGenericExceptionCaught")
 public class ConnectionSetupController(
     private val setup: ServerConnectionSetup,
     private val scope: CoroutineScope,
@@ -39,12 +40,7 @@ public class ConnectionSetupController(
     private val existingProfileProvider: suspend () -> ServerProfile? = { null },
     private val existingFingerprintProvider: suspend (ServerProfile) -> ServerFingerprint? = { null },
     private val identityConfirmer: suspend (ServerProfile, ServerFingerprint) -> Unit = { _, _ -> },
-    /**
-     * Called once the handshake succeeded, with the profile that was connected
-     * and its handshake. The connection composition root binds the live graph
-     * here (OPE-176); the feature itself never wires L2/L3 surfaces.
-     */
-    private val onConnected: (ServerProfile, ConnectionHandshake) -> Unit = { _, _ -> },
+    private val onConnected: (ConnectionHandshake) -> Unit = {},
 ) {
     private val mutableState = MutableStateFlow(ConnectionSetupUiState())
 
@@ -181,7 +177,7 @@ public class ConnectionSetupController(
         when (val result = setup.validate(plan, credential)) {
             is ConnectionValidation.Connected -> {
                 mutableState.update { it.copy(busy = false, connected = result.handshake, review = null, failure = null) }
-                onConnected(plan.profile, result.handshake)
+                onConnected(result.handshake)
             }
 
             is ConnectionValidation.Rejected -> when (val error = result.error) {
