@@ -1,5 +1,6 @@
 package org.opencodemobile.features.sessions
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,7 +64,9 @@ public fun SessionsScreen(
     modifier: Modifier = Modifier,
     onOpenCatalog: (() -> Unit)? = null,
 ) {
-    OpenCodeTheme(context = OpenCodeContext.Chrome) {
+    OpenCodeTheme(
+        context = if (isSystemInDarkTheme()) OpenCodeContext.ChromeDark else OpenCodeContext.Chrome,
+    ) {
         val state by presenter.state.collectAsState()
         val colors = LocalOpenCodeColors.current
         val scope = rememberCoroutineScope()
@@ -270,7 +273,7 @@ private fun SessionsBody(
                     session = session,
                     forkAvailable = state.forkAvailable,
                     busy = state.pendingSessionId == session.id,
-                    enabled = !state.offline,
+                    mutationsEnabled = !state.offline,
                     onOpen = { onOpen(session) },
                     onRename = { onRename(session) },
                     onFork = { onFork(session) },
@@ -290,7 +293,7 @@ private fun SessionItem(
     session: SessionSummary,
     forkAvailable: Boolean,
     busy: Boolean,
-    enabled: Boolean,
+    mutationsEnabled: Boolean,
     onOpen: () -> Unit,
     onRename: () -> Unit,
     onFork: () -> Unit,
@@ -307,11 +310,11 @@ private fun SessionItem(
             status = SessionRowStatus.Idle,
             onClick = onOpen,
             busy = busy,
-            enabled = enabled,
+            enabled = true, // reading is allowed offline; only the mutations are gated
             modifier = Modifier.weight(1f),
         )
         Box {
-            TextButton(onClick = { menuOpen = true }, enabled = enabled && !busy) {
+            TextButton(onClick = { menuOpen = true }, enabled = !busy) {
                 Text("…")
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -321,16 +324,19 @@ private fun SessionItem(
                 )
                 DropdownMenuItem(
                     text = { Text("Rename", style = OpenCodeType.control) },
+                    enabled = mutationsEnabled,
                     onClick = { menuOpen = false; onRename() },
                 )
                 if (forkAvailable) {
                     DropdownMenuItem(
                         text = { Text("Fork", style = OpenCodeType.control) },
+                        enabled = mutationsEnabled,
                         onClick = { menuOpen = false; onFork() },
                     )
                 }
                 DropdownMenuItem(
                     text = { Text("Delete", style = OpenCodeType.control) },
+                    enabled = mutationsEnabled,
                     onClick = { menuOpen = false; onDelete() },
                 )
             }

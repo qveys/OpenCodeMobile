@@ -90,10 +90,14 @@ private class FakeSessionGateway(
 
 private class FakeSessionCache(
     private val cached: MutableList<CachedSession> = mutableListOf(),
+    var sessionsFailure: Throwable? = null,
 ) : SessionCache {
     override suspend fun serverConfig(serverId: String): CachedServerConfig? = null
     override suspend fun projects(serverId: String): List<CachedProject> = emptyList()
-    override suspend fun sessions(serverId: String, projectId: String): List<CachedSession> = cached.toList()
+    override suspend fun sessions(serverId: String, projectId: String): List<CachedSession> {
+        sessionsFailure?.let { throw it }
+        return cached.toList()
+    }
     override suspend fun session(serverId: String, projectId: String, sessionId: String): CachedSession? = null
     override suspend fun recentTranscript(
         serverId: String,
@@ -219,6 +223,32 @@ class SessionListControllerTest {
         assertTrue(fixture.gateway.calls.contains("rename:ses_created:Renamed title"))
         assertTrue(fixture.gateway.calls.contains("fork:ses_created"))
         assertTrue(fixture.gateway.calls.contains("delete:ses_created"))
+    }
+
+    @Test
+    fun unreadableCacheRendersAnEmptyReadOnlyStateInsteadOfThrowing() = runTest {
+        val fixture = Fixture()
+        val brokenCache = FakeSessionCache(sessionsFailure = IllegalStateException("cache key invalidated"))
+        val controller = SessionListController(fixture.gateway, brokenCache, fixture.gate, { scope })
+        fixture.gate.onConnectionStateChanged(ConnectionState.Offline)
+
+        controller.refresh()
+
+        assertTrue(controller.state.value.sessions.isEmpty())
+        assertTrue(controller.state.value.offline)
+    }
+
+    @Test
+    fun recoveredMutationRereadsTheCapabilitySurface() = runTest {
+        val fixture = Fixture()
+        fixture.gateway.listFailure = IllegalStateException("down")
+        fixture.controller.refresh()
+        assertFalse(fixture.controller.state.value.forkAvailable)
+        fixture.gateway.listFailure = null
+
+        fixture.controller.createSession("Back")
+
+        assertTrue(fixture.controller.state.value.forkAvailable)
     }
 
     @Test

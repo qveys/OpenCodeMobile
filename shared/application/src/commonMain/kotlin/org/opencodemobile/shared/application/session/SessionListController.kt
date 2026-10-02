@@ -292,9 +292,11 @@ public class SessionListController(
         try {
             block()
             val sessions = gateway.listSessions(directory)
+            val capabilities = gateway.sessionCapabilities(directory)
             mutableState.update {
                 it.copy(
                     pendingSessionId = null,
+                    forkAvailable = capabilities.forkAvailable,
                     sessions = sessions.sortedByDescending { session -> session.updatedAt },
                     source = SessionListSource.Live,
                     offline = false,
@@ -314,10 +316,17 @@ public class SessionListController(
 
     private suspend fun cachedSessions(): List<SessionSummary> {
         val current = scope() ?: return emptyList()
-        return cache
-            .sessions(current.serverId, current.projectId)
-            .map { it.toSummary() }
-            .sortedByDescending { session -> session.updatedAt }
+        // An unreadable cache renders an empty read-only state, never a crash.
+        return try {
+            cache
+                .sessions(current.serverId, current.projectId)
+                .map { it.toSummary() }
+                .sortedByDescending { session -> session.updatedAt }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            emptyList()
+        }
     }
 }
 
