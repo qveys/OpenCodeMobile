@@ -10,14 +10,13 @@ name: Logging Redaction (T4)
 # therefore uses ONLY `actions/checkout`.
 #
 # Runner policy: jobs run on the company self-hosted runner pool, not on
-# GitHub-hosted runners. The lightweight static scan runs on the Linux hostinger
-# VPS (`[self-hosted, hostinger]` -> vps-dokploy / vps-openclaw). The Gradle /
-# Android redaction tests target the macOS runner (`[self-hosted, mac]` ->
-# macbook-openclaw); its JDK 21 + Android SDK toolchain is provisioned by
-# `.github/workflows/provision-runner-toolchain.yml` (OPE-98) and resolved at
-# job time through `scripts/ci/runner-toolchain-env.sh`. See
-# `docs/CI-RUNNER-STRATEGY.md`. Until that provisioning is green the job stays
-# disabled on pull_request (see the job-level comment).
+# GitHub-hosted runners. Both jobs now run on the Linux hostinger VPS
+# (`[self-hosted, hostinger]` -> vps-dokploy / vps-openclaw). The redaction
+# tests are a plain JVM/Android unit test and no longer need the single-lane
+# `mac` runner (OPE-250, Phase 0.1); the hostinger pool is provisioned with
+# JDK 21 + the Android SDK by `.github/workflows/provision-runner-toolchain.yml`
+# (OPE-98) and resolved at job time through
+# `scripts/ci/runner-toolchain-env.sh`. See `docs/CI-RUNNER-STRATEGY.md`.
 #
 # The `pull_request` trigger is intentionally NOT path-filtered. A path-filtered
 # workflow produces no status when a PR touches none of its paths, which would
@@ -50,12 +49,14 @@ jobs:
 
   redaction-tests:
     name: Redaction unit tests
-    # Enabled on every trigger now that the self-hosted macOS runner is
-    # provisioned with JDK 21 + the Android SDK (OPE-98/OPE-100; verified green
-    # in run 36552097830). The job only *sources* the preinstalled toolchain via
+    # OPE-250 (Phase 0.1) moved this off the single-lane `mac` runner to
+    # `hostinger`: the job is a plain `:shared:networking:testDebugUnitTest`
+    # that only needs JDK 21 + the Android SDK, both provisioned on hostinger
+    # (OPE-98/OPE-100). On `mac` a 44-second test queued ~43 minutes behind the
+    # long iOS jobs. The job only *sources* the preinstalled toolchain via
     # scripts/ci/runner-toolchain-env.sh; it never downloads a JDK/Android SDK
     # itself, so the T4 supply-chain policy documented above is preserved.
-    runs-on: [self-hosted, mac]
+    runs-on: [self-hosted, hostinger]
     needs: static-scan
     timeout-minutes: 40
     steps:
