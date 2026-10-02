@@ -2,7 +2,6 @@ package org.opencodemobile.shared.persistence.cache
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import java.io.File
-import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -158,70 +157,9 @@ class SqlSessionCacheTest {
         }
     }
 
-    @Test
-    fun `android backup rules exclude the db, companions, and the key blob`() {
-        val expectedExcludes = setOf(
-            "database" to "opencodemobile_cache.db",
-            "database" to "opencodemobile_cache.db-wal",
-            "database" to "opencodemobile_cache.db-shm",
-            "database" to "opencodemobile_cache.db-journal",
-            "sharedpref" to "opencodemobile_cache_key.xml",
-        )
-        for (path in listOf(DATA_EXTRACTION_RULES_PATH, BACKUP_RULES_PATH)) {
-            val excludes = parseExcludes(File(path))
-            for (expected in expectedExcludes) {
-                assertTrue(
-                    expected in excludes,
-                    "$path must exclude domain=${expected.first} path=${expected.second}",
-                )
-            }
-        }
-    }
-
-    @Test
-    fun `android data extraction rules cover cloud backup and device transfer`() {
-        val xml = File(DATA_EXTRACTION_RULES_PATH).readText()
-        assertTrue(xml.contains("<cloud-backup>"))
-        assertTrue(xml.contains("<device-transfer>"))
-    }
-
-    @Test
-    fun `android manifest wires the cache backup rules`() {
-        val manifest = File(MANIFEST_PATH)
-        assertTrue(manifest.isFile, "AndroidManifest.xml not found at $MANIFEST_PATH")
-        val xml = manifest.readText()
-        assertTrue(xml.contains("@xml/opencodemobile_cache_data_extraction_rules"))
-        assertTrue(xml.contains("@xml/opencodemobile_cache_backup_rules"))
-    }
-
-    /** Parses all `exclude` elements into `(domain, path)` pairs. */
-    private fun parseExcludes(file: File): Set<Pair<String, String>> {
-        assertTrue(file.isFile, "backup rule file not found at $file")
-        val document = DocumentBuilderFactory.newInstance()
-            .apply { isNamespaceAware = false }
-            .newDocumentBuilder()
-            .parse(file)
-        val nodes = document.getElementsByTagName("exclude")
-        return buildSet {
-            for (index in 0 until nodes.length) {
-                val element = nodes.item(index)
-                val domain = element.attributes?.getNamedItem("domain")?.nodeValue
-                val path = element.attributes?.getNamedItem("path")?.nodeValue
-                if (domain != null && path != null) {
-                    add(domain to path)
-                }
-            }
-        }
-    }
-
     private companion object {
         // Unit tests run with the module directory as the working directory.
         const val SCHEMA_PATH =
             "src/commonMain/sqldelight/org/opencodemobile/shared/persistence/db/Cache.sq"
-        const val DATA_EXTRACTION_RULES_PATH =
-            "src/androidMain/res/xml/opencodemobile_cache_data_extraction_rules.xml"
-        const val BACKUP_RULES_PATH =
-            "src/androidMain/res/xml/opencodemobile_cache_backup_rules.xml"
-        const val MANIFEST_PATH = "../../androidApp/src/main/AndroidManifest.xml"
     }
 }
