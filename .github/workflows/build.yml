@@ -26,7 +26,8 @@ name: Build
 #     - JDK: JAVA_HOME_21_X64 (ubuntu) / JAVA_HOME_21_* (macOS) supplied by the
 #       runner image, so both jobs build with the same major JDK.
 #   If the allowlist is later widened to include `actions/upload-artifact`, add
-#   an upload step for the paths listed under each job.
+#   an upload step for the paths listed under each job (the iOS simulator app is
+#   already published to a SHA-tagged pre-release by `package-ios-simulator`).
 
 on:
   pull_request:
@@ -90,6 +91,44 @@ jobs:
           test -n "$(find . -path '*/shared/security/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/domain/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/iosAppHost/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
+
+  # Unsigned iOS Simulator .app, published per commit (MVP v1 exit criterion).
+  # `actions/upload-artifact` is not on the allowlist, so the zip is attached
+  # with the preinstalled `gh` to a pre-release tagged with the commit SHA
+  # (needs only `contents: write` for this job; no extra action). Fork PRs get
+  # a read-only token and are skipped.
+  package-ios-simulator:
+    name: Package iOS Simulator app
+    runs-on: macos-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      GH_TOKEN: ${{ github.token }}
+      APP_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Build unsigned simulator app
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-$JAVA_HOME}}"
+          chmod +x gradlew
+          command -v xcodegen >/dev/null || brew install xcodegen
+          cd iosApp
+          xcodegen generate
+          xcodebuild -project iosApp.xcodeproj -scheme iosApp -sdk iphonesimulator \
+            -configuration Debug -derivedDataPath build/dd CODE_SIGNING_ALLOWED=NO build
+          ditto -c -k --keepParent build/dd/Build/Products/Debug-iphonesimulator/iosApp.app \
+            "iosApp-simulator-${APP_SHA}.zip"
+      - name: Publish zip to the SHA pre-release
+        run: |
+          set -euo pipefail
+          tag="ios-sim-${APP_SHA}"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
+            --target "$APP_SHA" --prerelease --title "iOS Simulator ${APP_SHA:0:7}" \
+            --notes "Unsigned iOS Simulator build of ${APP_SHA}."
+          gh release upload "$tag" "iosApp/iosApp-simulator-${APP_SHA}.zip" --clobber
 
   # OPE-17 — Test step. Runs the full KMP test suite from the SAME revision as
   # the build jobs above (one workflow run => one github.sha):
