@@ -36,7 +36,7 @@ counterpart of `androidApp`:
 
 This module exists because the composition root cannot be a `features/*` module: §5.2 forbids a
 feature from reaching `shared/networking`/`shared/security`. The deviation from the §5.1
-module list is recorded in `docs/adr/0006-ios-composition-root-module.md`.
+module list is recorded in `docs/adr/0008-ios-composition-root-module.md`.
 
 ## The Xcode project (`project.yml`, generated `iosApp.xcodeproj`)
 
