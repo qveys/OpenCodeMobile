@@ -26,7 +26,8 @@ name: Build
 #     - JDK: JAVA_HOME_21_X64 (ubuntu) / JAVA_HOME_21_* (macOS) supplied by the
 #       runner image, so both jobs build with the same major JDK.
 #   If the allowlist is later widened to include `actions/upload-artifact`, add
-#   an upload step for the paths listed under each job.
+#   an upload step for the paths listed under each job (the iOS simulator app is
+#   already published to a SHA-tagged pre-release by `package-ios-simulator`).
 
 on:
   pull_request:
@@ -90,6 +91,35 @@ jobs:
           test -n "$(find . -path '*/shared/security/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/domain/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/iosAppHost/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
+
+  # Unsigned iOS Simulator .app, downloadable per commit (MVP v1 exit criterion).
+  package-ios-simulator:
+    name: Package iOS Simulator app
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      APP_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Build unsigned simulator app
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-$JAVA_HOME}}"
+          chmod +x gradlew
+          command -v xcodegen >/dev/null || brew install xcodegen
+          cd iosApp
+          xcodegen generate
+          xcodebuild -project iosApp.xcodeproj -scheme iosApp -sdk iphonesimulator \
+            -configuration Debug -derivedDataPath build/dd ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO build
+          ditto -c -k --keepParent build/dd/Build/Products/Debug-iphonesimulator/iosApp.app \
+            "iosApp-simulator-${APP_SHA}.zip"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: iosApp-simulator-${{ env.APP_SHA }}
+          path: iosApp/iosApp-simulator-${{ env.APP_SHA }}.zip
+          retention-days: 14
+          if-no-files-found: error
 
   # OPE-17 — Test step. Runs the full KMP test suite from the SAME revision as
   # the build jobs above (one workflow run => one github.sha):
