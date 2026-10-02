@@ -78,7 +78,9 @@ jobs:
           export JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-$JAVA_HOME}}"
           chmod +x gradlew
           java -version
-          ./gradlew linkDebugFrameworkIosSimulatorArm64 linkDebugFrameworkIosArm64 --no-daemon --stacktrace
+          ./gradlew linkDebugFrameworkIosSimulatorArm64 linkDebugFrameworkIosArm64 \
+            :iosAppHost:linkDebugFrameworkIosSimulatorArm64 :iosAppHost:linkDebugFrameworkIosArm64 \
+            --no-daemon --stacktrace
       - name: Verify iOS frameworks
         run: |
           set -euo pipefail
@@ -87,6 +89,7 @@ jobs:
           test -n "$(find . -path '*/build/bin/iosArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/security/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/domain/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
+          test -n "$(find . -path '*/iosAppHost/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
 
   # OPE-17 — Test step. Runs the full KMP test suite from the SAME revision as
   # the build jobs above (one workflow run => one github.sha):

@@ -33,9 +33,12 @@ public data class ServerProfile(
     public val isPlaintextHttp: Boolean
         get() = tls == TlsMode.PlaintextHttp
 
-    /** `host:port` authority, as displayed to the user during review. */
+    /**
+     * `host:port` authority, as displayed to the user during review. IPv6
+     * literals are bracketed so the authority and [baseUrl] stay well-formed.
+     */
     public val authority: String
-        get() = "$host:$port"
+        get() = if (host.contains(':')) "[$host]:$port" else "$host:$port"
 
     /** Base URL for REST/SSE calls. */
     public val baseUrl: String
