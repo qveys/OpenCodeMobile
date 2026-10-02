@@ -25,6 +25,7 @@ public actual fun createOpenCodeHttpClient(
                 delegate.URLSession(session, challenge, handler)
             }
         }
+        applyConnectionTransportPolicy()
         configure()
     }
 }

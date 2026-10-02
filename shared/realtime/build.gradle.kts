@@ -22,10 +22,17 @@ kotlin {
             implementation(project(":shared:domain"))
             implementation(project(":shared:networking"))
             implementation(libs.kotlinx.coroutines.core)
+            // Payload validation (malformed events) only; the domain stays JSON-free.
+            implementation(libs.kotlinx.serialization.json)
         }
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
+            // End-to-end pipeline test: the mock server harness plus the raw
+            // Ktor client it exposes to build a real transport.
+            implementation(project(":shared:test-support"))
+            implementation(libs.ktor.client.core)
         }
     }
 }
