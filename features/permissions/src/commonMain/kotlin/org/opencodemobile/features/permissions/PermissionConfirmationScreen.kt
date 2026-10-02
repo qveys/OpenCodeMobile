@@ -2,7 +2,6 @@ package org.opencodemobile.features.permissions
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -78,9 +77,9 @@ public fun PermissionConfirmationScreen(
                     fontFamily = FontFamily.Monospace,
                 )
             }
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 for (decision in model.decisions) {
                     ConfirmationDecisionButton(decision = decision, onDecision = onDecision)

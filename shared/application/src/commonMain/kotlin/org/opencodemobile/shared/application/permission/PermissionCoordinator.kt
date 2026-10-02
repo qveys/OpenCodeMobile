@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.opencodemobile.shared.domain.cache.MutationGate
@@ -112,7 +113,7 @@ public class PermissionCoordinator(
      * resurrecting a decided request (T6). The window is bounded; reconciliation
      * is the backstop.
      */
-    private val decidedIds = LinkedHashSet<String>()
+    private val decidedIds = MutableStateFlow<Set<String>>(emptySet())
 
     /**
      * Restores the persisted pending set, then (when online) reconciles it with
@@ -121,7 +122,7 @@ public class PermissionCoordinator(
      */
     public suspend fun start() {
         val stored = runCatching { store.load() }.getOrDefault(emptyList())
-        replacePending(stored)
+        updatePending { stored }
         if (mutationGate.mutationsAllowed()) {
             reconcile()
         }
@@ -135,6 +136,7 @@ public class PermissionCoordinator(
      */
     @Suppress("TooGenericExceptionCaught", "SwallowedException") // fail closed: any port failure must leave the set untouched, never crash
     public suspend fun reconcile() {
+        val tombstonesBefore = decidedIds.value
         val serverPending = try {
             port.pendingPermissions()
         } catch (cancellation: CancellationException) {
@@ -151,14 +153,15 @@ public class PermissionCoordinator(
         // proof a request was decided (N1): one omission must not erase the banner
         // *and* permanently suppress that request's event. So an id the server
         // reports pending again drops any tombstone recorded by an earlier,
-        // incomplete reconcile. The set stays bounded by `rememberDecided`.
-        for (id in serverIds) {
-            decidedIds.remove(id)
-        }
+        // incomplete reconcile. Only tombstones that predate this call are dropped:
+        // an id decided *during* the round trip must stay decided, or it would be
+        // re-offered and could be answered twice.
+        decidedIds.update { it - (serverIds intersect tombstonesBefore) }
         for (existing in mutableState.value.pending) {
             if (existing.id !in serverIds) rememberDecided(existing.id)
         }
-        replacePending(serverPending)
+        // Filtered under the lock so a decision landing meanwhile is honoured.
+        updatePending { serverPending.filterNot { it.id in decidedIds.value } }
     }
 
     /**
@@ -172,37 +175,33 @@ public class PermissionCoordinator(
         when (event) {
             is PermissionEvent.Asked -> {
                 val request = event.request
-                if (request.id in decidedIds) return
-                val current = mutableState.value.pending
-                if (current.any { it.id == request.id }) return
-                replacePending(current + request)
+                updatePending { current ->
+                    val known = request.id in decidedIds.value || current.any { it.id == request.id }
+                    if (known) null else current + request
+                }
             }
 
             is PermissionEvent.Replied -> {
                 rememberDecided(event.requestId)
-                if (mutableState.value.request(event.requestId) == null) return
-                replacePending(mutableState.value.pending.filterNot { it.id == event.requestId })
+                updatePending { current ->
+                    if (current.none { it.id == event.requestId }) null else current.filterNot { it.id == event.requestId }
+                }
             }
         }
     }
 
     /** Marks the current request as the foreground confirmation target. */
     public fun arm(requestId: String) {
-        val current = mutableState.value
-        if (!current.foregrounded) return
-        val request = current.request(requestId) ?: return
-        mutableState.value = current.copy(
-            armedRequestId = requestId,
-            armedFingerprint = request.contentFingerprint,
-        )
+        mutableState.update { current ->
+            if (!current.foregrounded) return@update current
+            val request = current.request(requestId) ?: return@update current
+            current.copy(armedRequestId = requestId, armedFingerprint = request.contentFingerprint)
+        }
     }
 
     /** Drops the armed confirmation state. */
     public fun disarm() {
-        mutableState.value = mutableState.value.copy(
-            armedRequestId = null,
-            armedFingerprint = null,
-        )
+        mutableState.update { it.copy(armedRequestId = null, armedFingerprint = null) }
     }
 
     /**
@@ -211,14 +210,12 @@ public class PermissionCoordinator(
      * background/foreground transition cannot submit (T2).
      */
     public fun onForegroundChanged(foregrounded: Boolean) {
-        mutableState.value = if (foregrounded) {
-            mutableState.value.copy(foregrounded = true)
-        } else {
-            mutableState.value.copy(
-                foregrounded = false,
-                armedRequestId = null,
-                armedFingerprint = null,
-            )
+        mutableState.update {
+            if (foregrounded) {
+                it.copy(foregrounded = true)
+            } else {
+                it.copy(foregrounded = false, armedRequestId = null, armedFingerprint = null)
+            }
         }
     }
 
@@ -343,7 +340,7 @@ public class PermissionCoordinator(
                 // Remove from the *live* set, not a pre-call snapshot: a
                 // permission.asked that arrived during the round trip must not be
                 // dropped from the banner.
-                replacePending(mutableState.value.pending.filterNot { it.id == requestId })
+                updatePending { current -> current.filterNot { it.id == requestId } }
                 PermissionSubmitResult.Accepted
             }
 
@@ -352,18 +349,13 @@ public class PermissionCoordinator(
     }
 
     private fun rememberDecided(requestId: String) {
-        decidedIds.add(requestId)
-        while (decidedIds.size > MAX_REMEMBERED_DECIDED) {
-            val eldest = decidedIds.iterator()
-            if (eldest.hasNext()) {
-                eldest.next()
-                eldest.remove()
-            }
-        }
+        decidedIds.update { (it + requestId).toList().takeLast(MAX_REMEMBERED_DECIDED).toSet() }
     }
 
-    private suspend fun replacePending(pending: List<PermissionRequest>) = lock.withLock {
-        mutableState.value = mutableState.value.copy(pending = pending)
+    /** Applies [transform] to the live pending list under the lock; null means no change. */
+    private suspend fun updatePending(transform: (List<PermissionRequest>) -> List<PermissionRequest>?) = lock.withLock {
+        val pending = transform(mutableState.value.pending) ?: return@withLock
+        mutableState.update { it.copy(pending = pending) }
         runCatching { store.save(pending) }
         runCatching { notifier.onPendingChanged(pending) }
     }

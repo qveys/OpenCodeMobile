@@ -286,6 +286,25 @@ class PermissionCoordinatorTest {
     }
 
     @Test
+    fun aRequestDecidedDuringTheReconcileRoundTripIsNotResurrected() = runTest {
+        lateinit var coordinator: PermissionCoordinator
+        val port = object : RecordingPermissionPort(serverPending = listOf(bashRequest)) {
+            override suspend fun pendingPermissions(): List<PermissionRequest> {
+                // The decision lands while the GET is in flight; the response was
+                // captured before it and still lists the request as pending.
+                coordinator.onEvent(PermissionEvent.Replied(bashRequest.id))
+                return serverPending
+            }
+        }
+        coordinator = coordinator(port = port)
+        coordinator.onEvent(PermissionEvent.Asked(bashRequest))
+
+        coordinator.reconcile()
+
+        assertFalse(coordinator.state.value.bannerVisible, "a decided request must stay decided")
+    }
+
+    @Test
     fun aTransientlyOmittedPendingIdIsRestoredByTheNextReconcile() = runTest {
         val port = RecordingPermissionPort(serverPending = listOf(bashRequest))
         val coordinator = coordinator(port = port)
