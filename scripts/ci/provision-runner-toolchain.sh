@@ -87,17 +87,59 @@ run_root() {
   fi
 }
 
+# Bound a command that may hang on a flaky network. macOS ships neither
+# `timeout` nor `gtimeout` by default, so fall back to a watchdog subshell.
+with_timeout() { # seconds cmd...
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"; return $?; fi
+  if command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"; return $?; fi
+  "$@" & local p=$!
+  ( sleep "$secs"; kill -TERM "$p" 2>/dev/null ) & local w=$!
+  local rc=0
+  wait "$p" || rc=$?
+  kill "$w" 2>/dev/null || true
+  wait "$w" 2>/dev/null || true
+  [ "$rc" -eq 143 ] && rc=124
+  return "$rc"
+}
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 download() { # url out
+  local max_time=3600
+  if [ -n "${dl_deadline:-}" ]; then
+    max_time=$(( dl_deadline - $(date +%s) ))
+    [ "$max_time" -gt 0 ] || return 1
+  fi
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --retry 3 --retry-delay 5 -o "$2" "$1"
+    # --http1.1 avoids the HTTP/2 `PROTOCOL_ERROR` stall seen on the self-hosted
+    # macOS runner (it hung ~1h on api.adoptium.net). --speed-limit/--speed-time
+    # -4: the self-hosted mac runner's IPv6 path measured ~35 KB/s (OPE-100 run
+    # 36522311638), which makes a 203 MB JDK take ~90 min; forcing IPv4 is the
+    # cheapest fix for a throttled/PMTU-broken v6 route. HTTP/1.1 avoids the
+    # HTTP/2 stalls. -C - resumes a partial file so a reset does not lose
+    # progress, and --speed-limit aborts a genuinely stalled stream.
+    with_timeout "$max_time" curl -fSL -4 --proto '=https' --proto-redir '=https' --http1.1 -C - --connect-timeout 20 \
+      --speed-limit 2048 --speed-time 180 --max-time "$max_time" \
+      --retry 3 --retry-delay 10 --retry-max-time "$max_time" -o "$2" "$1"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$2" "$1"
+    with_timeout "$max_time" wget -q -4 --https-only -c --tries=3 --timeout=20 -O "$2" "$1"
   else
     return 1
   fi
+}
+
+verify_sha256() { # archive expected
+  local actual
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$1")" || return 1
+  elif command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 256 "$1")" || return 1
+  else
+    return 1
+  fi
+  [ "${actual%% *}" = "$2" ]
 }
 
 extract_zip() { # zip dest
@@ -126,9 +168,9 @@ find_jdk21() {
   fi
   for d in \
     /opt/jdk-21 \
-    "$HOME/.local/jdk-21" \
     /Library/Java/JavaVirtualMachines/*/Contents/Home \
     "$HOME"/Library/Java/JavaVirtualMachines/*/Contents/Home \
+    "$HOME/.local/jdk-21" \
     /usr/lib/jvm/*21* /usr/lib/jvm/java-21-openjdk*; do
     if is_jdk21 "$d"; then printf '%s' "$d"; return 0; fi
   done
@@ -163,50 +205,105 @@ install_jdk21() {
     info "apt path unavailable; falling back to Temurin tarball"
   fi
 
-  # macOS fast path: Homebrew.
+  # macOS fast path: reuse an already-installed Homebrew JDK 21, if any.
+  #
+  # We deliberately do NOT run `brew install` here. On the self-hosted
+  # macbook-openclaw runner Homebrew lives in the ARM prefix (/opt/homebrew)
+  # while the job shell reports x86_64, so `brew install` aborts immediately
+  # ("Cannot install under Rosetta 2 in ARM default prefix"), and the
+  # `--cask temurin@21` install needs a root password the runner does not have
+  # (no passwordless sudo). A doomed brew attempt only wastes time, so we keep
+  # a fast keg lookup and otherwise go straight to the verified JDK mirror.
   if [ "$OS" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
-    info "trying Homebrew openjdk@21"
-    if brew list --versions openjdk@21 >/dev/null 2>&1 || brew install openjdk@21 >/dev/null 2>&1; then
-      local bp
-      bp="$(brew --prefix openjdk@21 2>/dev/null || true)"
-      if [ -n "$bp" ] && is_jdk21 "$bp"; then
-        if [ "$CAN_ROOT" -eq 1 ]; then
-          run_root mkdir -p /Library/Java/JavaVirtualMachines
-          run_root ln -sfn "$bp/libexec/openjdk.jdk" /Library/Java/JavaVirtualMachines/openjdk-21.jdk
-        fi
-        JDK_HOME_FINAL="$bp"
-        info "JDK 21 installed via Homebrew: $bp"
-        return 0
+    info "checking for an existing Homebrew openjdk@21"
+    local bp
+    bp="$(brew --prefix openjdk@21 2>/dev/null || true)"
+    if [ -n "$bp" ] && is_jdk21 "$bp"; then
+      # Register the keg with java_home (user scope when we are not root).
+      if [ "$CAN_ROOT" -eq 1 ]; then
+        run_root mkdir -p /Library/Java/JavaVirtualMachines
+        run_root ln -sfn "$bp/libexec/openjdk.jdk" /Library/Java/JavaVirtualMachines/openjdk-21.jdk 2>/dev/null || true
+      else
+        mkdir -p "$HOME/Library/Java/JavaVirtualMachines"
+        ln -sfn "$bp/libexec/openjdk.jdk" "$HOME/Library/Java/JavaVirtualMachines/openjdk-21.jdk" 2>/dev/null || true
       fi
+      JDK_HOME_FINAL="$bp"
+      info "reusing JDK 21 from Homebrew: $bp"
+      return 0
     fi
-    info "Homebrew path unavailable; falling back to Temurin tarball"
+    info "no usable Homebrew openjdk@21; falling back to a JDK mirror"
   fi
 
   # Universal fallback: a Temurin/Corretto/Microsoft JDK tarball. Several
   # independent mirrors are tried so a blocked or moved URL does not fail the
   # whole provisioning run.
-  local os_seg target tmp src url got
+  # Vendor URL path segments differ: Adoptium uses `mac`, but AWS Corretto and
+  # Microsoft use `macos`. Reusing `mac` for all three caused the OPE-100
+  # failures (corretto.aws returned 404, aka.ms had no matching artifact).
+  local os_seg corretto_seg ms_seg target tmp src url got part checksum_url expected
   case "$OS" in
-    Linux)  os_seg=linux ;;
-    Darwin) os_seg=mac ;;
+    Linux)  os_seg=linux ; corretto_seg=linux ; ms_seg=linux ;;
+    Darwin) os_seg=mac   ; corretto_seg=macos ; ms_seg=macos ;;
     *) warn "unsupported OS: $OS"; return 1 ;;
   esac
   if [ "$CAN_ROOT" -eq 1 ] && [ "$OS" = "Linux" ]; then
     target=/opt/jdk-21
-  elif [ "$CAN_ROOT" -eq 1 ] && [ "$OS" = "Darwin" ]; then
-    target=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home
+  elif [ "$OS" = "Darwin" ]; then
+    # User-level JDK bundle: the macOS self-hosted runner has no passwordless
+    # sudo, and a `.jdk` under ~/Library/Java/JavaVirtualMachines is discovered
+    # by `/usr/libexec/java_home -v 21` without root. Corretto (reliable, fast
+    # from this runner) is tried first; Adoptium stalled for ~1h over HTTP/2.
+    target="$HOME/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home"
   else
     target="$HOME/.local/jdk-21"
   fi
   tmp="$(mktemp -d)"
   got=0
+  # Keep partial downloads in a persistent cache so `curl -C -` resumes them.
+  # At the runner's measured ~35 KB/s a 203 MB JDK needs ~90 min: a single job
+  # (or even one --max-time window) can miss it, but progress is not lost and
+  # the next attempt/run continues from where it stopped.
+  local dl_cache; dl_cache="$HOME/.cache/opencode-mobile-jdk21"
+  mkdir -p "$dl_cache" 2>/dev/null || dl_cache="$tmp"
+  local dl_deadline; dl_deadline=$(( $(date +%s) + 7200 ))
   for url in \
+    "https://corretto.aws/downloads/latest/amazon-corretto-21-${TEMURIN_ARCH}-${corretto_seg}-jdk.tar.gz" \
     "https://api.adoptium.net/v3/binary/latest/21/ga/${os_seg}/${TEMURIN_ARCH}/jdk/hotspot/normal/eclipse" \
-    "https://corretto.aws/downloads/latest/amazon-corretto-21-${TEMURIN_ARCH}-${os_seg}-jdk.tar.gz" \
-    "https://aka.ms/download-jdk/microsoft-jdk-21-${os_seg}-${TEMURIN_ARCH}.tar.gz"; do
-    info "downloading $url"
-    if download "$url" "$tmp/jdk21.tar.gz" && tar -tzf "$tmp/jdk21.tar.gz" >/dev/null 2>&1; then
-      got=1; break
+    "https://aka.ms/download-jdk/microsoft-jdk-21-${ms_seg}-${TEMURIN_ARCH}.tar.gz"; do
+    # Hard cap across all mirrors so the JDK download cannot consume the whole
+    # job budget. The mac job timeout is raised to match (see the workflow).
+    if [ "$(date +%s)" -ge "$dl_deadline" ]; then
+      warn "JDK download time budget exhausted; not trying any further mirror"
+      break
+    fi
+    case "$url" in
+      https://corretto.aws/downloads/latest/*) checksum_url="${url/\/latest\//\/latest_sha256\/}" ;;
+      # ponytail: Adoptium has no checksum endpoint for the "latest" redirect: skipped (fail closed)
+      https://api.adoptium.net/*) warn "no vendor checksum for $url; skipping mirror"; continue ;;
+      https://aka.ms/*) checksum_url="$url.sha256sum.txt" ;;
+    esac
+    # Fetch vendor checksums afresh over HTTPS; never trust a cache marker.
+    rm -f "$tmp/sha256"
+    if ! download "$checksum_url" "$tmp/sha256"; then
+      warn "checksum unavailable: $checksum_url"
+      continue
+    fi
+    expected="$(awk 'NR == 1 {print tolower($1)}' "$tmp/sha256")"
+    if ! [[ "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+      warn "invalid SHA-256 from $checksum_url"
+      continue
+    fi
+    part="$dl_cache/$(printf '%s' "$url" | cksum | awk '{print $1}').tar.gz"
+    if [ -f "$part" ] && verify_sha256 "$part" "$expected" && tar -tzf "$part" >/dev/null 2>&1; then
+      info "reusing complete cached JDK download: $part"
+      cp "$part" "$tmp/jdk21.tar.gz"; got=1; break
+    fi
+    # A complete but unverified archive must not be resumed or reused.
+    if [ -f "$part" ] && tar -tzf "$part" >/dev/null 2>&1; then rm -f "$part"; fi
+    info "downloading $url (resumes partial $part)"
+    if download "$url" "$part" && verify_sha256 "$part" "$expected" && tar -tzf "$part" >/dev/null 2>&1; then
+      info "downloaded $(wc -c < "$part" 2>/dev/null || echo '?') bytes"
+      cp "$part" "$tmp/jdk21.tar.gz"; got=1; break
     fi
     warn "source unavailable: $url"
   done
@@ -227,13 +324,22 @@ install_jdk21() {
     warn "could not locate an extracted JDK under $tmp/x"
     rm -rf "$tmp"; return 1
   fi
-  info "installing to $target"
-  run_root rm -rf "$target" 2>/dev/null || rm -rf "$target"
-  run_root mkdir -p "$(dirname "$target")" 2>/dev/null || mkdir -p "$(dirname "$target")"
+  # On macOS the tarball is a full `.jdk` bundle (<jdk>/Contents/Home/...).
+  # Copy the whole bundle, not just Contents/Home, so its Info.plist survives
+  # and `/usr/libexec/java_home -v 21` recognises the JDK.
+  local copy_src="$src" copy_dst="$target"
+  if [ "$OS" = "Darwin" ] && [ "$(basename "$(dirname "$src")")" = "Contents" ]; then
+    copy_src="$(dirname "$(dirname "$src")")"
+    copy_dst="$HOME/Library/Java/JavaVirtualMachines/temurin-21.jdk"
+  fi
+
+  info "installing to $copy_dst"
+  run_root rm -rf "$copy_dst" 2>/dev/null || rm -rf "$copy_dst"
+  run_root mkdir -p "$(dirname "$copy_dst")" 2>/dev/null || mkdir -p "$(dirname "$copy_dst")"
   if [ "$CAN_ROOT" -eq 1 ]; then
-    run_root cp -R "$src" "$target"
+    run_root cp -R "$copy_src" "$copy_dst"
   else
-    cp -R "$src" "$target"
+    cp -R "$copy_src" "$copy_dst"
   fi
   rm -rf "$tmp"
   if ! is_jdk21 "$target"; then warn "installed JDK at $target but it does not report 21"; return 1; fi
@@ -259,6 +365,47 @@ expose_jdk() { # home
   info "java -> $(command -v java || echo MISSING)"
 }
 
+# Make a JDK that is already present on disk discoverable by
+# `/usr/libexec/java_home -v 21` (user scope, no root required). The tar path
+# above already installs a proper `.jdk` bundle, so this only matters when we
+# reused a JDK found elsewhere.
+register_macos_jdk() { # home
+  local home="$1" jvmdir bundle
+  [ "$OS" = "Darwin" ] || return 0
+  if [ -x /usr/libexec/java_home ] && /usr/libexec/java_home -v 21 >/dev/null 2>&1; then
+    return 0
+  fi
+  jvmdir="$HOME/Library/Java/JavaVirtualMachines"
+  bundle="$jvmdir/temurin-21.jdk"
+  mkdir -p "$jvmdir"
+  # Never clobber the real install when $home already lives in that bundle.
+  case "$home" in
+    "$jvmdir"/*) return 0 ;;
+  esac
+  # Synthesize a proper `.jdk` bundle around a bare JDK home (e.g. a JDK left in
+  # ~/.local/jdk-21 by an earlier run). java_home needs Contents/Info.plist to
+  # identify the JVM, so write a minimal one plus the libjli shim.
+  rm -rf "$bundle"
+  mkdir -p "$bundle/Contents/MacOS"
+  ln -sfn "$home" "$bundle/Contents/Home"
+  [ -f "$home/lib/libjli.dylib" ] && ln -sfn "$home/lib/libjli.dylib" "$bundle/Contents/MacOS/libjli.dylib"
+  cat > "$bundle/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>temurin-21</string>
+  <key>CFBundleName</key><string>Java SE 21</string>
+  <key>JavaVM</key>
+  <dict>
+    <key>JVMVersion</key><string>21</string>
+  </dict>
+</dict>
+</plist>
+PLIST
+  info "registered user-level JDK bundle $bundle -> $home"
+}
+
 # ---------------------------------------------------------------------------
 # 2. Android SDK
 # ---------------------------------------------------------------------------
@@ -270,15 +417,6 @@ ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS:-35.0.0}"
 SDK_HOME_FINAL=""
 
 install_android_sdk() {
-  if [ -n "${ANDROID_HOME:-}" ] \
-     && [ -d "$ANDROID_HOME/platforms/$ANDROID_PLATFORM" ] \
-     && [ -d "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS" ]; then
-    info "Android SDK already present: $ANDROID_HOME"
-    SDK_HOME_FINAL="$ANDROID_HOME"
-    return 0
-  fi
-  log "Installing Android SDK command-line tools + $ANDROID_PLATFORM"
-
   local os_seg sdk
   case "$OS" in
     Linux)
@@ -292,8 +430,22 @@ install_android_sdk() {
       ;;
     *) warn "unsupported OS: $OS"; return 1 ;;
   esac
-  # Reuse an existing (possibly partial) SDK if one is already configured.
+  # Prefer an explicitly configured SDK; otherwise use the per-OS default.
   if [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME" ]; then sdk="$ANDROID_HOME"; fi
+
+  # Fast path with zero network: the SDK already has the pinned packages. A
+  # pre-installed runner (the board's OPE-100 decision) and every re-run hit
+  # this and skip all downloads, whatever ANDROID_HOME is set to.
+  if [ -x "$sdk/cmdline-tools/latest/bin/sdkmanager" ] \
+     && [ -d "$sdk/platform-tools" ] \
+     && [ -d "$sdk/platforms/$ANDROID_PLATFORM" ] \
+     && [ -d "$sdk/build-tools/$ANDROID_BUILD_TOOLS" ]; then
+    info "Android SDK already present: $sdk"
+    SDK_HOME_FINAL="$sdk"
+    return 0
+  fi
+
+  log "Installing Android SDK command-line tools + $ANDROID_PLATFORM"
 
   if [ "$CAN_ROOT" -eq 1 ] && [ "$sdk" = "/opt/android-sdk" ]; then
     run_root mkdir -p "$sdk/cmdline-tools"
@@ -327,14 +479,14 @@ install_android_sdk() {
 
   info "accepting Android SDK licenses"
   if command -v yes >/dev/null 2>&1; then
-    yes | sdkmanager --sdk_root="$sdk" --licenses >/dev/null 2>&1 || warn "license acceptance returned non-zero (continuing)"
+    yes | with_timeout 300 sdkmanager --sdk_root="$sdk" --licenses >/dev/null 2>&1 || warn "license acceptance returned non-zero (continuing)"
   else
-    printf 'y\ny\ny\ny\ny\ny\ny\ny\ny\ny\n' | sdkmanager --sdk_root="$sdk" --licenses >/dev/null 2>&1 || true
+    printf 'y\ny\ny\ny\ny\ny\ny\ny\ny\ny\n' | with_timeout 300 sdkmanager --sdk_root="$sdk" --licenses >/dev/null 2>&1 || true
   fi
 
   info "installing platform-tools, platforms;$ANDROID_PLATFORM, build-tools;$ANDROID_BUILD_TOOLS"
-  if ! sdkmanager --sdk_root="$sdk" "platform-tools" "platforms;$ANDROID_PLATFORM" "build-tools;$ANDROID_BUILD_TOOLS"; then
-    warn "sdkmanager failed to install packages"
+  if ! with_timeout 5400 sdkmanager --sdk_root="$sdk" "platform-tools" "platforms;$ANDROID_PLATFORM" "build-tools;$ANDROID_BUILD_TOOLS"; then
+    warn "sdkmanager failed to install packages (or timed out)"
     return 1
   fi
   SDK_HOME_FINAL="$sdk"
@@ -393,8 +545,25 @@ write_env() { # jdk sdk
   # Best-effort: the GitHub runner also reads an `.env` file from its install
   # directory at startup. Appending here helps after a runner restart, but CI
   # never relies on it — scripts/ci/runner-toolchain-env.sh is authoritative.
-  local runner_env
-  runner_env="$(find "$HOME" -maxdepth 3 -name '.env' -path '*actions-runner*' 2>/dev/null | head -n1 || true)"
+  # Discovery is bounded on purpose: a full `find "$HOME"` stalled ~2h51m on the
+  # mac runner (OPE-100 run 36552097830, 13:31 -> 16:22).
+  local runner_env="" cand
+  if [ -n "${RUNNER_WORKSPACE:-}" ]; then
+    cand="$(dirname "$(dirname "$RUNNER_WORKSPACE")")/.env"
+    [ -f "$cand" ] && runner_env="$cand"
+  fi
+  if [ -z "$runner_env" ]; then
+    for cand in \
+      "$HOME"/actions-runner*/.env \
+      "$HOME"/*/actions-runner*/.env \
+      "$HOME"/*/*/actions-runner*/.env \
+      /opt/actions-runner*/.env; do
+      [ -f "$cand" ] && { runner_env="$cand"; break; }
+    done
+  fi
+  if [ -z "$runner_env" ] && command -v find >/dev/null 2>&1; then
+    runner_env="$(with_timeout 30 find "$HOME" -maxdepth 3 -name '.env' -path '*actions-runner*' 2>/dev/null | head -n1 || true)"
+  fi
   if [ -n "$runner_env" ] && [ -w "$runner_env" ]; then
     {
       echo "JAVA_HOME=$jdk"
@@ -410,6 +579,7 @@ write_env() { # jdk sdk
 # ---------------------------------------------------------------------------
 install_jdk21 || { err "JDK 21 provisioning failed"; exit 1; }
 expose_jdk "$JDK_HOME_FINAL"
+register_macos_jdk "$JDK_HOME_FINAL"
 
 install_android_sdk || { err "Android SDK provisioning failed"; exit 1; }
 export ANDROID_HOME="$SDK_HOME_FINAL"
