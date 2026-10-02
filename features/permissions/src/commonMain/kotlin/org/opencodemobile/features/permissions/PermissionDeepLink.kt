@@ -39,10 +39,8 @@ public object PermissionDeepLink {
         if (requestId.isEmpty()) return null
         if (requestId.length > MAX_REQUEST_ID_LENGTH) return null
         // No nesting, no query, no fragment and no whitespace: a single opaque id.
-        if (requestId.any { it == '/' || it == '?' || it == '#' || it == '&' || it.isWhitespace() }) {
-            return null
-        }
-        return requestId
+        val isOpaqueId = requestId.none { it == '/' || it == '?' || it == '#' || it == '&' || it.isWhitespace() }
+        return requestId.takeIf { isOpaqueId }
     }
 
     private const val MAX_REQUEST_ID_LENGTH: Int = 256

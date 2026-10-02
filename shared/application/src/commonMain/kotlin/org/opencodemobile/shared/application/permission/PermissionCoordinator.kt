@@ -92,6 +92,7 @@ public sealed interface PermissionSubmitResult {
  * It never approves on its own: [start], [reconcile] and [onEvent] only move the
  * pending set; the only paths to [PermissionPort.reply] are [approve] and [deny].
  */
+@Suppress("TooManyFunctions") // one cohesive state machine; splitting would scatter the T2 invariants
 public class PermissionCoordinator(
     private val port: PermissionPort,
     private val store: PendingPermissionStore,
@@ -132,6 +133,7 @@ public class PermissionCoordinator(
      * A request decided elsewhere while the app was killed disappears here and is
      * never re-surfaced. A transport failure leaves the current set untouched.
      */
+    @Suppress("TooGenericExceptionCaught", "SwallowedException") // fail closed: any port failure must leave the set untouched, never crash
     public suspend fun reconcile() {
         val serverPending = try {
             port.pendingPermissions()
@@ -268,20 +270,8 @@ public class PermissionCoordinator(
         if (decision == PermissionDecision.Deny) {
             return PermissionSubmitResult.Unavailable(PermissionDecision.Deny)
         }
-        val current = mutableState.value
-        val request = current.request(requestId) ?: return PermissionSubmitResult.NotFound
-        if (!mutationGate.mutationsAllowed()) return PermissionSubmitResult.Offline
-        if (!request.capabilities.allows(decision)) {
-            return PermissionSubmitResult.Unavailable(decision)
-        }
-        if (!current.foregrounded) return PermissionSubmitResult.NotForegrounded
-        if (current.armedRequestId != requestId) return PermissionSubmitResult.NotArmed
-        if (current.armedFingerprint != request.contentFingerprint) {
-            return PermissionSubmitResult.ContentChanged
-        }
-        if (displayedFingerprint != request.contentFingerprint) {
-            return PermissionSubmitResult.ContentChanged
-        }
+        val request = mutableState.value.request(requestId) ?: return PermissionSubmitResult.NotFound
+        preflightRefusal(request, decision, displayedFingerprint)?.let { return it }
 
         // Biometric / device-credential gate, once per approval, immediately
         // before the decision is sent.
@@ -296,20 +286,45 @@ public class PermissionCoordinator(
         // be stopped while the prompt is up (which disarms and clears the
         // foreground flag). Re-read the live state and re-assert the whole T2
         // invariant at the enforcement point, not just the content fingerprint.
-        val live = mutableState.value
-        if (!live.foregrounded) return PermissionSubmitResult.NotForegrounded
-        if (live.armedRequestId != requestId) return PermissionSubmitResult.NotArmed
-        val liveRequest = live.request(requestId)
-            ?: return PermissionSubmitResult.NotFound
-        if (liveRequest.contentFingerprint != request.contentFingerprint) {
-            return PermissionSubmitResult.ContentChanged
-        }
+        postBiometricRefusal(request)?.let { return it }
 
         return send(requestId, decision).also {
             if (it == PermissionSubmitResult.Accepted) disarm()
         }
     }
 
+    /** Every T2 gate that can be checked before the biometric prompt; null when all pass. */
+    private fun preflightRefusal(
+        request: PermissionRequest,
+        decision: PermissionDecision,
+        displayedFingerprint: String,
+    ): PermissionSubmitResult? {
+        val current = mutableState.value
+        return when {
+            !mutationGate.mutationsAllowed() -> PermissionSubmitResult.Offline
+            !request.capabilities.allows(decision) -> PermissionSubmitResult.Unavailable(decision)
+            !current.foregrounded -> PermissionSubmitResult.NotForegrounded
+            current.armedRequestId != request.id -> PermissionSubmitResult.NotArmed
+            current.armedFingerprint != request.contentFingerprint ||
+                displayedFingerprint != request.contentFingerprint -> PermissionSubmitResult.ContentChanged
+            else -> null
+        }
+    }
+
+    /** Re-asserts the T2 invariant on the live state after the biometric prompt; null when it holds. */
+    private fun postBiometricRefusal(request: PermissionRequest): PermissionSubmitResult? {
+        val live = mutableState.value
+        val liveRequest = live.request(request.id)
+        return when {
+            !live.foregrounded -> PermissionSubmitResult.NotForegrounded
+            live.armedRequestId != request.id -> PermissionSubmitResult.NotArmed
+            liveRequest == null -> PermissionSubmitResult.NotFound
+            liveRequest.contentFingerprint != request.contentFingerprint -> PermissionSubmitResult.ContentChanged
+            else -> null
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught") // any port failure maps to Failed; cancellation is rethrown above
     private suspend fun send(
         requestId: String,
         decision: PermissionDecision,
