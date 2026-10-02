@@ -28,10 +28,14 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import org.jetbrains.compose.resources.stringResource
 import org.opencodemobile.design.system.LocalOpenCodeColors
 import org.opencodemobile.design.system.OpenCodeMetrics
 import org.opencodemobile.design.system.OpenCodeSpacing
 import org.opencodemobile.design.system.OpenCodeType
+import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.question_reject
+import org.opencodemobile.design.system.resources.question_reply
 
 /**
  * The pending-question surface (V1-07, `docs/ARCHITECTURE.md` §3.3).
@@ -165,10 +169,10 @@ private fun QuestionActions(canReply: Boolean, onReply: () -> Unit, onReject: ()
                 contentColor = colors.onPrimary,
             ),
         ) {
-            Text("Reply", style = OpenCodeType.control)
+            Text(stringResource(Res.string.question_reply), style = OpenCodeType.control)
         }
         OutlinedButton(onClick = onReject) {
-            Text("Reject", style = OpenCodeType.control)
+            Text(stringResource(Res.string.question_reject), style = OpenCodeType.control)
         }
     }
 }
