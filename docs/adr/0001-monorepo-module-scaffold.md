@@ -41,11 +41,16 @@ ADR") anything not literally dictated by §5.1/§5.2 is recorded here.
    Gradle subproject (`settings.gradle.kts` does not include it) — an Xcode project cannot be a
    Gradle module regardless of this decision.
 
-5. **`shared/domain` carries zero Gradle dependencies** (not even `kotlinx-coroutines-core`),
-   matching §5.1's literal "Kotlin stdlib uniquement" rather than only the acceptance criteria's
-   shorter forbidden-list (which doesn't mention coroutines). Consequence: domain ports that need
-   to be reactive/streaming can't return `Flow` yet; that's a real constraint for whoever
-   implements `shared/domain`'s ports next, worth knowing rather than silently loosening the rule.
+5. **`shared/domain` carries exactly one Gradle dependency: `kotlinx-coroutines-core`** (plus the
+   Kotlin stdlib). The original decision was "zero Gradle dependencies", matching §5.1's literal
+   "Kotlin stdlib uniquement" rather than only the acceptance criteria's shorter forbidden-list
+   (which doesn't mention coroutines). That constraint proved unworkable once the realtime port
+   landed: `EventSource`/`EventTransport` (OPE-218 S4) expose `Flow`, `StateFlow`, `SharedFlow`,
+   and `CoroutineScope`, so the domain must own the coroutine types that define its own contract.
+   No other library crosses the boundary.
+
+   *Amended by OPE-245 (2026-10-01): the Flow-typed port stays in `shared/domain`; the rule was
+   widened rather than relocating the port. See `docs/ARCHITECTURE.md` §2.3 and ADR 0004 rule 1.*
 
 ## Consequences / known gaps
 

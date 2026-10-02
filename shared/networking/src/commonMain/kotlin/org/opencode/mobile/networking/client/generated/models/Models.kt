@@ -40,7 +40,6 @@ data class ApiSession(
 
 @Serializable
 data class ApiCreateSessionRequest(
-    val directory: String? = null,
     val title: String? = null,
     val parentID: String? = null
 )
@@ -48,6 +47,11 @@ data class ApiCreateSessionRequest(
 @Serializable
 data class ApiForkSessionRequest(
     val messageID: String? = null
+)
+
+@Serializable
+data class ApiUpdateSessionRequest(
+    val title: String? = null
 )
 
 @Serializable
@@ -77,6 +81,17 @@ data class ApiMessage(
     val time: ApiSessionTime? = null,
     val agent: String? = null,
     val model: String? = null,
+    val parts: List<ApiMessagePart> = emptyList()
+)
+
+/**
+ * One element of GET /session/{sessionID}/message: the spec returns an array of
+ * `{ info: Message, parts: Part[] }`, not a flat message. Rule R12: emitted by
+ * the generator, never edited by hand.
+ */
+@Serializable
+data class ApiMessageEnvelope(
+    val info: ApiMessage,
     val parts: List<ApiMessagePart> = emptyList()
 )
 
@@ -164,7 +179,26 @@ data class ApiModelInfo(
 data class ApiProvider(
     val id: String,
     val name: String? = null,
-    val models: List<ApiModelInfo> = emptyList()
+    // GET /provider models is a JSON object keyed by model id, not an array.
+    val models: Map<String, ApiModelInfo> = emptyMap()
+)
+
+/** `GET /provider` response: the spec object holding all providers, default model ids and connected ids. */
+@Serializable
+data class ApiProviderList(
+    val all: List<ApiProvider> = emptyList(),
+    val default: Map<String, String> = emptyMap(),
+    val connected: List<String> = emptyList()
+)
+
+/** One entry of `GET /agent`. Only the fields the mobile client renders are mapped. */
+@Serializable
+data class ApiAgent(
+    val name: String,
+    val description: String? = null,
+    val mode: String? = null,
+    val native: Boolean? = null,
+    val hidden: Boolean? = null
 )
 
 @Serializable
