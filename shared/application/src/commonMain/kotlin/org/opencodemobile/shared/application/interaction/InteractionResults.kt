@@ -14,7 +14,8 @@ internal suspend fun <T> runCatchingNonCancellable(block: suspend () -> T): Resu
         Result.success(block())
     } catch (cancellation: CancellationException) {
         throw cancellation
-    } catch (failure: Throwable) {
+    } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
+        // CancellationException is rethrown above; every other failure becomes a Result.
         Result.failure(failure)
     }
 
