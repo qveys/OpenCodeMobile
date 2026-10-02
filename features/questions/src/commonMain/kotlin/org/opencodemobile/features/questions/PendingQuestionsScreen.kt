@@ -136,29 +136,39 @@ private fun PendingQuestionCard(
                 selections[index].customText,
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(OpenCodeSpacing.x2),
+        QuestionActions(
+            canReply = canReply,
+            onReply = {
+                val answers = question.items.mapIndexed { index, item ->
+                    item.answer(selections[index].selected, selections[index].customText)
+                }
+                onReply(question.requestId, answers)
+            },
+            onReject = { onReject(question.requestId) },
+        )
+    }
+}
+
+@Composable
+private fun QuestionActions(canReply: Boolean, onReply: () -> Unit, onReject: () -> Unit) {
+    val colors = LocalOpenCodeColors.current
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(OpenCodeSpacing.x2),
+    ) {
+        Button(
+            onClick = onReply,
+            enabled = canReply,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = colors.primary,
+                contentColor = colors.onPrimary,
+            ),
         ) {
-            Button(
-                onClick = {
-                    val answers = question.items.mapIndexed { index, item ->
-                        item.answer(selections[index].selected, selections[index].customText)
-                    }
-                    onReply(question.requestId, answers)
-                },
-                enabled = canReply,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colors.primary,
-                    contentColor = colors.onPrimary,
-                ),
-            ) {
-                Text("Reply", style = OpenCodeType.control)
-            }
-            OutlinedButton(onClick = { onReject(question.requestId) }) {
-                Text("Reject", style = OpenCodeType.control)
-            }
+            Text("Reply", style = OpenCodeType.control)
+        }
+        OutlinedButton(onClick = onReject) {
+            Text("Reject", style = OpenCodeType.control)
         }
     }
 }
