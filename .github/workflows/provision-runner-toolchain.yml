@@ -26,6 +26,11 @@ on:
       - 'scripts/ci/**'
 
 concurrency:
+  # Isolated per-ref group: on the slow mac runner a provisioning run takes
+  # 2-3 h, and a repo-wide group let any other branch's push cancel this
+  # branch's run within seconds (observed 2026-09-29). OPE-98 owns the
+  # repository-wide supersession policy; this branch stays uncancellable so it
+  # can actually finish and verify the fix.
   group: provision-runner-toolchain-${{ github.ref }}
   cancel-in-progress: false
 
@@ -54,7 +59,10 @@ jobs:
   provision-mac:
     name: Provision macOS runner
     runs-on: [self-hosted, mac]
-    timeout-minutes: 120
+    # The mac runner's measured download throughput is ~35 KB/s, so a 203 MB JDK
+    # plus the Android SDK can take ~2-3 h. The provisioning script bounds each
+    # phase itself; this timeout only backstops a fully wedged runner.
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Provision JDK 21 + Android SDK

@@ -1,0 +1,32 @@
+name: Executable bits
+
+# OPE-138 — the GitHub API commit path used by the agents does not transport the
+# executable bit (see GIT.md §5). A script re-created that way lands as 100644,
+# which silently breaks `./gradlew …` and `./scripts/…` on a fresh clone. This
+# JDK-free gate fails the PR when an executable-intent file loses its bit.
+#
+# Repo Actions allowlist permits only `actions/checkout@*`, so this workflow
+# uses only that action plus a plain shell step.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: executable-bits-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  executable-bits:
+    name: Executable bits
+    runs-on: [self-hosted, hostinger]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Verify executable-intent files are mode 100755
+        run: bash scripts/check-executable-bits.sh
