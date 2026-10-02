@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.stringResource
 import org.opencodemobile.design.system.LocalOpenCodeColors
 import org.opencodemobile.design.system.OpenCodeContext
 import org.opencodemobile.design.system.OpenCodeMetrics
@@ -41,6 +42,31 @@ import org.opencodemobile.design.system.OpenCodeTheme
 import org.opencodemobile.design.system.OpenCodeType
 import org.opencodemobile.design.system.SessionRow
 import org.opencodemobile.design.system.SessionRowStatus
+import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.session_action_delete
+import org.opencodemobile.design.system.resources.session_action_fork
+import org.opencodemobile.design.system.resources.session_action_open
+import org.opencodemobile.design.system.resources.session_action_rename
+import org.opencodemobile.design.system.resources.session_cancel
+import org.opencodemobile.design.system.resources.session_count_live
+import org.opencodemobile.design.system.resources.session_delete_body
+import org.opencodemobile.design.system.resources.session_delete_title
+import org.opencodemobile.design.system.resources.session_empty
+import org.opencodemobile.design.system.resources.session_empty_hint
+import org.opencodemobile.design.system.resources.session_empty_offline_hint
+import org.opencodemobile.design.system.resources.session_error_not_found
+import org.opencodemobile.design.system.resources.session_error_offline
+import org.opencodemobile.design.system.resources.session_error_unreachable
+import org.opencodemobile.design.system.resources.session_list_failed
+import org.opencodemobile.design.system.resources.session_loading
+import org.opencodemobile.design.system.resources.session_models_agents
+import org.opencodemobile.design.system.resources.session_new
+import org.opencodemobile.design.system.resources.session_offline_banner
+import org.opencodemobile.design.system.resources.session_rename_title
+import org.opencodemobile.design.system.resources.session_retry
+import org.opencodemobile.design.system.resources.session_title
+import org.opencodemobile.design.system.resources.session_title_invalid
+import org.opencodemobile.design.system.resources.session_title_label
 import org.opencodemobile.shared.application.session.SessionListError
 import org.opencodemobile.shared.application.session.SessionListState
 import org.opencodemobile.shared.domain.session.SessionSummary
@@ -140,7 +166,7 @@ private fun SessionsTopBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Sessions",
+            text = stringResource(Res.string.session_title),
             style = OpenCodeType.title,
             modifier = Modifier.weight(1f),
         )
@@ -148,7 +174,7 @@ private fun SessionsTopBar(
         // surface. Read-only, so it stays available offline.
         if (onOpenCatalog != null) {
             TextButton(onClick = onOpenCatalog) {
-                Text("Models & agents", style = OpenCodeType.control)
+                Text(stringResource(Res.string.session_models_agents), style = OpenCodeType.control)
             }
         }
         // D8: the mutation affordance is disabled offline, not merely refused.
@@ -160,7 +186,7 @@ private fun SessionsTopBar(
                 contentColor = colors.onPrimary,
             ),
         ) {
-            Text("New session", style = OpenCodeType.control)
+            Text(stringResource(Res.string.session_new), style = OpenCodeType.control)
         }
     }
 }
@@ -173,14 +199,14 @@ private fun SessionsTopBar(
 private fun TechnicalStatus(state: SessionListState, onRetry: () -> Unit) {
     val colors = LocalOpenCodeColors.current
     val message: String? = when {
-        state.offline -> "Offline — showing cached sessions. Mutations are disabled."
+        state.offline -> stringResource(Res.string.session_offline_banner)
         state.error != null -> state.error!!.message()
         else -> state.notice
     }
     if (message == null) {
         if (!state.loading && state.sessions.isNotEmpty()) {
             Text(
-                text = "${state.sessions.size} session(s) · live",
+                text = stringResource(Res.string.session_count_live, state.sessions.size),
                 style = OpenCodeType.meta,
                 color = colors.textMuted,
                 modifier = Modifier.padding(horizontal = OpenCodeSpacing.x4, vertical = OpenCodeSpacing.x2),
@@ -204,7 +230,7 @@ private fun TechnicalStatus(state: SessionListState, onRetry: () -> Unit) {
         )
         if (isError) {
             TextButton(onClick = onRetry) {
-                Text("Retry", style = OpenCodeType.control)
+                Text(stringResource(Res.string.session_retry), style = OpenCodeType.control)
             }
         }
     }
@@ -229,7 +255,7 @@ private fun SessionsBody(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
-            Text("Loading sessions…", style = OpenCodeType.tech, color = colors.textMuted)
+            Text(stringResource(Res.string.session_loading), style = OpenCodeType.tech, color = colors.textMuted)
         }
 
         state.sessions.isEmpty() -> Column(
@@ -239,17 +265,17 @@ private fun SessionsBody(
         ) {
             Text(
                 text = if (state.error != null) {
-                    "Sessions could not be listed."
+                    stringResource(Res.string.session_list_failed)
                 } else {
-                    "No sessions yet."
+                    stringResource(Res.string.session_empty)
                 },
                 style = OpenCodeType.section,
             )
             Text(
                 text = if (state.offline) {
-                    "There is nothing cached for this project yet."
+                    stringResource(Res.string.session_empty_offline_hint)
                 } else {
-                    "Create a session to start an agent turn."
+                    stringResource(Res.string.session_empty_hint)
                 },
                 style = OpenCodeType.body,
                 color = colors.textBody,
@@ -262,7 +288,7 @@ private fun SessionsBody(
                         contentColor = colors.onPrimary,
                     ),
                 ) {
-                    Text("New session", style = OpenCodeType.control)
+                    Text(stringResource(Res.string.session_new), style = OpenCodeType.control)
                 }
             }
         }
@@ -319,23 +345,23 @@ private fun SessionItem(
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
-                    text = { Text("Open", style = OpenCodeType.control) },
+                    text = { Text(stringResource(Res.string.session_action_open), style = OpenCodeType.control) },
                     onClick = { menuOpen = false; onOpen() },
                 )
                 DropdownMenuItem(
-                    text = { Text("Rename", style = OpenCodeType.control) },
+                    text = { Text(stringResource(Res.string.session_action_rename), style = OpenCodeType.control) },
                     enabled = mutationsEnabled,
                     onClick = { menuOpen = false; onRename() },
                 )
                 if (forkAvailable) {
                     DropdownMenuItem(
-                        text = { Text("Fork", style = OpenCodeType.control) },
+                        text = { Text(stringResource(Res.string.session_action_fork), style = OpenCodeType.control) },
                         enabled = mutationsEnabled,
                         onClick = { menuOpen = false; onFork() },
                     )
                 }
                 DropdownMenuItem(
-                    text = { Text("Delete", style = OpenCodeType.control) },
+                    text = { Text(stringResource(Res.string.session_action_delete), style = OpenCodeType.control) },
                     enabled = mutationsEnabled,
                     onClick = { menuOpen = false; onDelete() },
                 )
@@ -356,7 +382,7 @@ private fun RenameDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Rename session", style = OpenCodeType.section) },
+        title = { Text(stringResource(Res.string.session_rename_title), style = OpenCodeType.section) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(OpenCodeSpacing.x2)) {
                 Text(session.id, style = OpenCodeType.meta, color = LocalOpenCodeColors.current.textMuted)
@@ -365,11 +391,11 @@ private fun RenameDialog(
                     onValueChange = { title = it },
                     singleLine = true,
                     isError = !valid,
-                    label = { Text("Title") },
+                    label = { Text(stringResource(Res.string.session_title_label)) },
                 )
                 if (!valid) {
                     Text(
-                        text = "A title must be 1..${SessionTitlePolicy.MAX_LENGTH} characters.",
+                        text = stringResource(Res.string.session_title_invalid, SessionTitlePolicy.MAX_LENGTH),
                         style = OpenCodeType.meta,
                         color = LocalOpenCodeColors.current.danger,
                     )
@@ -381,12 +407,12 @@ private fun RenameDialog(
                 onClick = { normalized?.let(onConfirm) },
                 enabled = valid,
             ) {
-                Text("Rename", style = OpenCodeType.control)
+                Text(stringResource(Res.string.session_action_rename), style = OpenCodeType.control)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", style = OpenCodeType.control)
+                Text(stringResource(Res.string.session_cancel), style = OpenCodeType.control)
             }
         },
     )
@@ -400,12 +426,12 @@ private fun DeleteDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Delete session", style = OpenCodeType.section) },
+        title = { Text(stringResource(Res.string.session_delete_title), style = OpenCodeType.section) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(OpenCodeSpacing.x2)) {
                 Text(session.title, style = OpenCodeType.bodyStrong)
                 Text(
-                    "This deletes the session and its transcript on the server. It cannot be undone.",
+                    stringResource(Res.string.session_delete_body),
                     style = OpenCodeType.body,
                     color = LocalOpenCodeColors.current.textBody,
                 )
@@ -418,23 +444,24 @@ private fun DeleteDialog(
                     contentColor = LocalOpenCodeColors.current.danger,
                 ),
             ) {
-                Text("Delete", style = OpenCodeType.control)
+                Text(stringResource(Res.string.session_action_delete), style = OpenCodeType.control)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", style = OpenCodeType.control)
+                Text(stringResource(Res.string.session_cancel), style = OpenCodeType.control)
             }
         },
     )
 }
 
+@Composable
 private fun SessionListError.message(): String = when (this) {
     SessionListError.ServerUnavailable ->
-        "Cannot reach the OpenCode server. Check the connection, then retry."
+        stringResource(Res.string.session_error_unreachable)
     SessionListError.Offline ->
-        "Offline — cached sessions are read-only."
+        stringResource(Res.string.session_error_offline)
     is SessionListError.NotFound ->
-        "Session $sessionId no longer exists on the server."
+        stringResource(Res.string.session_error_not_found, sessionId)
     is SessionListError.Rejected -> message
 }
