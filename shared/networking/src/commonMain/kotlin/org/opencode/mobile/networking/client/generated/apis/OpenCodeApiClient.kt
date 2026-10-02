@@ -15,8 +15,10 @@ import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import org.opencode.mobile.networking.client.generated.models.*
@@ -51,6 +53,18 @@ class OpenCodeApiClient(
         }.body()
     }
 
+    /**
+     * Fetch the server's published API document (GET /doc).
+     *
+     * This is the server's own description of the surface it exposes. The
+     * adapter reads it to detect optional capabilities (for example session
+     * forking) at runtime instead of assuming a hard-coded feature set.
+     */
+    suspend fun getServerDocument(): String =
+        httpClient.get("$baseUrl/doc") {
+            applyAuth()
+        }.bodyAsText()
+
     // --- Sessions ---
 
     /**
@@ -74,11 +88,14 @@ class OpenCodeApiClient(
 
     /**
      * Create a new session (POST /session).
+     *
+     * `directory` is a query parameter in the pinned spec, not a body field.
      */
-    suspend fun createSession(request: ApiCreateSessionRequest): ApiSession {
+    suspend fun createSession(request: ApiCreateSessionRequest, directory: String? = null): ApiSession {
         return httpClient.post("$baseUrl/session") {
             applyAuth()
             contentType(ContentType.Application.Json)
+            if (directory != null) parameter("directory", directory)
             setBody(request)
         }.body()
     }
@@ -95,11 +112,27 @@ class OpenCodeApiClient(
     }
 
     /**
-     * Abort the active turn in a session (POST /session/{sessionID}/abort).
+     * Update session properties, e.g. the title (PATCH /session/{sessionID}).
      */
-    suspend fun abortSession(sessionID: String): Boolean {
+    suspend fun updateSession(sessionID: String, request: ApiUpdateSessionRequest): ApiSession {
+        return httpClient.patch("$baseUrl/session/$sessionID") {
+            applyAuth()
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
+    }
+
+    /**
+     * Abort the active turn in a session (POST /session/{sessionID}/abort).
+     *
+     * The pinned spec exposes an optional `directory` query parameter; the
+     * adapter passes the active project root so an abort cannot cross into
+     * another workspace on the same server (ADR-0002 §3.3).
+     */
+    suspend fun abortSession(sessionID: String, directory: String? = null): Boolean {
         httpClient.post("$baseUrl/session/$sessionID/abort") {
             applyAuth()
+            if (directory != null) parameter("directory", directory)
         }
         return true
     }
@@ -128,7 +161,7 @@ class OpenCodeApiClient(
     /**
      * List messages for a session (GET /session/{sessionID}/message).
      */
-    suspend fun listMessages(sessionID: String): List<ApiMessage> {
+    suspend fun listMessages(sessionID: String): List<ApiMessageEnvelope> {
         return httpClient.get("$baseUrl/session/$sessionID/message") {
             applyAuth()
         }.body()
@@ -232,11 +265,23 @@ class OpenCodeApiClient(
     }
 
     /**
-     * List providers and models (GET /provider).
+     * List providers and their models (GET /provider).
+     * Returns the spec object holding all providers, default model ids and connected ids.
      */
-    suspend fun listProviders(): List<ApiProvider> {
+    suspend fun listProviders(directory: String? = null): ApiProviderList {
         return httpClient.get("$baseUrl/provider") {
             applyAuth()
+            if (directory != null) parameter("directory", directory)
+        }.body()
+    }
+
+    /**
+     * List the available agents (GET /agent).
+     */
+    suspend fun listAgents(directory: String? = null): List<ApiAgent> {
+        return httpClient.get("$baseUrl/agent") {
+            applyAuth()
+            if (directory != null) parameter("directory", directory)
         }.body()
     }
 }
