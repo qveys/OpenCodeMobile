@@ -19,8 +19,36 @@ name: Architecture tests
 on:
   pull_request:
     branches: [main]
+    # OPE-250 (Phase 1): condition on source/build inputs that can change a
+    # module boundary. Not a required check, so a skipped run is safe.
+    paths:
+      - "architecture-tests/**"
+      - "androidApp/**"
+      - "iosAppHost/**"
+      - "shared/**"
+      - "features/**"
+      - "design-system/**"
+      - "gradle/**"
+      - "gradle.properties"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "config/**"
+      - ".github/workflows/architecture-tests.yml"
   push:
     branches: [main]
+    paths:
+      - "architecture-tests/**"
+      - "androidApp/**"
+      - "iosAppHost/**"
+      - "shared/**"
+      - "features/**"
+      - "design-system/**"
+      - "gradle/**"
+      - "gradle.properties"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "config/**"
+      - ".github/workflows/architecture-tests.yml"
   workflow_dispatch:
 
 concurrency:

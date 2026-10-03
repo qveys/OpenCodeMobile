@@ -28,12 +28,54 @@ name: Build
 #       same provisioned major JDK.
 #   If the allowlist is later widened to include `actions/upload-artifact`, add
 #   an upload step for the paths listed under each job.
+#
+# OPE-250: the triggers are path-filtered to build inputs (module sources, Gradle
+# files, CI scripts). A docs-only or UI-copy PR no longer compiles everything.
 
 on:
   pull_request:
     branches: [main]
+    # OPE-250 (Phase 1): condition the heavy build/test matrix on the files a PR
+    # actually changes. This workflow is not a required status check, so a
+    # skipped run never leaves a check "Expected".
+    paths:
+      - "androidApp/**"
+      - "iosApp/**"
+      - "iosAppHost/**"
+      - "shared/**"
+      - "features/**"
+      - "design-system/**"
+      - "tests/**"
+      - "gradle/**"
+      - "gradle.properties"
+      - "gradlew"
+      - "gradlew.bat"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "config/**"
+      - "scripts/ci/**"
+      - "scripts/test.sh"
+      - ".github/workflows/build.yml"
   push:
     branches: [main]
+    paths:
+      - "androidApp/**"
+      - "iosApp/**"
+      - "iosAppHost/**"
+      - "shared/**"
+      - "features/**"
+      - "design-system/**"
+      - "tests/**"
+      - "gradle/**"
+      - "gradle.properties"
+      - "gradlew"
+      - "gradlew.bat"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "config/**"
+      - "scripts/ci/**"
+      - "scripts/test.sh"
+      - ".github/workflows/build.yml"
   workflow_dispatch:
 
 concurrency:
