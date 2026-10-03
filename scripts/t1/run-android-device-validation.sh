@@ -15,6 +15,12 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
+# OPE-98: resolve the provisioned JDK 21 + Android SDK on a self-hosted runner
+# so the SDK below is the one the job installed. The GitHub-hosted fallback
+# (/usr/local/lib/android/sdk) does not exist on the hostinger pool, where the
+# SDK lives under /opt/android-sdk or $HOME/android-sdk.
+. scripts/ci/runner-toolchain-env.sh
+
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
 export ANDROID_HOME="$SDK"
 export ANDROID_SDK_ROOT="$SDK"
