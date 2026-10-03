@@ -6,7 +6,8 @@ build/
 
 # Local configuration
 local.properties
-.idea/
+.idea/*
+!.idea/runConfigurations/
 *.iml
 .DS_Store
 
