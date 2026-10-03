@@ -49,6 +49,11 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # OPE-250 (Phase 0.4): cancel a superseded smoke run instead of queueing it.
+  group: smoke-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   self-test:
     name: Smoke script self-test
