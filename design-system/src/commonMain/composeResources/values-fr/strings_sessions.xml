@@ -1,0 +1,26 @@
+<resources>
+    <string name="session_title">Sessions</string>
+    <string name="session_models_agents">Modèles et agents</string>
+    <string name="session_new">Nouvelle session</string>
+    <string name="session_offline_banner">Hors ligne — sessions en cache affichées. Les modifications sont désactivées.</string>
+    <string name="session_count_live">%1$d session(s) · en direct</string>
+    <string name="session_retry">Réessayer</string>
+    <string name="session_loading">Chargement des sessions…</string>
+    <string name="session_list_failed">Impossible de lister les sessions.</string>
+    <string name="session_empty">Aucune session pour l’instant.</string>
+    <string name="session_empty_offline_hint">Rien n’est encore en cache pour ce projet.</string>
+    <string name="session_empty_hint">Créez une session pour lancer un tour d’agent.</string>
+    <string name="session_action_open">Ouvrir</string>
+    <string name="session_action_rename">Renommer</string>
+    <string name="session_action_fork">Dupliquer</string>
+    <string name="session_action_delete">Supprimer</string>
+    <string name="session_rename_title">Renommer la session</string>
+    <string name="session_title_label">Titre</string>
+    <string name="session_title_invalid">Un titre doit contenir de 1 à %1$d caractères.</string>
+    <string name="session_delete_title">Supprimer la session</string>
+    <string name="session_delete_body">Cette action supprime la session et sa transcription sur le serveur. Elle est irréversible.</string>
+    <string name="session_cancel">Annuler</string>
+    <string name="session_error_unreachable">Impossible de joindre le serveur OpenCode. Vérifiez la connexion, puis réessayez.</string>
+    <string name="session_error_offline">Hors ligne — les sessions en cache sont en lecture seule.</string>
+    <string name="session_error_not_found">La session %1$s n’existe plus sur le serveur.</string>
+</resources>
