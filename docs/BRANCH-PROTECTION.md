@@ -27,15 +27,23 @@ The `main` branch is protected with the following enforcement rules configured i
 ### 1.3 Required Status Checks
 - **Require status checks to pass before merging:** Enabled.
 - **Require branches to be up to date before merging (`strict`):** `true`. The PR branch must be rebased/merged with the latest `main` commit before merge is unlocked.
-- **Required checks (verified via API, OPE-250):**
+- **Required checks (verified via API; OPE-250 + OPE-142):**
   - `T4 static scan` (logging-redaction static scan; `.github/workflows/security-logging.yml`)
-- **Not required:** every other CI context. Path-filtered workflows (`Build`,
-  `Lint`, `Architecture tests`, `iOS app (simulator)`, `T1 device validation`)
-  are intentionally **not** required: a path-filtered workflow emits no status
-  when a PR touches none of its paths, so making one required would leave the
-  check permanently "Expected" and block every PR. `scripts/merge-agent-pr.sh`
-  still merges only on `mergeStateStatus=CLEAN`, so any workflow that *does*
-  trigger must pass.
+  - `Architecture tests` (the §5.2 Konsist module-boundary gate;
+    `.github/workflows/architecture-tests.yml`)
+- **Always-reporting requirement:** a context may only be required if its
+  workflow emits a status on **every** pull request. The `architecture-tests`
+  workflow keeps its heavy Gradle job path-conditioned (OPE-250), but it always
+  runs a tiny `gate` job named `Architecture tests` that reports success when no
+  boundary-relevant path changed and fails when the §5.2 suite fails. This avoids
+  the "Expected forever" trap that would otherwise block every PR.
+- **Not required:** every other CI context. The remaining path-filtered
+  workflows (`Build`, `Lint`, `iOS app (simulator)`, `T1 device validation`) are
+  intentionally **not** required: a path-filtered workflow emits no status when a
+  PR touches none of its paths, so making one required would leave the check
+  permanently "Expected" and block every PR. `scripts/merge-agent-pr.sh` still
+  merges only on `mergeStateStatus=CLEAN`, so any workflow that *does* trigger
+  must pass.
 
 ### 1.4 Commit Signatures & Integrity
 - **Require signed commits:** Commits landing on `main` must be cryptographically verified (`required_signatures: true`). Commits authored by agents must be created via GitHub GraphQL API (`createCommitOnBranch`) or signed locally with GPG/SSH.
