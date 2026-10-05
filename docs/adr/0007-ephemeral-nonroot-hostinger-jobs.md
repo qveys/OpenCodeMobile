@@ -67,6 +67,27 @@ Both were validated end-to-end on **both** hosts before wiring:
 (run `36853180860`); the full detekt command ran as `uid 10001` and printed
 the detekt result (run `36853841018`).
 
+### Amendment — type-resolved lint needs the Android SDK (OPE-254)
+
+OPE-213 turned on detekt's type resolution. The type-resolved tasks compile the
+Android/KMP modules, so the `lint` job now needs the Android SDK, which the
+`eclipse-temurin` image does not carry. Decision item 3 above ("No host volume
+is mounted") therefore no longer holds for `lint`:
+
+- `lint.yml` bind-mounts the OPE-98 host toolchain **read-only** at
+  `/opt/android-sdk` (`volumes: - /opt/android-sdk:/opt/android-sdk:ro`), and
+  `scripts/ci/runner-toolchain-env.sh` exports `ANDROID_HOME` from it.
+- The container remains digest-pinned, ephemeral and non-root; only a read-only
+  toolchain path is exposed. Nothing is written back to the host.
+- Verified on `hostinger` (run `37369536318`): the type-resolved tasks
+  (`:androidApp:detektDebug`, `:design-system:detektAndroidDebug`, …) ran and
+  reported 0 findings.
+- This narrowing is routed to Security/DevOps for sign-off on OPE-254. The
+  staged replacement stays the repository-built digest-pinned Android image in
+  GHCR noted in *Migration* below; until then the read-only mount is the
+  smallest change that keeps both the OPE-212 container and OPE-213 type
+  resolution.
+
 ### Alternatives considered
 
 - **A truly ephemeral runner** (`config.sh --ephemeral` + a one-shot runner
