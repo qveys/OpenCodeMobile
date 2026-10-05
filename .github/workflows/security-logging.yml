@@ -62,7 +62,16 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Scan for unredacted secret logging
-        run: bash scripts/ci/run-as-nonroot.sh bash scripts/check-no-secret-logging.sh
+        run: |
+          # OPE-258 — the uid-10001 wrapper exists to cross the root-owned
+          # self-hosted `_work` mount. On the ephemeral GitHub-hosted runner
+          # there is no shared host and no host Docker socket, and chowning the
+          # runner temp breaks the checkout post-step, so run the scan directly.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            bash scripts/check-no-secret-logging.sh
+          else
+            bash scripts/ci/run-as-nonroot.sh bash scripts/check-no-secret-logging.sh
+          fi
 
   redaction-tests:
     name: Redaction unit tests
