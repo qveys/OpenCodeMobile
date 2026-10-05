@@ -67,7 +67,17 @@ jobs:
       - name: Require SHA-pinned GitHub Actions (SEC-04)
         run: bash scripts/check-workflow-action-pinning.sh
       - name: Require an integrity-pinned Gradle toolchain (SEC-05)
-        run: bash scripts/check-gradle-supply-chain.sh
+        run: |
+          set -euo pipefail
+          # main sets `defaults.run.shell: bash` for these container jobs, which
+          # GitHub runs as `bash --noprofile --norc`. Skipping the profile also
+          # skips the PATH that carries the interpreter this gate needs, so the
+          # gate stopped on "python3 is not on PATH" instead of on an integrity
+          # problem. Restore the standard locations, then report which
+          # interpreter the gate is about to use so a real failure stays legible.
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+          echo "SEC-05 interpreter: $(command -v python3 || echo NONE)"
+          bash scripts/check-gradle-supply-chain.sh
       # SEC-05b (OPE-238). SEC-05 proves gradle/verification-metadata.xml exists
       # and pins something; it cannot prove the pins cover what the build
       # resolves. OPE-220 is that gap: `main` added a dependency, the pin file
