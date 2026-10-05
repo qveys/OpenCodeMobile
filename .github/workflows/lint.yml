@@ -12,24 +12,47 @@ name: Lint
 # Toolchain policy (repo Actions allowlist): the organization permits only
 # `actions/checkout@*`; every other marketplace action is rejected with
 # `startup_failure` before the job starts. This workflow therefore uses ONLY
-# `actions/checkout` plus plain shell steps, and relies on the toolchain that is
-# already installed on the runner.
+# `actions/checkout` plus plain shell steps.
 #
-# Runner policy (docs/CI-RUNNER-STRATEGY.md §2): JDK 21 + Gradle work runs on
-# the company self-hosted pool, not GitHub-hosted runners. The step sources
-# scripts/ci/runner-toolchain-env.sh (OPE-98) to resolve JAVA_HOME. The Gradle
+# Runner policy (docs/CI-RUNNER-STRATEGY.md §2, OPE-212): JDK 21 + Gradle work
+# runs on the company self-hosted pool, not GitHub-hosted runners, and since
+# OPE-212 it runs inside a throwaway, non-root container
+# (docs/adr/0007-ephemeral-nonroot-hostinger-jobs.md). The image is pinned by
+# digest and carries JDK 21, so the job no longer depends on the host toolchain:
+# fresh filesystem per job, no shared state, build as uid 10001. The Gradle
 # distribution and every dependency stay pinned in the repo
 # (gradle/wrapper/gradle-wrapper.properties, gradle/libs.versions.toml), so the
-# runner is a cache, not a source of truth.
+# container is a cache, not a source of truth.
 #
-# The `pull_request` trigger is intentionally NOT path-filtered. A path-filtered
-# workflow produces no status when a PR touches none of its paths, which would
-# leave the required `lint` check permanently "Expected" and block every PR.
+# The `pull_request` trigger is path-filtered (OPE-250, Phase 1) to source and
+# lint-config inputs. `lint` is NOT in `required_status_checks` (only
+# `T4 static scan` is), so a skipped run cannot leave an "Expected" check; see
+# docs/BRANCH-PROTECTION.md.
 on:
   pull_request:
     branches: [main]
+    paths:
+      - "**/*.kt"
+      - "**/*.kts"
+      - "config/detekt/**"
+      - "scripts/lint.sh"
+      - "gradle/**"
+      - "gradle.properties"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/lint.yml"
   push:
     branches: [main]
+    paths:
+      - "**/*.kt"
+      - "**/*.kts"
+      - "config/detekt/**"
+      - "scripts/lint.sh"
+      - "gradle/**"
+      - "gradle.properties"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/lint.yml"
   workflow_dispatch:
 
 concurrency:
@@ -39,20 +62,25 @@ concurrency:
 permissions:
   contents: read
 
+# Container jobs default to `sh`; every step here uses bash.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   lint:
     name: lint
     runs-on: [self-hosted, hostinger]
     timeout-minutes: 30
+    # OPE-212 — ephemeral, non-root isolation. Digest-pinned JDK 21 image; the
+    # job gets a fresh filesystem and builds as uid 10001.
+    container:
+      image: eclipse-temurin@sha256:6adefddd4a20bceef702cedb0b03952fcd7691f9c7ccffe27014992abc0b46bd
+      options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run detekt lint gate
-        run: |
-          set -euo pipefail
-          . scripts/ci/runner-toolchain-env.sh
-          chmod +x gradlew
-          java -version
-          CI=1 bash scripts/lint.sh
+        run: bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c '. scripts/ci/runner-toolchain-env.sh && chmod +x gradlew && java -version && bash scripts/lint.sh'
       # upload-artifact is not on the Actions allowlist, so inline the report
       # into the job log on every run to keep failures actionable.
       - name: Publish detekt report to the job log
