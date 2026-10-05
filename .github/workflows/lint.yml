@@ -24,14 +24,35 @@ name: Lint
 # (gradle/wrapper/gradle-wrapper.properties, gradle/libs.versions.toml), so the
 # container is a cache, not a source of truth.
 #
-# The `pull_request` trigger is intentionally NOT path-filtered. A path-filtered
-# workflow produces no status when a PR touches none of its paths, which would
-# leave the required `lint` check permanently "Expected" and block every PR.
+# The `pull_request` trigger is path-filtered (OPE-250, Phase 1) to source and
+# lint-config inputs. `lint` is NOT in `required_status_checks` (only
+# `T4 static scan` is), so a skipped run cannot leave an "Expected" check; see
+# docs/BRANCH-PROTECTION.md.
 on:
   pull_request:
     branches: [main]
+    paths:
+      - "**/*.kt"
+      - "**/*.kts"
+      - "config/detekt/**"
+      - "scripts/lint.sh"
+      - "gradle/**"
+      - "gradle.properties"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/lint.yml"
   push:
     branches: [main]
+    paths:
+      - "**/*.kt"
+      - "**/*.kts"
+      - "config/detekt/**"
+      - "scripts/lint.sh"
+      - "gradle/**"
+      - "gradle.properties"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/lint.yml"
   workflow_dispatch:
 
 concurrency:

@@ -22,20 +22,27 @@ fi
 echo "Setting up branch protection for repository: $REPO on branch: main"
 
 # 1. Configure Branch Protection Rules
-# Required check: "T4 static scan" is the job name in
-# `.github/workflows/security-logging.yml` (OPE-56 / threat T4). Only checks
-# produced by a workflow that actually runs on every PR may be required here;
-# requiring a context no workflow emits would leave every PR "Expected" forever.
+# Required checks:
+#   - "T4 static scan" is the job name in `.github/workflows/security-logging.yml`
+#     (OPE-56 / threat T4).
+#   - "Architecture tests" is the gate job in
+#     `.github/workflows/architecture-tests.yml` (OPE-137 / OPE-142). Only checks
+#     produced by a workflow that actually runs on every PR may be required here;
+#     requiring a context no workflow emits would leave every PR "Expected"
+#     forever. The architecture-tests workflow always runs an always-on `gate`
+#     job (the heavy Gradle job stays path-conditioned), so the context is
+#     emitted on every PR even when no boundary-relevant path changed.
 # The lint/test/build contexts (OPE-14/OPE-15/OPE-16/OPE-17) are added to this
 # list once those workflows exist on `main`.
-# The `main` repository ruleset (id 23940009) carries the same required check;
+# The `main` repository ruleset (id 23940009) carries the same required checks;
 # verify both layers with `gh api repos/$REPO/rules/branches/main`.
 PROTECTION_PAYLOAD=$(cat <<'EOF'
 {
   "required_status_checks": {
     "strict": true,
     "contexts": [
-      "T4 static scan"
+      "T4 static scan",
+      "Architecture tests"
     ]
   },
   "enforce_admins": true,

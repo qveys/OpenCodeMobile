@@ -1,6 +1,6 @@
 # ADR 0004: Architecture/Dependency Rule Enforcement via Konsist
 
-- **Status**: Accepted — partially implemented
+- **Status**: Accepted
 - **Date**: 2026-09-24
 - **Author**: Engineer
 - **Related Issue**: OPE-33 (Add CI architecture/dependency-rule tests for module boundaries)
@@ -9,36 +9,16 @@
   - ADR-0001: Monorepo module scaffold
   - Konsist: https://github.com/konsist/konsist
 
-## 0. Status note — the CI gate described below is not built
-
-The decision to encode §5.2 as Konsist assertions is accepted, and
-`architecture-tests/src/test/kotlin/org/opencodemobile/architecture/ModuleBoundaryTest.kt`
-exists. Two parts of the decision recorded below are **not** implemented:
-
-- `architecture-tests/` is not listed in `settings.gradle.kts`, so Gradle does not
-  know the module and `./gradlew :architecture-tests:test` does not exist.
-- `.github/workflows/architecture-tests.yml` does not exist. No workflow
-  references `architecture-tests`, so nothing runs these rules on any PR or push.
-
-The §5.2 boundary rules are therefore enforced by code review only, not
-"fail-fast" as described in the Decision section. The body of this ADR is left
-unchanged as the historical record of what was decided.
-
-The Decision section was previously credited to **OPE-33**, which is closed as
-`done` but did not in fact add the Gradle registration or the CI workflow. The
-outstanding implementation work is tracked by **OPE-137**; OPE-33 remains the
-record of the original decision to adopt Konsist.
-
 ## Context
 
 The architecture specification (*Cahier des charges d'architecture v1.0*, §5.2) defines strict module boundary rules that must be enforced to maintain Clean Architecture layering in the Kotlin Multiplatform monorepo. Without automated enforcement, these rules rely solely on code review discipline, which is insufficient for a solo maintainer project where layering drift can silently accumulate.
 
 The rules from §5.2 are:
 
-1. **Domain layer isolation**: `shared/domain` must depend only on Kotlin stdlib — no data, networking, persistence, Ktor, Compose, SQLDelight, Koin, or generated OpenAPI client.
+1. **Domain layer isolation**: `shared/domain` must depend only on the Kotlin stdlib and `kotlinx-coroutines-core` (amended by OPE-245: the coroutine types its port interfaces expose — `Flow`, `StateFlow`, `SharedFlow`, `CoroutineScope`) — no data, networking, persistence, Ktor, Compose, SQLDelight, Koin, or generated OpenAPI client.
 2. **Application layer**: `shared/application` may only depend on `shared/domain` and `kotlinx.coroutines`.
 3. **Data layer**: `shared/data` may depend on `shared/domain`, `shared/networking`, `shared/realtime`, `shared/persistence`, `shared/security`.
-4. **Networking layer**: `shared/networking` may only depend on `shared/domain` and Ktor. It exclusively owns the generated OpenAPI client.
+4. **Networking layer**: `shared/networking` may depend on `shared/domain` and `shared/security` (the T1 identity seam, ARCHITECTURE.md §3.1), plus Ktor and serialization. It exclusively owns the generated OpenAPI client.
 5. **Realtime layer**: `shared/realtime` may only depend on `shared/domain` and `shared/networking`.
 6. **Persistence layer**: `shared/persistence` may only depend on `shared/domain` and SQLDelight.
 7. **Security layer**: `shared/security` may only depend on `shared/domain`.
@@ -57,7 +37,7 @@ We adopt **Konsist** as the architecture testing framework, running as a dedicat
 1. **New module**: `architecture-tests/` — a JVM-only Kotlin module containing Konsist tests.
 2. **Test suite**: `ModuleBoundaryTest.kt` — encodes all §5.2 rules as executable assertions.
 3. **CI integration**: GitHub Actions workflow (`.github/workflows/architecture-tests.yml`) runs `:architecture-tests:test` on every PR and push to `main`.
-4. **Fail-fast**: Any forbidden dependency, import, or pattern causes the build to fail, blocking merge.
+4. **Fail-fast**: Any forbidden dependency, import, or pattern fails the `Architecture tests` job, which runs on every PR and push to `main`. Whether a red job *blocks* merge additionally depends on the `main` ruleset's required status checks — see Verification.
 
 ### Konsist Scope Configuration
 
@@ -97,7 +77,20 @@ Run locally:
 ./gradlew :architecture-tests:test
 ```
 
-In CI: The `architecture-tests` workflow runs on every PR and push to `main`.
+In CI: `.github/workflows/architecture-tests.yml` runs `:architecture-tests:test`
+on every PR and push to `main` on the `[self-hosted, hostinger]` runner, using the
+toolchain resolved by `scripts/ci/runner-toolchain-env.sh` (OPE-98).
+
+Implementation history: when the original OPE-33 work was closed, the module was
+not listed in `settings.gradle.kts` and no workflow referenced it, so these rules
+were enforced by review only. OPE-137 wired the module into the build, corrected
+the Konsist coordinates (`com.lemonappdev:konsist`, 0.17.3), and added the
+workflow; the assertions now execute and fail on a violation.
+
+Merge-blocking status: the `main` ruleset currently requires only the
+`T4 static scan` context, so a red `Architecture tests` job is **advisory** until
+the `Architecture tests` context is added to the ruleset's
+`required_status_checks`.
 
 ## Alternatives Considered
 
