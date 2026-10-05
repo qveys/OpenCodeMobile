@@ -61,33 +61,38 @@ concurrency:
 permissions:
   contents: read
 
+# Container jobs default to `sh`; every step here uses bash.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   jvm-handshake:
     name: T1 handshake (JVM)
-    runs-on: ubuntu-latest
+    # OPE-255 (ADR 0007 stage 2): repository CI image (JDK 21 + Android SDK 35,
+    # pinned by digest), run as uid 10001. See .github/workflows/ci-image.yml.
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 20
+    container:
+      image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
+      options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run T1 handshake unit tests
-        run: |
-          set -euo pipefail
-          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
-          chmod +x gradlew
-          java -version
-          ./gradlew :shared:security:testDebugUnitTest --no-daemon --stacktrace
+        run: bash scripts/ci/run-as-nonroot.sh bash -c 'set -euo pipefail; chmod +x gradlew; java -version; ./gradlew :shared:security:testDebugUnitTest --no-daemon --stacktrace'
 
   android-instrumented-compile:
     name: T1 Android instrumented test compiles
-    runs-on: ubuntu-latest
+    # OPE-255 (ADR 0007 stage 2): same repository CI image as jvm-handshake.
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 25
+    container:
+      image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
+      options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Assemble Android instrumented test APK
-        run: |
-          set -euo pipefail
-          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
-          chmod +x gradlew
-          ./gradlew :shared:security:assembleDebugAndroidTest --no-daemon --stacktrace
+        run: bash scripts/ci/run-as-nonroot.sh bash -c 'set -euo pipefail; chmod +x gradlew; ./gradlew :shared:security:assembleDebugAndroidTest --no-daemon --stacktrace'
 
   android-emulator:
     name: T1 handshake (Android emulator)

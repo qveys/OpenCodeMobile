@@ -24,15 +24,16 @@ job, and workflows may only use `actions/checkout` plus plain shell steps.
 |---|---|---|---|
 | `lint.yml` | `lint` | `[self-hosted, hostinger]` | Required detekt gate. Since OPE-212 runs in a digest-pinned, non-root `container:` (see §7). |
 | `security-logging.yml` | `T4 static scan` | `[self-hosted, hostinger]` | JDK-free bash gate; already green on `vps-dokploy`. Keep it there — it is the **required** check and must stay cheap and always-reportable. |
-| `security-logging.yml` | `Redaction unit tests` | `[self-hosted, hostinger]` | Plain JVM/Android unit test (`:shared:networking:testDebugUnitTest`); moved off the single-lane `mac` runner in OPE-250 (Phase 0.1). Sources the preinstalled JDK 21 + Android SDK. |
-| `build.yml` | `Build Android (APK/AAB)` | `[self-hosted, hostinger]` | Linux runner carries JDK 21 + Android SDK after OPE-98. |
+| `security-logging.yml` | `Redaction unit tests` | `[self-hosted, hostinger]` | Plain JVM/Android unit test (`:shared:networking:testDebugUnitTest`); moved off the single-lane `mac` runner in OPE-250 (Phase 0.1). Since OPE-255 runs in the digest-pinned repository CI image (JDK 21 + Android SDK 35) as uid 10001. |
+| `build.yml` | `Build Android (APK/AAB)` | `[self-hosted, hostinger]` | Since OPE-255 runs in the digest-pinned repository CI image (JDK 21 + Android SDK 35) as uid 10001, not on a GitHub-hosted runner. |
 | `build.yml` | `Build iOS/macOS frameworks` | `[self-hosted, mac]` | Needs Xcode, which only the MacBook has. Also needs JDK 21. |
-| `t1-device-validation.yml` | `T1 handshake (JVM)` | `[self-hosted, hostinger]` | JDK 21 + Android SDK only. |
-| `t1-device-validation.yml` | `T1 Android instrumented test compiles` | `[self-hosted, hostinger]` | JDK 21 + Android SDK only (compile, no emulator). |
+| `build.yml` | `Test Android (JVM unit tests)` | `[self-hosted, hostinger]` | Same digest-pinned repository CI image as the Android build (OPE-255). |
+| `t1-device-validation.yml` | `T1 handshake (JVM)` | `[self-hosted, hostinger]` | Same digest-pinned repository CI image (OPE-255). |
+| `t1-device-validation.yml` | `T1 Android instrumented test compiles` | `[self-hosted, hostinger]` | Same digest-pinned repository CI image (OPE-255); compile, no emulator. |
 | `t1-device-validation.yml` | `T1 handshake (Android emulator)` | `[self-hosted, hostinger]` | Needs an AVD **and** hardware acceleration (`/dev/kvm`). Provisioned by `scripts/t1/run-android-device-validation.sh`; depends on host capability, see §5. |
 | `t1-device-validation.yml` | `T1 handshake (iOS simulator)` | `[self-hosted, mac]` | Needs Xcode + a bootable simulator. macOS only. |
 | `cd.yml` | `prepare` | `[self-hosted, hostinger]` | Pure bash parameter resolution; no toolchain. |
-| `cd.yml` | `deploy-android` | `[self-hosted, hostinger]` | Builds the release bundle: JDK 21 + Android SDK. Sources `scripts/ci/runner-toolchain-env.sh`. |
+| `cd.yml` | `deploy-android` | `[self-hosted, hostinger]` | Builds the release bundle; still sources the **host** toolchain via `scripts/ci/runner-toolchain-env.sh` (handles deploy secrets; not yet moved to the CI image — see ADR 0007 *Migration*). |
 | `cd.yml` | `deploy-ios` | `[self-hosted, mac]` | Apple deployment leg; runs on the Xcode-capable host. |
 | `cd.yml` | `smoke-test` | `[self-hosted, hostinger]` | Pure bash/curl pipeline check. |
 | `smoke-test.yml` | `self-test` | `[self-hosted, hostinger]` | Pure bash/curl self-test of the smoke script. |
@@ -161,10 +162,28 @@ in an **ephemeral, non-root container**:
   default to `sh` and bash-isms such as `set -euo pipefail` fail;
 - no host volume is mounted, so the Gradle cache and toolchain are per-job.
 
-Applied to `lint.yml` (`lint`) and `security-logging.yml` (`T4 static scan`).
-Both were validated on `vps-dokploy` **and** `vps-openclaw` before wiring.
+Applied first to `lint.yml` (`lint`) and `security-logging.yml` (`T4 static
+scan`); both were validated on `vps-dokploy` **and** `vps-openclaw` before
+wiring.
 
-Not yet done: the runner **service** still runs as root as the scheduler, and
-the Android-SDK jobs still use the host toolchain / GitHub-hosted runners. The
-staged plan (repository-built digest-pinned Android image in GHCR, then a
-non-root runner service) is in the ADR's *Migration* section.
+OPE-255 (stage 2) extends the model to the Android-SDK jobs with a
+**repository-built** image instead of the JDK-only public one:
+
+- `ci/android/Dockerfile` builds JDK 21 + Android SDK 35 (platform-tools,
+  `platforms;android-35`, `build-tools;35.0.0`) from a digest-pinned
+  `eclipse-temurin` base, accepts the SDK licenses at build time and ships the
+  `builder` uid 10001 account.
+- `.github/workflows/ci-image.yml` builds and pushes it to
+  `ghcr.io/qveys/opencodemobile/ci-android`, printing the `name@sha256` digest.
+  Only `main` pushes and manual dispatch publish; pull requests build without
+  pushing.
+- `build.yml` (`build-android`, `test-android`), `t1-device-validation.yml`
+  (`jvm-handshake`, `android-instrumented-compile`) and
+  `security-logging.yml` (`Redaction unit tests`) now consume that digest and
+  run as uid 10001.
+
+Not yet done: the runner **service** still runs as root as the scheduler;
+`cd.yml` `deploy-android` still sources the host toolchain (so
+`provision-runner-toolchain.yml` cannot be retired yet); and the Android
+emulator leg needs `/dev/kvm`, which a container cannot get, so it stays on
+`ubuntu-latest`. The staged plan is in the ADR's *Migration* section.

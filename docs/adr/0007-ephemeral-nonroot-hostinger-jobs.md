@@ -97,31 +97,41 @@ the detekt result (run `36853841018`).
   re-registering it), which requires host access and briefly takes the runner
   offline on a machine shared with other projects. Tracked as a follow-up; it
   needs an explicit owner decision because of the availability risk.
-- **Android SDK jobs** (`build.yml` Android, `t1-device-validation.yml` Android)
-  now run on GitHub-hosted `ubuntu-latest` on `main`; they are not affected.
-  If they are moved back to `hostinger`, they need an image that carries the
-  Android SDK. `eclipse-temurin` does not, so a repository-built image published
-  to GHCR is the next step.
-- **Digest pinning of the image** must be refreshed deliberately. The pinned
-  digest in the two workflows is recorded here and captured again by
+- **Android SDK jobs** (`build.yml` `build-android`/`test-android`,
+  `t1-device-validation.yml` `jvm-handshake`/`android-instrumented-compile`, and
+  `security-logging.yml`'s `Redaction unit tests`) run in the repository-built
+  image published to GHCR by OPE-255:
+  `ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab`
+  (`ci/android/Dockerfile`, `.github/workflows/ci-image.yml`). They are pinned by
+  that digest and run as uid 10001, so they no longer read the host toolchain.
+  `cd.yml`'s `deploy-android` still sources the host toolchain (left for a later
+  change: it carries deploy secrets); the Android emulator leg cannot run in a
+  container (it needs `/dev/kvm`) and stays on `ubuntu-latest`.
+- **Digest pinning of the images** must be refreshed deliberately. The
+  `eclipse-temurin` digest used by `lint.yml` / `security-logging.yml` and the
+  repository CI image digest used by the Android jobs are both recorded here,
+  and are captured again by
   `docker image inspect --format '{{index .RepoDigests 0}}'` on a runner when
-  it changes.
+  they change.
 - **No Gradle cache between jobs.** The `lint` job re-downloads the Gradle
   distribution and dependencies on every run. This is the price of "no shared
   state" and is acceptable for a fast detekt pass; a cache would have to be
   keyed and trusted, which reopens the exact problem this ADR closes.
 - The public base image is third-party. It is pinned by digest and pulled on
-  each run; the repository's supply-chain policy (`docs/CI-CD-SECURITY.md`)
-  should be extended with an explicit "container images are pinned by digest"
-  row.
+  each run; `docs/CI-CD-SECURITY.md` now carries an explicit "container images
+  are pinned by digest" control.
 
 ## Migration
 
 1. **This change** — `lint.yml` and `security-logging.yml` `T4 static scan`.
-2. **Next** — a repository-built, digest-pinned image with JDK 21 + Android SDK
-   published to GHCR, so the Android jobs can leave GitHub-hosted runners and
-   run isolated on `hostinger`.
+2. **Done (OPE-255, 2026-10-05)** — `ci/android/Dockerfile` +
+   `.github/workflows/ci-image.yml` build and publish a digest-pinned JDK 21 +
+   Android SDK 35 image to GHCR; `build.yml` `build-android`/`test-android`,
+   `t1-device-validation.yml` `jvm-handshake`/`android-instrumented-compile` and
+   `security-logging.yml` `Redaction unit tests` now run on it.
 3. **Later** — re-install the runner service under a dedicated non-root user
    (or move the pool to a dedicated host and adopt ephemeral runners
-   properly), and retire the host-toolchain `provision-runner-toolchain.yml`
-   Linux job once no workflow depends on it.
+   properly). `cd.yml` `deploy-android` still sources the host toolchain, so the
+   `provision-runner-toolchain.yml` Linux job cannot be retired until that and
+   any other host-toolchain consumer move; the emulator leg needs `/dev/kvm`
+   and stays on `ubuntu-latest`.

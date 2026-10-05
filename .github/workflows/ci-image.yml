@@ -33,7 +33,7 @@ name: CI image (Android)
 # `actions/checkout` plus plain shell, so nothing is added to the allowlist.
 on:
   push:
-    branches: [main, ci/OPE-255-ghcr-ci-image]
+    branches: [main]
     paths:
       - "ci/**"
       - ".github/workflows/ci-image.yml"
