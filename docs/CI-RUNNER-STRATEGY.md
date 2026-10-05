@@ -159,7 +159,10 @@ in an **ephemeral, non-root container**:
   unprivileged user and runs the build as `uid 10001`;
 - `defaults.run.shell: bash` is required, because container jobs otherwise
   default to `sh` and bash-isms such as `set -euo pipefail` fail;
-- no host volume is mounted, so the Gradle cache and toolchain are per-job.
+- no host volume is mounted, so the Gradle cache and toolchain are per-job;
+  the `lint` job is the one exception since OPE-254: it bind-mounts the host
+  Android SDK read-only at `/opt/android-sdk` because detekt type resolution
+  compiles the Android/KMP modules (see ADR 0007's OPE-254 amendment).
 
 Applied to `lint.yml` (`lint`) and `security-logging.yml` (`T4 static scan`).
 Both were validated on `vps-dokploy` **and** `vps-openclaw` before wiring.
