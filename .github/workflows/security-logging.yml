@@ -45,7 +45,12 @@ defaults:
 jobs:
   static-scan:
     name: T4 static scan
-    runs-on: [self-hosted, hostinger]
+    # OPE-258 — untrusted `pull_request` code must not reach the hostinger
+    # self-hosted pool: container uid 0 there owns the host Docker socket
+    # (repo-controlled uid 0 step + `-v /var/run/docker.sock`), which is host
+    # root. The same job runs on an ephemeral GitHub-hosted runner for PRs;
+    # trusted push/workflow_dispatch keep the company pool.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 5
     # OPE-212 — ephemeral, non-root isolation. The image is pinned by digest
     # (eclipse-temurin 21-jdk-jammy); the job gets a fresh filesystem and runs

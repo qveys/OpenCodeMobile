@@ -24,7 +24,10 @@ permissions:
 jobs:
   executable-bits:
     name: Executable bits
-    runs-on: [self-hosted, hostinger]
+    # OPE-258 — keep untrusted `pull_request` code off the hostinger self-hosted
+    # pool (repo code there runs as uid 0 over a shared host). PRs use an
+    # ephemeral GitHub-hosted runner; push/dispatch keep the company pool.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 5
     env:
       # The self-hosted runner runs steps with no $HOME, so a global git
