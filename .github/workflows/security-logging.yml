@@ -37,15 +37,27 @@ concurrency:
 permissions:
   contents: read
 
+# Container jobs default to `sh`; every step here uses bash.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   static-scan:
     name: T4 static scan
     runs-on: [self-hosted, hostinger]
     timeout-minutes: 5
+    # OPE-212 — ephemeral, non-root isolation. The image is pinned by digest
+    # (eclipse-temurin 21-jdk-jammy); the job gets a fresh filesystem and runs
+    # the scan as uid 10001. See
+    # docs/adr/0007-ephemeral-nonroot-hostinger-jobs.md.
+    container:
+      image: eclipse-temurin@sha256:6adefddd4a20bceef702cedb0b03952fcd7691f9c7ccffe27014992abc0b46bd
+      options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Scan for unredacted secret logging
-        run: bash scripts/check-no-secret-logging.sh
+        run: bash scripts/ci/run-as-nonroot.sh bash scripts/check-no-secret-logging.sh
 
   redaction-tests:
     name: Redaction unit tests
