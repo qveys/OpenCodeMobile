@@ -1,0 +1,14 @@
+-- v1 -> v2: scope preferences by server_id.
+--
+-- The previous `preference(key, value)` table was the only cache table without a
+-- server scope, so it survived wipeServer and could collide across profiles
+-- (OP3). The cache is disposable, so old preference rows are dropped rather than
+-- migrated.
+DROP TABLE IF EXISTS preference;
+
+CREATE TABLE preference (
+    server_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (server_id, key)
+);
