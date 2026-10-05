@@ -4,10 +4,13 @@ name: Lint
 # `main`, and fails the build on any detekt finding.
 #
 # The gate itself is configured by OPE-14: `config/detekt/detekt.yml` holds the
-# bug-focused rule set, `build.gradle.kts` applies detekt once at the root over
-# every `.kt` source, and `scripts/lint.sh` is the single entry point that runs
-# `./gradlew detekt`. This workflow only wires that entry point into CI, so the
-# detekt configuration and its CI job ship together (both live on PR #20).
+# bug-focused rule set and `scripts/lint.sh` is the single entry point. OPE-213
+# added type resolution: `build.gradle.kts` applies detekt to every subproject
+# so the per-compilation tasks carry a classpath, and `scripts/lint.sh` runs the
+# `detektAll` aggregate over the portable root scan plus those typed tasks.
+# Because type resolution needs the compiled classes, this job now compiles the
+# Android/Kotlin modules before linting. The detekt configuration and its CI job
+# ship together (both live on PR #20).
 #
 # Toolchain policy (repo Actions allowlist): the organization permits only
 # `actions/checkout@*`; every other marketplace action is rejected with
@@ -71,7 +74,7 @@ jobs:
   lint:
     name: lint
     runs-on: [self-hosted, hostinger]
-    timeout-minutes: 30
+    timeout-minutes: 45
     # OPE-212 — ephemeral, non-root isolation. Digest-pinned JDK 21 image; the
     # job gets a fresh filesystem and builds as uid 10001.
     container:
@@ -81,8 +84,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run detekt lint gate
         run: bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c '. scripts/ci/runner-toolchain-env.sh && chmod +x gradlew && java -version && bash scripts/lint.sh'
-      # upload-artifact is not on the Actions allowlist, so inline the report
-      # into the job log on every run to keep failures actionable.
+      # upload-artifact is not on the Actions allowlist, so inline the reports
+      # into the job log on every run to keep failures actionable. Type-resolved
+      # tasks write one report per compilation under build/reports/detekt/<module>.
       - name: Publish detekt report to the job log
         if: always()
         run: |
@@ -92,10 +96,9 @@ jobs:
             echo "no detekt report directory was produced"
             exit 0
           fi
-          ls -la "$report_dir"
-          for f in "$report_dir/detekt.txt" "$report_dir/detekt.md"; do
-            if [ -f "$f" ]; then
-              echo "----- $f -----"
-              cat "$f"
-            fi
-          done
+          # Only the text and markdown reports are inlined; the xml/html/sarif
+          # reports stay on the runner.
+          while IFS= read -r f; do
+            echo "----- $f -----"
+            cat "$f"
+          done < <(find "$report_dir" -type f \( -name '*.txt' -o -name '*.md' \) | sort)
