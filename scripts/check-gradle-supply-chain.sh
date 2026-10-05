@@ -288,7 +288,13 @@ sub refuse {
     exit 1;
 }
 
-open(my $fh, '<:encoding(UTF-8)', $path)
+# Read raw bytes, deliberately NOT with `:encoding(UTF-8)`. That layer lives in
+# PerlIO, and the pinned CI image carries perl-base only, so asking for it fails
+# with "Can't locate PerlIO.pm" and the gate stops on the environment again —
+# the same class of failure this issue exists to remove. Byte handling is correct
+# here: every element name, attribute name and tag this control compares is
+# ASCII, and sec05_parse_xml strips the UTF-8 BOM itself.
+open(my $fh, '<', $path)
     or refuse("$path cannot be read ($!) (SEC-05).");
 local $/;
 my $src = <$fh>;

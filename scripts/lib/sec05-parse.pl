@@ -132,7 +132,12 @@ sub sec05_parse_xml {
 
     # A UTF-8 BOM and CRLF endings are both legal XML; normalise them so the
     # tag scanner below sees one shape.
-    $src =~ s/\A\x{FEFF}//;
+    # This runs on bytes, not decoded characters: the pinned CI image has
+    # perl-base only, so PerlIO (and its `:encoding` layer) is unavailable. A
+    # BOM is therefore the three bytes EF BB BF here, not the single character
+    # U+FEFF — stripping \x{FEFF} would silently match nothing and let a
+    # BOM-prefixed document be refused as malformed.
+    $src =~ s/\A\xef\xbb\xbf//;
     $src =~ s/\r\n/\n/g;
 
     # A DOCTYPE can declare entities. Refuse rather than resolve: entity
