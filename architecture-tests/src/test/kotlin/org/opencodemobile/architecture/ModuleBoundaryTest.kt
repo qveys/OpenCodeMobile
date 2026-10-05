@@ -44,6 +44,7 @@ class ModuleBoundaryTest : StringSpec({
     val persistence = "org.opencodemobile.shared.persistence."
     val security = "org.opencodemobile.shared.security."
     val testSupport = "org.opencodemobile.shared.testsupport."
+    val tlsTestSupport = "org.opencodemobile.shared.testsupport.tls."
     val designSystem = "org.opencodemobile.design."
     val features = "org.opencodemobile.features."
     val androidApp = "org.opencodemobile.android."
@@ -54,8 +55,12 @@ class ModuleBoundaryTest : StringSpec({
     val compose = "org.jetbrains.compose."
     val composeAndroidx = "androidx.compose."
     val sqldelight = "app.cash.sqldelight."
-    val koin = "io.insert.koin."
+    // Koin's Maven coordinates are `io.insert-koin:*`, but the package its symbols
+    // live in (and therefore what an import path shows) is `org.koin`. Match the
+    // real package, otherwise the rule never fires.
+    val koin = "org.koin."
     val secureStore = "androidx.security."
+    val datastore = "androidx.datastore.preferences."
     val keystore = "android.security.keystore."
 
     val internalModules = listOf(
@@ -109,7 +114,7 @@ class ModuleBoundaryTest : StringSpec({
         scope.importsUnder(prefixes).assertEmpty()
     }
 
-    val uiForbiddenFrameworks = listOf(ktor, sqldelight, secureStore, keystore)
+    val uiForbiddenFrameworks = listOf(ktor, sqldelight, secureStore, datastore, keystore)
     val uiForbiddenFrameworksAndGenerated = uiForbiddenFrameworks + generated
 
     // --- §5.2 / ADR 0004: layer directions -----------------------------------
@@ -196,7 +201,7 @@ class ModuleBoundaryTest : StringSpec({
         val scope = scopeOf("shared/tls-test-support/src/commonMain/kotlin")
         assertInternalDependencies(
             scope,
-            selfPrefixes = listOf(testSupport),
+            selfPrefixes = listOf(tlsTestSupport),
             allowedPrefixes = listOf(domain, testSupport),
         )
         assertNoFrameworkImports(scope, listOf(compose, composeAndroidx, koin, secureStore, keystore, generated))
@@ -258,7 +263,13 @@ class ModuleBoundaryTest : StringSpec({
 
     // --- ADR 0004: Koin composition root --------------------------------------
 
-    "Koin module declarations live only in androidApp and features/*" {
+    // ADR 0004 rule 12 narrowed to an import-level rule: the port bans Koin
+    // imports in the shared layers + design-system rather than asserting that a
+    // Koin module is *declared* in androidApp/features/*. The pre-rewrite check
+    // looked for the Koin Annotations `@Module` (`io.insert.koin.module`) which
+    // this codebase never used, so it was vacuous; banning the import that any
+    // `module { }`/`single { }` DSL call requires is the enforceable form.
+    "shared modules and design-system must not import Koin" {
         sharedCommonMain.forEach { module ->
             scopeOf("$module/src/commonMain/kotlin").importsUnder(listOf(koin)).assertEmpty()
         }

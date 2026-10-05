@@ -24,9 +24,9 @@ The rules from §5.2 are:
 7. **Security layer**: `shared/security` may only depend on `shared/domain`.
 8. **Feature isolation**: Each `features/*` module may only depend on `shared/domain`, `shared/application`, `design-system`, Compose, and Koin. Features must not reach into another feature's internals.
 9. **Design system**: `design-system` may only depend on Compose and Kotlin stdlib.
-10. **UI/ViewModel restrictions**: Features, design-system, and androidApp must not directly import Ktor (HTTP/SSE), SQLDelight, or SecureStore/Keystore APIs.
+10. **UI/ViewModel restrictions**: Features, design-system, and androidApp must not directly import Ktor (HTTP/SSE), SQLDelight, SecureStore/Keystore APIs, or DataStore preferences (`androidx.datastore.preferences`).
 11. **Generated code protection**: The generated OpenAPI client in `shared/networking/src/commonMain/kotlin/org/opencode/mobile/networking/client/generated/` must never be hand-edited.
-12. **Koin modules**: Koin module declarations are only permitted in `androidApp` (composition root) and `features/*` modules.
+12. **Koin imports**: Koin may only be imported from `androidApp` (composition root) and `features/*`; `shared/*` and `design-system` must not import Koin. The test enforces this import-level restriction (any `module { }` / `single { }` declaration requires the import); it does not separately assert that a Koin module is declared.
 
 ## Decision
 
@@ -61,12 +61,12 @@ This ensures the rules apply to the actual source code that ships, not just Grad
 ### Negative / Trade-offs
 
 - **JVM-only test module**: `architecture-tests/` runs on JVM only (Konsist requirement). This is acceptable because it analyzes source code statically; it does not need to compile for iOS/Android targets.
-- **Konsist version pinned**: Added `konsist = "0.17.3"` to `gradle/libs.versions.toml` with `konsist` and `konsist-test` libraries.
+- **Konsist version pinned**: Added `konsist = "0.17.3"` to `gradle/libs.versions.toml` with the `konsist` library only. (`konsist-test` is not a published artefact and is not used.)
 - **Test execution time**: Adds ~30-60s to CI. Acceptable for PR gate.
 
 ### Known Gaps / Follow-up
 
-- **Generated client mutation detection**: The current test checks for "DO NOT EDIT" markers but a more robust check (e.g., git diff vs. generator output) could be added later.
+- **Generated client mutation detection**: The current test checks each generated file for an "AUTO-GENERATED" or "DO NOT MODIFY" marker, but a more robust check (e.g., git diff vs. generator output) could be added later.
 - **iOSApp not analyzed**: `iosApp/` is a native Xcode project (Swift), not Kotlin. §5.2 rules apply only to Kotlin modules; Swift layering is a separate concern.
 - **Compose Multiplatform internal imports**: The test forbids `org.jetbrains.compose.**` and `androidx.compose.**` in non-UI layers. If a shared utility needs a Compose type (e.g., `Dp`), an exception would need an ADR.
 
