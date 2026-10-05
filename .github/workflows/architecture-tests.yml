@@ -1,0 +1,139 @@
+name: Architecture tests
+
+# OPE-137 — the §5.2 module-boundary gate.
+#
+# Runs the Konsist boundary assertions in `architecture-tests/` and publishes a
+# stable `Architecture tests` status check. OPE-142 makes that context a required
+# status check on `main`, so a forbidden dependency blocks merge instead of
+# relying on code review (ADR 0004, ARCHITECTURE.md principle 7, §5.2).
+#
+# OPE-250 conditioned the heavy Gradle job on boundary-relevant paths to keep PR
+# latency down. A path-filtered workflow emits NO status when it does not match,
+# which would leave a required check "Expected" forever and block every PR. This
+# workflow therefore always runs two tiny jobs and keeps the heavy work
+# conditional:
+#   - `detect` classifies the change set;
+#   - `architecture-tests` runs the §5.2 suite only when a boundary-relevant
+#     path changed;
+#   - `gate` (job name `Architecture tests`) always reports the aggregate result.
+# The required context is the `gate` job, so it is always present and green when
+# the change set cannot affect a module boundary.
+#
+# Repo Actions allowlist: only `actions/checkout@*` may run. Every other action
+# (`actions/setup-java`, `gradle/actions/setup-gradle`, `actions/upload-artifact`,
+# ...) is rejected by the org policy with `startup_failure` before the job starts
+# (same constraint as build.yml / security-logging.yml). This workflow therefore
+# uses ONLY `actions/checkout` and relies on the self-hosted runner toolchain,
+# resolved through `scripts/ci/runner-toolchain-env.sh` (provisioned by OPE-98).
+#
+# Runner: `[self-hosted, hostinger]` per docs/CI-RUNNER-STRATEGY.md §2 — this is
+# JDK/Android/Gradle work with no Xcode or simulator requirement.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: architecture-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Classifies the change set. Must run on every trigger: the required
+  # `Architecture tests` gate reads its output.
+  detect:
+    name: Detect boundary changes
+    runs-on: [self-hosted, hostinger]
+    outputs:
+      run: ${{ steps.detect.outputs.run }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - id: detect
+        name: Classify changed paths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # Boundary-relevant inputs (keep in sync with the OPE-250 path filters).
+          patterns='^(architecture-tests/|androidApp/|iosAppHost/|shared/|features/|design-system/|gradle/|gradle\.properties|build\.gradle\.kts|settings\.gradle\.kts|config/|\.github/workflows/architecture-tests\.yml)'
+          changed=""
+          case "$EVENT_NAME" in
+            workflow_dispatch)
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+            pull_request)
+              git fetch --no-tags origin "$BASE_REF" >/dev/null 2>&1 || true
+              if [ -n "$BASE_SHA" ] && git cat-file -e "$BASE_SHA" 2>/dev/null; then
+                changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" || true)"
+              else
+                changed="$(git diff --name-only "origin/$BASE_REF"...HEAD || true)"
+              fi
+              ;;
+            *)
+              if [ -n "$BEFORE_SHA" ] \
+                 && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] \
+                 && git cat-file -e "$BEFORE_SHA" 2>/dev/null; then
+                changed="$(git diff --name-only "$BEFORE_SHA" "$HEAD_SHA" || true)"
+              else
+                changed="$(git show --pretty=format: --name-only "$HEAD_SHA" || true)"
+              fi
+              ;;
+          esac
+          if printf '%s\n' "$changed" | grep -Eq "$patterns"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  architecture-tests:
+    name: Architecture tests (module boundaries)
+    needs: detect
+    if: needs.detect.outputs.run == 'true'
+    runs-on: [self-hosted, hostinger]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Run §5.2 module-boundary tests
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          chmod +x gradlew
+          java -version
+          ./gradlew :architecture-tests:test --no-daemon --stacktrace
+
+  # Required status-check context (OPE-142). Always runs so the check is never
+  # left "Expected" when no boundary-relevant path changed.
+  gate:
+    name: Architecture tests
+    needs: [detect, architecture-tests]
+    if: always()
+    runs-on: [self-hosted, hostinger]
+    steps:
+      - name: Aggregate result
+        env:
+          DETECT_RESULT: ${{ needs.detect.result }}
+          RUN: ${{ needs.detect.outputs.run }}
+          TESTS_RESULT: ${{ needs.architecture-tests.result }}
+        run: |
+          set -euo pipefail
+          if [ "$DETECT_RESULT" != "success" ]; then
+            echo "::error::architecture change detection failed (result=$DETECT_RESULT)"
+            exit 1
+          fi
+          if [ "$RUN" = "true" ] && [ "$TESTS_RESULT" != "success" ]; then
+            echo "::error::architecture tests failed or were cancelled (result=$TESTS_RESULT)"
+            exit 1
+          fi
+          echo "Architecture gate passed (run=$RUN, tests=$TESTS_RESULT)."

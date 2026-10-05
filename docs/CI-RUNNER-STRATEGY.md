@@ -22,19 +22,34 @@ job, and workflows may only use `actions/checkout` plus plain shell steps.
 | Workflow | Job | Runner | Rationale |
 |---|---|---|---|
 | `security-logging.yml` | `T4 static scan` | `[self-hosted, hostinger]` | JDK-free bash gate; already green on `vps-dokploy`. Keep it there — it is the **required** check and must stay cheap and always-reportable. |
-| `security-logging.yml` | `Redaction unit tests` | `[self-hosted, mac]` | Needs JDK 21 + Android SDK. Runs on `macbook-openclaw` once OPE-98 provisioning is green; disabled on `pull_request` in the meantime so it cannot block PRs. |
+| `security-logging.yml` | `Redaction unit tests` | `[self-hosted, hostinger]` | Plain JVM/Android unit test (`:shared:networking:testDebugUnitTest`); moved off the single-lane `mac` runner in OPE-250 (Phase 0.1). Sources the preinstalled JDK 21 + Android SDK. |
 | `build.yml` | `Build Android (APK/AAB)` | `[self-hosted, hostinger]` | Linux runner carries JDK 21 + Android SDK after OPE-98. |
 | `build.yml` | `Build iOS/macOS frameworks` | `[self-hosted, mac]` | Needs Xcode, which only the MacBook has. Also needs JDK 21. |
 | `t1-device-validation.yml` | `T1 handshake (JVM)` | `[self-hosted, hostinger]` | JDK 21 + Android SDK only. |
 | `t1-device-validation.yml` | `T1 Android instrumented test compiles` | `[self-hosted, hostinger]` | JDK 21 + Android SDK only (compile, no emulator). |
 | `t1-device-validation.yml` | `T1 handshake (Android emulator)` | `[self-hosted, hostinger]` | Needs an AVD **and** hardware acceleration (`/dev/kvm`). Provisioned by `scripts/t1/run-android-device-validation.sh`; depends on host capability, see §5. |
 | `t1-device-validation.yml` | `T1 handshake (iOS simulator)` | `[self-hosted, mac]` | Needs Xcode + a bootable simulator. macOS only. |
+| `cd.yml` | `prepare` | `[self-hosted, hostinger]` | Pure bash parameter resolution; no toolchain. |
+| `cd.yml` | `deploy-android` | `[self-hosted, hostinger]` | Builds the release bundle: JDK 21 + Android SDK. Sources `scripts/ci/runner-toolchain-env.sh`. |
+| `cd.yml` | `deploy-ios` | `[self-hosted, mac]` | Apple deployment leg; runs on the Xcode-capable host. |
+| `cd.yml` | `smoke-test` | `[self-hosted, hostinger]` | Pure bash/curl pipeline check. |
+| `smoke-test.yml` | `self-test` | `[self-hosted, hostinger]` | Pure bash/curl self-test of the smoke script. |
+| `smoke-test.yml` | `smoke` | `[self-hosted, hostinger]` | Pure bash/curl health/version check after a deployment. |
 
 **Default rule for new workflows:** prefer the self-hosted pool. Use
 `[self-hosted, hostinger]` for JDK/Android/Gradle work and `[self-hosted, mac]`
 for anything that needs Xcode or a simulator. Do **not** go back to
 `ubuntu-latest` / `macos-latest` — the board requires the company pool, and
 GitHub-hosted minutes are not part of the plan.
+
+**Per-PR path conditioning (OPE-250).** Heavy workflows declare native
+`on.pull_request.paths` filters so a docs-only or narrow PR triggers only the
+always-on gates (`T4 static scan`, `Executable bits`). The device legs (T1
+Android emulator / iOS simulator, and the GitHub-hosted iOS duplicate) run on
+`main` pushes and a nightly schedule instead of on every PR. Because a
+path-filtered workflow emits no status when it does not match, none of these
+workflows may be added to `required_status_checks`; `T4 static scan` stays the
+only required context (see `docs/BRANCH-PROTECTION.md`).
 
 ## 3. Toolchain contract
 
