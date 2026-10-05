@@ -108,6 +108,19 @@ Trigger it with **Actions → Provision runner toolchain → Run workflow** (als
 runs automatically when the provisioning files change). Re-run it any time; it
 skips what is already installed.
 
+> **One run provisions one host, not both (OPE-259).** `provision-linux` is a
+> single job on the shared `[self-hosted, hostinger]` label, and the GitHub
+> Actions scheduler sends it to **whichever host is free**. Run `37368590956`
+> landed on `vps-dokploy` and reported `Android SDK already present:
+> /opt/android-sdk`; it says nothing about `vps-openclaw`. Both Linux hosts must
+> therefore be provisioned by dispatching the workflow until each has reported.
+> Read the job log's `Runner name` line to confirm which host was covered.
+> Giving each host its own label (`hostinger-dokploy`, `hostinger-openclaw`)
+> plus a `strategy.matrix` would make coverage structural instead of a
+> convention, but it needs a host-level runner re-registration; that is the
+> DevOps follow-up, not a repo change. Until then the `lint` job fails fast
+> (§7.2) rather than silently linting against a missing SDK.
+
 To re-provision manually while an operator is on the box:
 
 ```bash
@@ -159,10 +172,9 @@ in an **ephemeral, non-root container**:
   unprivileged user and runs the build as `uid 10001`;
 - `defaults.run.shell: bash` is required, because container jobs otherwise
   default to `sh` and bash-isms such as `set -euo pipefail` fail;
-- no host volume is mounted, so the Gradle cache and toolchain are per-job;
-  the `lint` job is the one exception since OPE-254: it bind-mounts the host
-  Android SDK read-only at `/opt/android-sdk` because detekt type resolution
-  compiles the Android/KMP modules (see ADR 0007's OPE-254 amendment).
+- **no host `toolchain` or `cache` volume is mounted**, so the Gradle cache and
+  the JDK are per-job. That is the whole of the isolation claim, and it was
+  already narrower than "no host volume" — see §7.1 for the real mount set.
 
 Applied to `lint.yml` (`lint`) and `security-logging.yml` (`T4 static scan`).
 Both were validated on `vps-dokploy` **and** `vps-openclaw` before wiring.
@@ -171,3 +183,56 @@ Not yet done: the runner **service** still runs as root as the scheduler, and
 the Android-SDK jobs still use the host toolchain / GitHub-hosted runners. The
 staged plan (repository-built digest-pinned Android image in GHCR, then a
 non-root runner service) is in the ADR's *Migration* section.
+
+### 7.1 The real mount set of a `container:` job (OPE-259)
+
+"no host volume is mounted" was **inaccurate**, and was already inaccurate
+*before* OPE-254. The runner always bind-mounts its own paths into every
+container job, whether or not the workflow asks for it (evidence: run
+`37369536318`, step `Initialize containers`, `docker create`):
+
+| Container path | Host source | Mode |
+|---|---|---|
+| `/__w` | `<runner>/_work` | rw |
+| `/__w/_temp` | `<runner>/_work/_temp` | rw |
+| `/__w/_actions` | `<runner>/_work/_actions` | rw |
+| `/__w/_tool` | `<runner>/_work/_tool` | rw |
+| `/github/home` | `<runner>/_work/_temp/_github_home` | rw |
+| `/github/workflow` | `<runner>/_work/_temp/_github_workflow` | rw |
+| `/__e` | `<runner>/_externals` | **ro** |
+| `/var/run/docker.sock` | the host Docker socket | rw |
+
+Those are outside the isolation claim: they are how the runner delivers the
+checkout, its own temp/action caches and its execution environment. The
+`docker.sock` entry is the sharp edge — see ADR 0007's *Consequences*, where
+the uid 0 wrapper and the socket are recorded together.
+
+What the workflow *adds* on top of that:
+
+| Job | Extra mount | Why |
+|---|---|---|
+| `lint.yml` / `lint` | `/opt/android-sdk:/opt/android-sdk:ro` | OPE-254: detekt type resolution compiles the Android/KMP modules, which the `eclipse-temurin` image does not carry. |
+| `security-logging.yml` / `T4 static scan` | *(none)* | JDK-free bash gate; only the runner mounts above apply. |
+
+Among the `container:` jobs, only `lint` mounts a host toolchain, and it is
+read-only. `build.yml`, `cd.yml` `deploy-android`, `t1-device-validation.yml`
+and `security-logging.yml`'s `Redaction unit tests` job also read
+`/opt/android-sdk`, but they are **not** container jobs — they run on the host
+and use the toolchain in place, which is the "not yet done" item above.
+
+### 7.2 Fail fast when the host SDK is missing (OPE-259)
+
+`docker -v /opt/android-sdk:/opt/android-sdk:ro` **creates** an empty
+root-owned directory on the host when the path does not exist. An
+unprovisioned runner therefore mounted an empty directory, and `lint` failed
+much later with `SDK location not found` — which reads as a detekt /
+type-resolution bug and sends the next person down the wrong path.
+
+`lint.yml` now asserts the platform directory immediately after
+`. scripts/ci/runner-toolchain-env.sh` and fails with a provisioning
+instruction naming the host:
+
+```bash
+test -d "$ANDROID_HOME/platforms/android-35" \
+  || { echo "::error::host Android SDK missing at $ANDROID_HOME on $RUNNER_NAME — run the \"Provision runner toolchain\" workflow on this host"; exit 1; }
+```

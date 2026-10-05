@@ -81,18 +81,40 @@ jobs:
       image: eclipse-temurin@sha256:6adefddd4a20bceef702cedb0b03952fcd7691f9c7ccffe27014992abc0b46bd
       # OPE-254 — type-resolved detekt compiles the Android/KMP modules, so the
       # job needs the Android SDK. The OPE-98 host toolchain lives at
-      # /opt/android-sdk on both hostinger runners; mount it read-only so the
+      # /opt/android-sdk on the hostinger runners; mount it read-only so the
       # container stays ephemeral and non-root while `runner-toolchain-env.sh`
       # can export ANDROID_HOME. Read-only keeps the host SDK out of reach for
-      # writes. This deliberately narrows ADR 0007's "no host volume" claim;
-      # reviewed by Security/DevOps in OPE-254.
+      # writes. Reviewed by Security/DevOps in OPE-254.
+      #
+      # OPE-259: this is the ONLY host toolchain a `container:` job in this
+      # repository mounts, and it narrows ADR 0007's "no host toolchain or
+      # cache volume" claim by one read-only path. The runner itself already
+      # bind-mounts its workspace, temp, action-cache paths and
+      # /var/run/docker.sock into EVERY container job; those are outside the
+      # isolation claim and are enumerated in docs/adr/0007 and
+      # docs/CI-RUNNER-STRATEGY.md §7.1.
+      #
+      # OPE-259 fail-fast: `docker -v /opt/android-sdk:/opt/android-sdk:ro`
+      # CREATES an empty root-owned directory on the host when the path does
+      # not exist, so an unprovisioned runner used to fail much later with
+      # `SDK location not found` and looked like a detekt/type-resolution bug.
+      # The step below asserts the platform directory before the build starts.
       volumes:
         - /opt/android-sdk:/opt/android-sdk:ro
       options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run detekt lint gate
-        run: bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c '. scripts/ci/runner-toolchain-env.sh && chmod +x gradlew && java -version && bash scripts/lint.sh'
+        run: |
+          bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c '
+            set -euo pipefail
+            . scripts/ci/runner-toolchain-env.sh
+            test -d "$ANDROID_HOME/platforms/android-35" \
+              || { echo "::error::host Android SDK missing at $ANDROID_HOME on $RUNNER_NAME — run the \"Provision runner toolchain\" workflow on this host"; exit 1; }
+            chmod +x gradlew
+            java -version
+            bash scripts/lint.sh
+          '
       # upload-artifact is not on the Actions allowlist, so inline the reports
       # into the job log on every run to keep failures actionable. Type-resolved
       # tasks write one report per compilation under build/reports/detekt/<module>.
