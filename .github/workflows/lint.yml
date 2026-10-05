@@ -79,6 +79,15 @@ jobs:
     # job gets a fresh filesystem and builds as uid 10001.
     container:
       image: eclipse-temurin@sha256:6adefddd4a20bceef702cedb0b03952fcd7691f9c7ccffe27014992abc0b46bd
+      # OPE-254 — type-resolved detekt compiles the Android/KMP modules, so the
+      # job needs the Android SDK. The OPE-98 host toolchain lives at
+      # /opt/android-sdk on both hostinger runners; mount it read-only so the
+      # container stays ephemeral and non-root while `runner-toolchain-env.sh`
+      # can export ANDROID_HOME. Read-only keeps the host SDK out of reach for
+      # writes. This deliberately narrows ADR 0007's "no host volume" claim;
+      # reviewed by Security/DevOps in OPE-254.
+      volumes:
+        - /opt/android-sdk:/opt/android-sdk:ro
       options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
