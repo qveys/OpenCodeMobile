@@ -58,11 +58,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Scan for unredacted secret logging
         run: bash scripts/ci/run-as-nonroot.sh bash scripts/check-no-secret-logging.sh
-      # OPE-212: run the supply-chain gates unprivileged too, like the scan above.
+      # These three supply-chain gates run directly, not through
+      # scripts/ci/run-as-nonroot.sh like the scan above. SEC-05 needs python3 to
+      # verify the distributionUrl publisher and parse verification-metadata.xml,
+      # and python3 is only on the PATH that su(1) hands to uid 10001. Wrapping it
+      # made SEC-05 fail closed on a missing interpreter rather than on a real
+      # integrity problem. The gates read the checkout and change nothing.
       - name: Require SHA-pinned GitHub Actions (SEC-04)
-        run: bash scripts/ci/run-as-nonroot.sh bash scripts/check-workflow-action-pinning.sh
+        run: bash scripts/check-workflow-action-pinning.sh
       - name: Require an integrity-pinned Gradle toolchain (SEC-05)
-        run: bash scripts/ci/run-as-nonroot.sh bash scripts/check-gradle-supply-chain.sh
+        run: bash scripts/check-gradle-supply-chain.sh
       # SEC-05b (OPE-238). SEC-05 proves gradle/verification-metadata.xml exists
       # and pins something; it cannot prove the pins cover what the build
       # resolves. OPE-220 is that gap: `main` added a dependency, the pin file
@@ -75,7 +80,7 @@ jobs:
       # in a workflow file, comments included, so a commented-out regeneration
       # step cannot be left waiting to be re-enabled.
       - name: Require dependency pins to cover the declared build inputs (SEC-05b)
-        run: bash scripts/ci/run-as-nonroot.sh bash scripts/check-verification-metadata-coverage.sh
+        run: bash scripts/check-verification-metadata-coverage.sh
 
   redaction-tests:
     name: Redaction unit tests
