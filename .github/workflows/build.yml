@@ -27,12 +27,54 @@ name: Build
 #       runner image, so both jobs build with the same major JDK.
 #   If the allowlist is later widened to include `actions/upload-artifact`, add
 #   an upload step for the paths listed under each job.
+#
+# OPE-250: the triggers are path-filtered to build inputs (module sources, Gradle
+# files, CI scripts). A docs-only or UI-copy PR no longer compiles everything.
 
 on:
   pull_request:
     branches: [main]
+    # OPE-250 (Phase 1): condition the heavy build/test matrix on the files a PR
+    # actually changes. This workflow is not a required status check, so a
+    # skipped run never leaves a check "Expected".
+    paths:
+      - "androidApp/**"
+      - "iosApp/**"
+      - "iosAppHost/**"
+      - "shared/**"
+      - "features/**"
+      - "design-system/**"
+      - "tests/**"
+      - "gradle/**"
+      - "gradle.properties"
+      - "gradlew"
+      - "gradlew.bat"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "config/**"
+      - "scripts/ci/**"
+      - "scripts/test.sh"
+      - ".github/workflows/build.yml"
   push:
     branches: [main]
+    paths:
+      - "androidApp/**"
+      - "iosApp/**"
+      - "iosAppHost/**"
+      - "shared/**"
+      - "features/**"
+      - "design-system/**"
+      - "tests/**"
+      - "gradle/**"
+      - "gradle.properties"
+      - "gradlew"
+      - "gradlew.bat"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "config/**"
+      - "scripts/ci/**"
+      - "scripts/test.sh"
+      - ".github/workflows/build.yml"
   workflow_dispatch:
 
 concurrency:
@@ -78,7 +120,9 @@ jobs:
           export JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-$JAVA_HOME}}"
           chmod +x gradlew
           java -version
-          ./gradlew linkDebugFrameworkIosSimulatorArm64 linkDebugFrameworkIosArm64 --no-daemon --stacktrace
+          ./gradlew linkDebugFrameworkIosSimulatorArm64 linkDebugFrameworkIosArm64 \
+            :iosAppHost:linkDebugFrameworkIosSimulatorArm64 :iosAppHost:linkDebugFrameworkIosArm64 \
+            --no-daemon --stacktrace
       - name: Verify iOS frameworks
         run: |
           set -euo pipefail
@@ -87,6 +131,7 @@ jobs:
           test -n "$(find . -path '*/build/bin/iosArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/security/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/domain/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
+          test -n "$(find . -path '*/iosAppHost/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
 
   # OPE-17 — Test step. Runs the full KMP test suite from the SAME revision as
   # the build jobs above (one workflow run => one github.sha):
