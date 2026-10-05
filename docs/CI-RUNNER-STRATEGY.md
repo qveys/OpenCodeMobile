@@ -1,7 +1,8 @@
 # CI Runner Strategy (OPE-98)
 
 Status: **decided** — see §2. Owner: DevOps.
-Companion docs: `docs/CI-CD-SECURITY.md` (T10 supply-chain policy), `docs/THREAT-MODEL.md`.
+Companion docs: `docs/CI-CD-SECURITY.md` (T10 supply-chain policy), `docs/THREAT-MODEL.md`, ADR
+`docs/adr/0007-ephemeral-nonroot-hostinger-jobs.md` (OPE-212 — ephemeral, non-root job isolation).
 
 ## 1. The constraint that drives every choice
 
@@ -21,8 +22,9 @@ job, and workflows may only use `actions/checkout` plus plain shell steps.
 
 | Workflow | Job | Runner | Rationale |
 |---|---|---|---|
+| `lint.yml` | `lint` | `[self-hosted, hostinger]` | Required detekt gate. Since OPE-212 runs in a digest-pinned, non-root `container:` (see §7). |
 | `security-logging.yml` | `T4 static scan` | `[self-hosted, hostinger]` | JDK-free bash gate; already green on `vps-dokploy`. Keep it there — it is the **required** check and must stay cheap and always-reportable. |
-| `security-logging.yml` | `Redaction unit tests` | `[self-hosted, mac]` | Needs JDK 21 + Android SDK. Runs on `macbook-openclaw` once OPE-98 provisioning is green; disabled on `pull_request` in the meantime so it cannot block PRs. |
+| `security-logging.yml` | `Redaction unit tests` | `[self-hosted, hostinger]` | Plain JVM/Android unit test (`:shared:networking:testDebugUnitTest`); moved off the single-lane `mac` runner in OPE-250 (Phase 0.1). Sources the preinstalled JDK 21 + Android SDK. |
 | `build.yml` | `Build Android (APK/AAB)` | `[self-hosted, hostinger]` | Linux runner carries JDK 21 + Android SDK after OPE-98. |
 | `build.yml` | `Build iOS/macOS frameworks` | `[self-hosted, mac]` | Needs Xcode, which only the MacBook has. Also needs JDK 21. |
 | `t1-device-validation.yml` | `T1 handshake (JVM)` | `[self-hosted, hostinger]` | JDK 21 + Android SDK only. |
@@ -41,6 +43,15 @@ job, and workflows may only use `actions/checkout` plus plain shell steps.
 for anything that needs Xcode or a simulator. Do **not** go back to
 `ubuntu-latest` / `macos-latest` — the board requires the company pool, and
 GitHub-hosted minutes are not part of the plan.
+
+**Per-PR path conditioning (OPE-250).** Heavy workflows declare native
+`on.pull_request.paths` filters so a docs-only or narrow PR triggers only the
+always-on gates (`T4 static scan`, `Executable bits`). The device legs (T1
+Android emulator / iOS simulator, and the GitHub-hosted iOS duplicate) run on
+`main` pushes and a nightly schedule instead of on every PR. Because a
+path-filtered workflow emits no status when it does not match, none of these
+workflows may be added to `required_status_checks`; `T4 static scan` stays the
+only required context (see `docs/BRANCH-PROTECTION.md`).
 
 ## 3. Toolchain contract
 
@@ -129,3 +140,34 @@ the persistent runner, with the version pinned in this repo and the hashes
 recorded in the provisioning log, keeps the supply chain auditable. That is why
 the T4 redaction job was made `workflow_dispatch`-only until this provisioning
 landed, rather than having it fetch a JDK per run.
+
+## 7. Ephemeral, non-root job isolation (OPE-212)
+
+Context: Codex flagged in the review of PR #20 that the `lint` job runs on the
+**persistent** `[self-hosted, hostinger]` runners. A capability probe found
+that `hostinger` jobs ran as **root** (`uid=0`) on hosts shared with ~13 other
+repositories, with the checkout and toolchain persisting between jobs. See
+`docs/adr/0007-ephemeral-nonroot-hostinger-jobs.md` for the full analysis.
+
+Decision: `[self-hosted, hostinger]` jobs that only need JDK 21 (or no JDK) run
+in an **ephemeral, non-root container**:
+
+- `container:` with a **digest-pinned** public image
+  (`eclipse-temurin@sha256:6adefddd…`), so a fresh filesystem is created per job
+  and discarded at the end;
+- `scripts/ci/run-as-nonroot.sh` hands the root-owned checkout to an
+  unprivileged user and runs the build as `uid 10001`;
+- `defaults.run.shell: bash` is required, because container jobs otherwise
+  default to `sh` and bash-isms such as `set -euo pipefail` fail;
+- no host volume is mounted, so the Gradle cache and toolchain are per-job;
+  the `lint` job is the one exception since OPE-254: it bind-mounts the host
+  Android SDK read-only at `/opt/android-sdk` because detekt type resolution
+  compiles the Android/KMP modules (see ADR 0007's OPE-254 amendment).
+
+Applied to `lint.yml` (`lint`) and `security-logging.yml` (`T4 static scan`).
+Both were validated on `vps-dokploy` **and** `vps-openclaw` before wiring.
+
+Not yet done: the runner **service** still runs as root as the scheduler, and
+the Android-SDK jobs still use the host toolchain / GitHub-hosted runners. The
+staged plan (repository-built digest-pinned Android image in GHCR, then a
+non-root runner service) is in the ADR's *Migration* section.
