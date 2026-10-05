@@ -28,6 +28,7 @@ import org.opencodemobile.shared.persistence.db.Cache
  * encryption itself is proven on device by
  * `SqlCipherCacheEncryptionInstrumentedTest`.
  */
+@Suppress("InjectDispatcher") // JVM unit test: real dispatcher on purpose; DI is not wired in tests.
 class SqlSessionCacheTest {
 
     private fun cache(): SqlSessionCache {
