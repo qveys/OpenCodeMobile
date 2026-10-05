@@ -73,7 +73,12 @@ defaults:
 jobs:
   lint:
     name: lint
-    runs-on: [self-hosted, hostinger]
+    # OPE-265 — untrusted `pull_request` code must not reach the shared
+    # hostinger pool (repo-controlled Gradle as uid 0 on a host that also owns
+    # a read-write Docker socket). The same job runs on an ephemeral
+    # GitHub-hosted runner for PRs; trusted push/workflow_dispatch keep the
+    # company pool.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 45
     # OPE-212 — ephemeral, non-root isolation. Digest-pinned JDK 21 image; the
     # job gets a fresh filesystem and builds as uid 10001.
@@ -86,13 +91,32 @@ jobs:
       # can export ANDROID_HOME. Read-only keeps the host SDK out of reach for
       # writes. This deliberately narrows ADR 0007's "no host volume" claim;
       # reviewed by Security/DevOps in OPE-254.
+      # OPE-265 — the GitHub-hosted image ships the same SDK at
+      # /usr/local/lib/android/sdk, so the bind source is resolved per runner.
       volumes:
-        - /opt/android-sdk:/opt/android-sdk:ro
+        - ${{ github.event_name == 'pull_request' && '/usr/local/lib/android/sdk:/opt/android-sdk:ro' || '/opt/android-sdk:/opt/android-sdk:ro' }}
       options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run detekt lint gate
-        run: bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c '. scripts/ci/runner-toolchain-env.sh && chmod +x gradlew && java -version && bash scripts/lint.sh'
+        run: |
+          set -euo pipefail
+          # OPE-265 — on the GitHub-hosted runner the JDK 21 toolchain is
+          # preinstalled as $JAVA_HOME_21_X64; on the self-hosted pool
+          # runner-toolchain-env.sh resolves it from the OPE-98 provision.
+          if [ -n "${JAVA_HOME_21_X64:-}" ]; then
+            export JAVA_HOME="$JAVA_HOME_21_X64"
+            export PATH="$JAVA_HOME/bin:$PATH"
+          fi
+          # The uid-10001 wrapper exists to cross the root-owned self-hosted
+          # `_work` mount. On the ephemeral GitHub-hosted runner there is no
+          # shared host and no host Docker socket, and chowning the runner temp
+          # breaks the checkout post-step, so run the gate directly there.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            env CI=1 bash -c '. scripts/ci/runner-toolchain-env.sh && chmod +x gradlew && java -version && bash scripts/lint.sh'
+          else
+            bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c '. scripts/ci/runner-toolchain-env.sh && chmod +x gradlew && java -version && bash scripts/lint.sh'
+          fi
       # upload-artifact is not on the Actions allowlist, so inline the reports
       # into the job log on every run to keep failures actionable. Type-resolved
       # tasks write one report per compilation under build/reports/detekt/<module>.
