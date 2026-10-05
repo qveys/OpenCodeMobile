@@ -45,7 +45,12 @@ defaults:
 jobs:
   static-scan:
     name: T4 static scan
-    runs-on: [self-hosted, hostinger]
+    # OPE-258 — untrusted `pull_request` code must not reach the hostinger
+    # self-hosted pool: container uid 0 there owns the host Docker socket
+    # (repo-controlled uid 0 step + `-v /var/run/docker.sock`), which is host
+    # root. The same job runs on an ephemeral GitHub-hosted runner for PRs;
+    # trusted push/workflow_dispatch keep the company pool.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 5
     # OPE-212 — ephemeral, non-root isolation. The image is pinned by digest
     # (eclipse-temurin 21-jdk-jammy); the job gets a fresh filesystem and runs
@@ -57,10 +62,24 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Scan for unredacted secret logging
-        run: bash scripts/ci/run-as-nonroot.sh bash scripts/check-no-secret-logging.sh
+        run: |
+          # OPE-258 — the uid-10001 wrapper exists to cross the root-owned
+          # self-hosted `_work` mount. On the ephemeral GitHub-hosted runner
+          # there is no shared host and no host Docker socket, and chowning the
+          # runner temp breaks the checkout post-step, so run the scan directly.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            bash scripts/check-no-secret-logging.sh
+          else
+            bash scripts/ci/run-as-nonroot.sh bash scripts/check-no-secret-logging.sh
+          fi
 
   redaction-tests:
     name: Redaction unit tests
+    # OPE-258 / OPE-263 — never run repo-controlled Gradle on the shared
+    # hostinger pool for a pull_request (that is uid 0 on the host). It is not a
+    # required check, so guard it off until the digest-pinned GHCR image from
+    # PR #77 / OPE-255 can run it on an ephemeral runner.
+    if: github.event_name != 'pull_request'
     # OPE-250 (Phase 0.1) moved this off the single-lane `mac` runner to
     # `hostinger`: the job is a plain `:shared:networking:testDebugUnitTest`
     # that only needs JDK 21 + the Android SDK, both provisioned on hostinger
