@@ -20,9 +20,11 @@ fi
 
 # Required status-check contexts declared by scripts/setup-branch-protection.sh.
 # "T4 static scan" is the OPE-56 / threat T4 redaction gate job in
-# `.github/workflows/security-logging.yml`. Add lint/test/build here once those
-# workflows exist on `main` (OPE-14/OPE-15/OPE-16/OPE-17).
-REQUIRED_CONTEXTS=("T4 static scan")
+# `.github/workflows/security-logging.yml`. "Architecture tests" is the OPE-142
+# gate job in `.github/workflows/architecture-tests.yml` (always-on `gate` job).
+# Add lint/test/build here once those workflows exist on `main`
+# (OPE-14/OPE-15/OPE-16/OPE-17).
+REQUIRED_CONTEXTS=("T4 static scan" "Architecture tests")
 
 echo "=========================================================="
 echo "Verifying Branch Protection for: $REPO (branch: main)"

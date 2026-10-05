@@ -1,6 +1,6 @@
 # ADR 0004: Architecture/Dependency Rule Enforcement via Konsist
 
-- **Status**: Accepted — partially implemented
+- **Status**: Accepted
 - **Date**: 2026-09-24
 - **Author**: Engineer
 - **Related Issue**: OPE-33 (Add CI architecture/dependency-rule tests for module boundaries)
@@ -8,26 +8,6 @@
   - Cahier des charges d'architecture v1.0 §5.2 (attached to OPE-2)
   - ADR-0001: Monorepo module scaffold
   - Konsist: https://github.com/konsist/konsist
-
-## 0. Status note — the CI gate described below is not built
-
-The decision to encode §5.2 as Konsist assertions is accepted, and
-`architecture-tests/src/test/kotlin/org/opencodemobile/architecture/ModuleBoundaryTest.kt`
-exists. Two parts of the decision recorded below are **not** implemented:
-
-- `architecture-tests/` is not listed in `settings.gradle.kts`, so Gradle does not
-  know the module and `./gradlew :architecture-tests:test` does not exist.
-- `.github/workflows/architecture-tests.yml` does not exist. No workflow
-  references `architecture-tests`, so nothing runs these rules on any PR or push.
-
-The §5.2 boundary rules are therefore enforced by code review only, not
-"fail-fast" as described in the Decision section. The body of this ADR is left
-unchanged as the historical record of what was decided.
-
-The Decision section was previously credited to **OPE-33**, which is closed as
-`done` but did not in fact add the Gradle registration or the CI workflow. The
-outstanding implementation work is tracked by **OPE-137**; OPE-33 remains the
-record of the original decision to adopt Konsist.
 
 ## Context
 
