@@ -46,6 +46,7 @@ import org.opencodemobile.shared.testsupport.OpenCodeFixtures
  * These run on [Dispatchers.Default] so the mock's real inter-event delays are
  * honoured, exactly like [org.opencodemobile.shared.realtime.EventProcessorMockServerTest].
  */
+@Suppress("InjectDispatcher") // Real-time mock tests on purpose; dispatchers are not wired into tests.
 class PermissionIngressMockServerTest {
 
     private val servers = mutableListOf<MockOpenCodeServer>()

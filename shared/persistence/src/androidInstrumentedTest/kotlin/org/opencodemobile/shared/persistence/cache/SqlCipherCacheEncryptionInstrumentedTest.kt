@@ -29,6 +29,7 @@ import org.opencodemobile.shared.security.cache.AndroidKeystoreCacheKeyStore
  * This is the composition proof the security review asked for (C2): SQLCipher +
  * passphrase read from the Keystore.
  */
+@Suppress("InjectDispatcher") // Instrumented test: real Dispatchers.IO on purpose; DI is not wired in tests.
 class SqlCipherCacheEncryptionInstrumentedTest {
 
     private val context: Context =
