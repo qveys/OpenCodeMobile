@@ -27,6 +27,7 @@ import org.opencodemobile.shared.persistence.db.Cache
  * - The raw [SqlSessionCache] is `internal`, so a consumer in another module can
  *   never receive it (and can never cast the read port into an ungated writer).
  */
+@Suppress("InjectDispatcher") // JVM unit test: real dispatcher on purpose; DI is not wired in tests.
 class CacheDatabaseGateTest {
 
     @Test
