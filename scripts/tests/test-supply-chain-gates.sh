@@ -36,12 +36,35 @@ PINNING="$ROOT/scripts/check-workflow-action-pinning.sh"
 GRADLE_GATE="$ROOT/scripts/check-gradle-supply-chain.sh"
 COVERAGE_GATE="$ROOT/scripts/check-verification-metadata-coverage.sh"
 SEC05_LIB="$ROOT/scripts/lib/sec05-parse.pl"
+SEC05B_LIB="$ROOT/scripts/lib/sec05b-parse.pl"
+# The frozen python3 original of each SEC-05b report, extracted verbatim from the
+# gate before OPE-264 moved it to perl. Test-only: the gate neither reads nor needs
+# them, and the pinned CI image has no python3, so CI never runs them. They exist so
+# the port can be held to the original's exact output.
+SEC05B_COVERAGE_ORACLE="$ROOT/scripts/tests/sec05b-oracle-coverage.py"
+SEC05B_REGEN_ORACLE="$ROOT/scripts/tests/sec05b-oracle-regen.py"
 
 PASS=0
 FAIL=0
 
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
+
+# Registry of every SEC-05b fixture built below, read by the OPE-264 parity section
+# at the end of this file. A file, not an array: the builders are always called as
+# `d="$(make_coverage_repo …)"`, and a command substitution runs in a subshell, so an
+# array appended to inside one would be discarded before the parity section reads it.
+COVERAGE_FIXTURE_REGISTRY="$TMP_ROOT/coverage-fixtures"
+: > "$COVERAGE_FIXTURE_REGISTRY"
+COVERAGE_FIXTURE_SKIP_REGISTRY="$TMP_ROOT/coverage-fixtures-skip"
+: > "$COVERAGE_FIXTURE_SKIP_REGISTRY"
+
+# Withhold a fixture from the parity comparison. Used for the fixtures whose parser
+# library is deliberately removed or corrupted: those assert that the gate fails
+# closed, and a library that does not load has no output to compare.
+skip_parity() { # fixture-dir
+  printf '%s\n' "$1" >> "$COVERAGE_FIXTURE_SKIP_REGISTRY"
+}
 
 check() { # description expected actual
   if [ "$2" = "$3" ]; then
@@ -205,8 +228,20 @@ write_empty_exemptions() { # dir
 # fixture's outcome is attributable to the change the test makes.
 make_coverage_repo() { # name
   local dir="$TMP_ROOT/$1"
-  mkdir -p "$dir/.github/workflows" "$dir/gradle" "$dir/scripts" "$dir/app"
+  mkdir -p "$dir/.github/workflows" "$dir/gradle" "$dir/scripts/lib" "$dir/app"
   cp "$COVERAGE_GATE" "$dir/scripts/"
+  # SEC-05b parses the pin file through sec05-parse.pl and the catalog and the
+  # workflow `on:` blocks through sec05b-parse.pl (OPE-264 moved it off python3,
+  # which the pinned CI image does not carry). Without both the gate refuses for the
+  # wrong reason, so every fixture that reaches a control needs them.
+  cp "$SEC05_LIB" "$SEC05B_LIB" "$dir/scripts/lib/"
+  # Registered for the OPE-264 parity section at the end of this file: every fixture
+  # that reaches a SEC-05b control must also be run through the frozen python3
+  # oracle, so "the perl reaches the same verdicts" is checked on the whole corpus
+  # rather than on the cases someone thought to duplicate. Written to a registry file
+  # rather than an array because callers capture this function's stdout through a
+  # command substitution, and a subshell's array assignment would be lost.
+  printf '%s\n' "$dir" >> "$TMP_ROOT/coverage-fixtures"
   write_catalog "$dir"
   write_covering_metadata "$dir"
   write_empty_exemptions "$dir"
@@ -1211,6 +1246,428 @@ check "real repository passes the SEC-05b gate" "0" "$code"
 check_contains "the real repository's declared dependencies are counted" "$out" "covers all"
 check_missing "the real repository has no uncovered dependency" "$out" "not covered by"
 check_contains "the real repository has no CI pin writer" "$out" "no workflow under"
+
+# --- OPE-264: SEC-05b reads its inputs with perl, not python3 ---------------
+#
+# The pinned eclipse-temurin image that `T4 static scan` runs in carries no python3
+# (ADR 0007), which is why SEC-05 moved in OPE-257 and why SEC-05b — the last red
+# check in that required job — moved here. These cases cover the environment the
+# gate actually runs under, and the inputs the rewrite could plausibly misread.
+
+echo ""
+echo "== OPE-264: SEC-05b runs without python3, on perl =="
+
+# The condition CI runs under. Losing python3 must NOT fail the gate: that is the
+# environment the pinned image provides, not a defect in the checkout. What it must
+# not do instead is quietly stop measuring anything, so both reports are still
+# checked for the numbers they counted.
+NO_PYTHON_PATH="$(make_path_without_python "$TMP_ROOT/bin-no-python")"
+d="$(make_coverage_repo sec05b-no-python)"
+out="$(cd "$d" && PATH="$NO_PYTHON_PATH" bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "no python3 on PATH still passes (the CI image condition)" "0" "$code"
+check_contains "control 1 still counts the declared dependencies" "$out" "covers all 2 declared external dependencies"
+check_contains "control 3 still counts the workflows" "$out" "1 workflow(s) checked"
+check_missing "control 1 is not silently skipped" "$out" "is required to resolve gradle/libs.versions.toml"
+
+# The parser is now the dependency. Without it the gate must fail closed rather
+# than pass a pinned-looking dependency file unchecked.
+NO_PERL_PATH="$(make_path_without_python "$TMP_ROOT/bin-no-perl")"
+rm -f "$NO_PERL_PATH/perl"
+out="$(cd "$d" && PATH="$NO_PERL_PATH" bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "no perl on PATH exits nonzero (fail closed)" "1" "$code"
+check_contains "the missing dependency is named" "$out" "are required to resolve gradle/libs.versions.toml"
+
+d="$(make_coverage_repo sec05b-no-lib)"
+rm -f "$d/scripts/lib/sec05b-parse.pl"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "a missing parser library exits nonzero (fail closed)" "1" "$code"
+check_contains "the missing library is named" "$out" "sec05b-parse.pl"
+skip_parity "$d"
+
+# SEC-05b reads the pin file through the library SEC-05 already hardened. Remove
+# that one and SEC-05b must fail closed too, not run on a half-loaded parse.
+d="$(make_coverage_repo sec05b-no-shared-lib)"
+rm -f "$d/scripts/lib/sec05-parse.pl"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "a missing shared SEC-05 library exits nonzero (fail closed)" "1" "$code"
+check_contains "the shared library is named" "$out" "sec05-parse.pl"
+skip_parity "$d"
+
+# The library is loaded from the repository, never from a path the caller could
+# influence. A checkout whose library is not perl must fail closed.
+d="$(make_coverage_repo sec05b-corrupt-lib)"
+printf 'this is not perl\n' > "$d/scripts/lib/sec05b-parse.pl"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "a corrupt parser library exits nonzero" "1" "$code"
+skip_parity "$d"
+
+echo ""
+echo "== OPE-264: the perl parser is not easier to fool than the python3 one =="
+
+# Each case below is a TOML / XML / YAML shape the port could have misread and
+# therefore reached a different verdict on. They are not here to be human-readable:
+# they are here because the python3 oracle must agree with perl on every one, and a
+# disagreement is what makes this suite red (see the parity section below).
+sec05b_case() { # name catalog-metadata-actions expect-code expect-needle
+  local name="$1" catalog="$2" metadata="$3" actions="$4" want="$5" needle="$6"
+  local d out code
+  d="$(make_coverage_repo "port-$name")"
+  printf '%s' "$catalog" > "$d/gradle/libs.versions.toml"
+  printf '%s' "$metadata" > "$d/gradle/verification-metadata.xml"
+  if [ -n "$actions" ]; then
+    printf '%s' "$actions" > "$d/app/build.gradle.kts"
+  fi
+  out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+  check "[$name] exit code" "$want" "$code"
+  [ -n "$needle" ] && check_contains "[$name] reason" "$out" "$needle"
+  return 0
+}
+
+COVERING_METADATA='<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata xmlns="https://schema.gradle.org/dependency-verification">
+   <components>
+      <component group="org.x" name="y" version="1.0"/>
+      <component group="org.x" name="z" version="2.0"/>
+   </components>
+</verification-metadata>'
+
+# A version catalog spelled with single quotes, with padding around `=`, and with a
+# four-segment literal coordinate. All legal, all read by hand differently from the
+# double-quoted one-liners the other fixtures use — and a spelling the gate cannot
+# read must be *said* to be unread, not coerced into a coordinate nobody declared.
+sec05b_case single-quoted-and-padded \
+  '[versions]
+y = "1.0"
+z = '"'"'2.0'"'"'
+
+[libraries]
+stdlib  = { module = "org.x:y", version.ref = "y" }
+other   = { module = "org.x:z", version = "2.0" }
+unpinned = { module = "org.x:q", version.ref = "y" }
+' \
+  "$COVERING_METADATA" \
+  'dependencies {
+    implementation(libs.stdlib)
+    implementation(libs.other)
+    implementation(libs.unpinned)
+    implementation("org.x:z:2.0:all")
+}
+' "1" "org.x:q:1.0"
+
+# A bundle array written across several lines is refused, not folded. The gate reads
+# one line at a time here, so a multi-line array is a declaration it cannot read, and
+# the finding has to name the line — that is the difference between a gate reporting
+# what it did not read and one that skipped it.
+sec05b_case multi-line-bundle-refused \
+  '[versions]
+y = "1.0"
+
+[libraries]
+stdlib = { module = "org.x:y", version.ref = "y" }
+
+[bundles]
+all = [
+    "stdlib",
+]
+' \
+  "$COVERING_METADATA" '' "1" "which is not an array of alias names"
+
+# Findings are reported in a defined order, so the report a contributor reads is
+# the same one every run produces. The order is field by field on the coordinate
+# (group, then artifact, then version), which is not the same as sorting the joined
+# `g:n:v` text on every input. `org.x:q:1.0` sorts before `org.x:qa:0.9`.
+sec05b_case finding-order \
+  '[versions]
+q  = "1.0"
+qa = "0.9"
+
+[libraries]
+first  = { module = "org.x:q", version.ref = "q" }
+second = { module = "org.x:qa", version.ref = "qa" }
+' \
+  "$COVERING_METADATA" \
+  'dependencies {
+    implementation(libs.second)
+    implementation(libs.first)
+}
+' "1" "org.x:q:1.0 (declared at app/build.gradle.kts:3); org.x:qa:0.9 (declared at app/build.gradle.kts:2)"
+
+# A `//` comment that names a configuration must not be read as a declaration, and
+# a `//` inside a string must survive. Both halves in one line.
+sec05b_case comment-stripping \
+  '[versions]
+y = "1.0"
+z = "2.0"
+
+[libraries]
+stdlib = { module = "org.x:y", version.ref = "y" }
+other  = { module = "org.x:z", version.ref = "z" }
+' \
+  "$COVERING_METADATA" \
+  'dependencies {
+    // implementation("org.evil:not-a-declaration:9.9")
+    implementation("org.x:y:1.0") // trailing comment
+    implementation("http://example.invalid/a//b")
+}
+' "1" "cannot be resolved to a coordinate"
+
+# A dependency notation nested past the recursion limit is refused, not chased. The
+# limit is what stops `platform(platform(…` from being an unbounded read of whatever
+# a pull request writes; getting the boundary wrong either hides a coordinate or
+# invents a finding.
+sec05b_case nesting-limit \
+  '[versions]
+y = "1.0"
+z = "2.0"
+
+[libraries]
+stdlib = { module = "org.x:y", version.ref = "y" }
+' \
+  "$COVERING_METADATA" \
+  'dependencies {
+    implementation(enforcedPlatform(platform(enforcedPlatform(platform(enforcedPlatform(platform(enforcedPlatform(platform(enforcedPlatform("org.x:q:1.0")))))))))))
+}
+' "1" "nests dependency notations too deeply to resolve"
+
+# A coordinate behind an alias whose segments are joined with `-`, plus a bundle
+# that reaches one, plus a plugin alias. Three resolutions the gate has to get
+# right or it under-reports.
+sec05b_case alias-bundle-plugin \
+  '[versions]
+y = "1.0"
+z = "2.0"
+
+[libraries]
+deep = { module = "org.x:y", version.ref = "y" }
+
+[plugins]
+thing = { id = "org.x.thing", version.ref = "z" }
+
+[bundles]
+all = ["deep"]
+' \
+  "$COVERING_METADATA" \
+  'plugins {
+    alias(libs.plugins.thing)
+}
+dependencies {
+    implementation(libs.deep)
+    implementation(libs.bundles.all)
+}
+' "1" "org.x.thing:org.x.thing.gradle.plugin:2.0"
+
+# The pin file is only reachable through the shared SEC-05 parser. A coordinate
+# that exists only inside a comment pins nothing, and a `>` inside an attribute
+# must not truncate the tag it sits in.
+sec05b_case pin-in-a-comment \
+  '[versions]
+y = "1.0"
+z = "2.0"
+
+[libraries]
+stdlib = { module = "org.x:y", version.ref = "y" }
+other  = { module = "org.x:z", version.ref = "z" }
+' \
+  '<verification-metadata xmlns="https://schema.gradle.org/dependency-verification" note="a>b">
+   <components>
+   <!--
+      <component group="org.x" name="y" version="1.0"/>
+   -->
+      <component group="org.x" name="z" version="2.0"/>
+   </components>
+</verification-metadata>' '' "1" "org.x:y:1.0"
+
+# A DOCTYPE can declare entities. Refuse rather than resolve.
+sec05b_case doctype-refused \
+  '[versions]
+y = "1.0"
+z = "2.0"
+
+[libraries]
+stdlib = { module = "org.x:y", version.ref = "y" }
+' \
+  '<!DOCTYPE verification-metadata [<!ENTITY x "y">]>
+<verification-metadata><components/></verification-metadata>' '' "1" "DOCTYPE"
+
+# A UTF-8 BOM and CRLF endings are legal in a catalog. Refusing them would break the
+# gate on a real file an editor rewrote on Windows, so this one has to PARSE and
+# still reach the finding.
+sec05b_case bom-and-crlf-catalog \
+  "$(printf '\xef\xbb\xbf[versions]\r\ny = "1.0"\r\n\r\n[libraries]\r\nstdlib = { module = "org.x:y", version.ref = "y" }\r\n')" \
+  "$COVERING_METADATA" '' "1" "not covered by"
+
+# A line the gate cannot read is refused, not skipped: a skipped catalog entry is a
+# dependency whose pin was never checked.
+sec05b_case unread-catalog-line \
+  '[versions]
+y = "1.0"
+
+[libraries]
+stdlib = { module = "org.x:y", version.ref = "y" }
+this line has no equals sign
+' \
+  "$COVERING_METADATA" '' "1" "which this gate cannot read"
+
+# --- OPE-264: which build scripts are read, and which are not ----------------
+#
+# SEC-05b walks the tree looking for declared dependencies. The walk is where a port
+# can quietly change *what it reads*: read too little and a dependency stops being
+# counted, read too much and build output is mistaken for a declaration.
+
+echo ""
+echo "== OPE-264: the build-script walk reads what it should =="
+
+# Generated output is not a declaration. `build/`, `node_modules/` and the rest hold
+# copies of build scripts whose dependencies are declared somewhere real; counting
+# them would report a coordinate no module declares.
+d="$(make_coverage_repo sec05b-walk-skips-generated)"
+mkdir -p "$d/build/generated" "$d/node_modules/pkg" "$d/.gradle/caches"
+cat > "$d/build/generated/build.gradle.kts" <<'KTS'
+dependencies {
+    implementation("org.generated:stale-copy:0.0.1")
+}
+KTS
+cp "$d/build/generated/build.gradle.kts" "$d/node_modules/pkg/build.gradle.kts"
+cp "$d/build/generated/build.gradle.kts" "$d/.gradle/caches/build.gradle.kts"
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "generated build scripts are not read as declarations" "0" "$code"
+check_missing "the generated copy is not reported" "$out" "org.generated:stale-copy"
+
+# A real module in a subdirectory is a declaration. Missing one would under-report
+# the build, which is the failure this gate exists to prevent.
+d="$(make_coverage_repo sec05b-walk-finds-modules)"
+mkdir -p "$d/feature/nested"
+cat > "$d/feature/build.gradle.kts" <<'KTS'
+dependencies {
+    implementation("org.x:undeclared:9.9.9")
+}
+KTS
+cat > "$d/feature/nested/build.gradle" <<'G'
+dependencies {
+    implementation("org.x:also-undeclared:9.9.9")
+}
+G
+out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+check "a dependency in a nested module is found" "1" "$code"
+check_contains "the nested module's coordinate is named" "$out" "org.x:undeclared:9.9.9"
+check_contains "the Groovy module's coordinate is named too" "$out" "org.x:also-undeclared:9.9.9"
+
+# A build script reached through a symlink is still a build script. Refusing to follow
+# it would be a hole a pull request could open by hiding a declaration behind a link,
+# so this pins the opposite behaviour on purpose.
+d="$(make_coverage_repo sec05b-walk-follows-symlink)"
+mkdir -p "$d/linked" "$d/app2"
+cat > "$d/linked/hidden.gradle.kts" <<'KTS'
+dependencies {
+    implementation("org.x:behind-a-symlink:1.0")
+}
+KTS
+if ln -s ../linked/hidden.gradle.kts "$d/app2/build.gradle.kts" 2>/dev/null; then
+  out="$(cd "$d" && bash scripts/check-verification-metadata-coverage.sh 2>&1)"; code=$?
+  check "a build script behind a symlink is still read" "1" "$code"
+  check_contains "the symlinked declaration is named" "$out" "org.x:behind-a-symlink:1.0"
+else
+  # No symlink support on this filesystem: say so rather than report a pass.
+  printf '  --   symlinks are unavailable here, so a symlinked build script was not checked\n'
+fi
+
+# --- OPE-264: the perl and the python3 reach the same verdicts ---------------
+#
+# Every fixture above, plus the real repository, run through both implementations.
+# The gate's correctness used to *be* the python3 output; this is what keeps that
+# true after the port. Only two things are normalised before the diff, both
+# documented in scripts/lib/sec05b-parse.pl: the detail inside a parse-error or
+# read-error message, which is ElementTree's and perl's wording rather than a
+# verdict. Everything else must match byte for byte.
+
+echo ""
+echo "== OPE-264: perl and python3 agree on every fixture =="
+
+normalise_report() { # file -> stdout
+  # Two normalisations, both documented at the top of scripts/lib/sec05b-parse.pl:
+  #
+  #   1. the detail inside a parse-error or read-error message is ElementTree's and
+  #      perl's own wording, not a verdict;
+  #   2. the shared SEC-05 parser refuses a document that declares a DOCTYPE and
+  #      ElementTree accepts it. SEC-05 has refused a DOCTYPE since OPE-257 — a
+  #      DOCTYPE can declare entities, and resolving them is a denial-of-service and a
+  #      text-substitution trick — so the perl raises one finding python3 does not.
+  #      Dropping that one line on both sides compares the verdicts: the same inputs,
+  #      the same exit code, every other finding identical. The refusal itself is
+  #      asserted directly above, so it is covered either way.
+  sed -e '/is not well-formed XML (declares a DOCTYPE)/d' \
+    -e 's/is not well-formed XML ([^)]*)/is not well-formed XML (DETAIL)/' \
+    -e 's/cannot be read ([^)]*)/cannot be read (DETAIL)/' "$1"
+}
+
+# Run one report through both implementations and require the same findings.
+sec05b_parity() { # fixture-dir label report
+  local d="$1" label="$2" report="$3" root
+  root="$(cd "$d" && pwd)"
+  local perl_file="$TMP_ROOT/parity-perl.$$" py_file="$TMP_ROOT/parity-py.$$"
+  local perl_code py_code
+
+  if [ "$report" = coverage ]; then
+    (cd "$d" && perl -I scripts/lib - \
+      gradle/verification-metadata.xml gradle/libs.versions.toml \
+      gradle/verification-coverage-exemptions.txt "$root" >"$perl_file" 2>&1 <<'PERL'
+use strict;
+use warnings;
+require './scripts/lib/sec05b-parse.pl';
+sec05b_coverage_report($ARGV[0], $ARGV[1], $ARGV[2], $ARGV[3]);
+PERL
+    )
+    perl_code=$?
+    (cd "$d" && python3 "$SEC05B_COVERAGE_ORACLE" \
+      gradle/verification-metadata.xml gradle/libs.versions.toml \
+      gradle/verification-coverage-exemptions.txt >"$py_file" 2>&1)
+    py_code=$?
+  else
+    (cd "$d" && perl -I scripts/lib - \
+      .github/workflows --write-verification-metadata \
+      gradle/verification-regeneration-exemptions.txt >"$perl_file" 2>&1 <<'PERL'
+use strict;
+use warnings;
+require './scripts/lib/sec05b-parse.pl';
+sec05b_regen_report($ARGV[0], $ARGV[1], $ARGV[2]);
+PERL
+    )
+    perl_code=$?
+    (cd "$d" && python3 "$SEC05B_REGEN_ORACLE" \
+      .github/workflows --write-verification-metadata \
+      gradle/verification-regeneration-exemptions.txt >"$py_file" 2>&1)
+    py_code=$?
+  fi
+
+  if [ "$perl_code" != "$py_code" ]; then
+    printf '  FAIL [%s] %s: perl exit %s, python3 exit %s\n' "$label" "$report" "$perl_code" "$py_code"
+    diff -u "$py_file" "$perl_file" | head -20
+    FAIL=$((FAIL + 1))
+  elif ! diff -q <(normalise_report "$py_file") <(normalise_report "$perl_file") >/dev/null; then
+    printf '  FAIL [%s] %s: python3 and perl disagree\n' "$label" "$report"
+    diff -u <(normalise_report "$py_file") <(normalise_report "$perl_file") | head -20
+    FAIL=$((FAIL + 1))
+  else
+    printf '  ok   [%s] %s: identical to python3 (exit %s)\n' "$label" "$report" "$perl_code"
+    PASS=$((PASS + 1))
+  fi
+  rm -f "$perl_file" "$py_file"
+}
+
+if ! command -v python3 >/dev/null 2>&1; then
+  printf '  --   python3 is not available, so the SEC-05b parity comparison is skipped.\n'
+  printf '  --   That is the CI image (OPE-264): perl is the implementation under test\n'
+  printf '  --   there. Run this suite where python3 exists to check the two agree.\n'
+else
+  sec05b_parity "$ROOT" "real-repository" coverage
+  sec05b_parity "$ROOT" "real-repository" regen
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    grep -qxF "$d" "$COVERAGE_FIXTURE_SKIP_REGISTRY" && continue
+    sec05b_parity "$d" "$(basename "$d")" coverage
+    sec05b_parity "$d" "$(basename "$d")" regen
+  done < "$COVERAGE_FIXTURE_REGISTRY"
+fi
 
 echo ""
 echo "== summary: $PASS passed, $FAIL failed =="

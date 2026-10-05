@@ -59,11 +59,12 @@ jobs:
       - name: Scan for unredacted secret logging
         run: bash scripts/ci/run-as-nonroot.sh bash scripts/check-no-secret-logging.sh
       # These three supply-chain gates run directly, not through
-      # scripts/ci/run-as-nonroot.sh like the scan above. SEC-05 needs python3 to
-      # verify the distributionUrl publisher and parse verification-metadata.xml,
-      # and python3 is only on the PATH that su(1) hands to uid 10001. Wrapping it
-      # made SEC-05 fail closed on a missing interpreter rather than on a real
-      # integrity problem. The gates read the checkout and change nothing.
+      # scripts/ci/run-as-nonroot.sh like the scan above. SEC-05 needs an
+      # interpreter to verify the distributionUrl publisher and parse
+      # verification-metadata.xml, and it is only on the PATH that su(1) hands to
+      # uid 10001. Wrapping it made SEC-05 fail closed on a missing interpreter
+      # rather than on a real integrity problem. The gates read the checkout and
+      # change nothing.
       - name: Require SHA-pinned GitHub Actions (SEC-04)
         run: bash scripts/check-workflow-action-pinning.sh
       - name: Require an integrity-pinned Gradle toolchain (SEC-05)
@@ -75,8 +76,14 @@ jobs:
           # gate stopped on "python3 is not on PATH" instead of on an integrity
           # problem. Restore the standard locations, then report which
           # interpreter the gate is about to use so a real failure stays legible.
+          #
+          # The interpreter is perl, not python3: OPE-257 moved SEC-05 off python3
+          # and OPE-264 moved SEC-05b, because this digest-pinned image carries
+          # neither python3 nor PerlIO — only perl-base. Both gates parse with
+          # scripts/lib/, and both fail closed when the interpreter or the library
+          # is missing.
           export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
-          echo "SEC-05 interpreter: $(command -v python3 || echo NONE)"
+          echo "SEC-05 parser: $(command -v perl || echo NONE)"
           bash scripts/check-gradle-supply-chain.sh
       # SEC-05b (OPE-238). SEC-05 proves gradle/verification-metadata.xml exists
       # and pins something; it cannot prove the pins cover what the build
@@ -89,6 +96,11 @@ jobs:
       # out the regeneration flag, because the gate matches the flag anywhere
       # in a workflow file, comments included, so a commented-out regeneration
       # step cannot be left waiting to be re-enabled.
+      #
+      # OPE-264 moved this gate off python3, which this digest-pinned image does
+      # not carry, onto the perl parsers in scripts/lib/ that SEC-05 already
+      # uses. The image and this job's permissions are unchanged: the digest pin is
+      # the supply-chain control and the container is OPE-212's isolation.
       - name: Require dependency pins to cover the declared build inputs (SEC-05b)
         run: bash scripts/check-verification-metadata-coverage.sh
 
