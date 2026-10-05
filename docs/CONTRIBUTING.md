@@ -20,13 +20,15 @@ In short:
 ```bash
 ./gradlew build                              # compile the shared KMP graph
 ./gradlew test                               # unit tests
+./gradlew :architecture-tests:test           # §5.2 module-boundary rules (Konsist)
 ./gradlew :androidApp:installDebug           # run the Android app
 ```
 
-The `architecture-tests` module holds the Konsist module-boundary rules, and the module is
-written, but it is not listed in `settings.gradle.kts`. Gradle therefore does not know about it:
-there is no `:architecture-tests` project and no boundary-test task to run. Until it is included,
-the rules in [ARCHITECTURE.md](ARCHITECTURE.md) are enforced by code review only.
+The `architecture-tests` module holds the Konsist module-boundary rules. It is listed in
+`settings.gradle.kts`, so it is an ordinary Gradle project with a `:architecture-tests:test` task,
+and `.github/workflows/architecture-tests.yml` runs that task on every pull request and push to
+`main`. The rules in [ARCHITECTURE.md](ARCHITECTURE.md) are therefore checked on every pull
+request rather than by review alone.
 
 ## Branching and pull requests
 
@@ -78,10 +80,8 @@ Review intensity scales with the area you touch (see [pr-conventions.md](pr-conv
 ## Testing expectations
 
 - Add or update unit tests for behavior you change.
-- When you add a module dependency or move code between modules, check it against the forbidden
-  dependency edges in [ARCHITECTURE.md](ARCHITECTURE.md) by hand. Do not look for an automated
-  task: `./gradlew :architecture-tests:test` does not exist, because `architecture-tests` is not
-  included in `settings.gradle.kts`.
+- When you add a module dependency or move code between modules, run `./gradlew :architecture-tests:test`.
+  CI runs the same task on every pull request and push to `main` and fails on a violation.
 - Run the smallest set of checks that proves your change before opening the PR, and record what
   you ran in the PR body.
 

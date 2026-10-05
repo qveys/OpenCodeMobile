@@ -108,7 +108,7 @@ public class SelfSignedTlsServer(
                 val requestLine = reader.readLine() ?: return
                 val parts = requestLine.split(" ")
                 val method = parts.getOrNull(0) ?: return
-                val path = parts.getOrNull(1) ?: ""
+                val path = parts.getOrNull(1).orEmpty()
 
                 val headers = readHeaders(reader)
 
