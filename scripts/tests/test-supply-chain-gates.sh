@@ -35,6 +35,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PINNING="$ROOT/scripts/check-workflow-action-pinning.sh"
 GRADLE_GATE="$ROOT/scripts/check-gradle-supply-chain.sh"
 COVERAGE_GATE="$ROOT/scripts/check-verification-metadata-coverage.sh"
+SEC05_LIB="$ROOT/scripts/lib/sec05-parse.pl"
 
 PASS=0
 FAIL=0
@@ -71,8 +72,12 @@ check_missing() { # description haystack needle
 # Build a throwaway repository containing only the files the gates read.
 make_repo() { # name
   local dir="$TMP_ROOT/$1"
-  mkdir -p "$dir/.github/workflows" "$dir/gradle/wrapper" "$dir/scripts"
+  mkdir -p "$dir/.github/workflows" "$dir/gradle/wrapper" "$dir/scripts/lib"
   cp "$PINNING" "$GRADLE_GATE" "$COVERAGE_GATE" "$dir/scripts/"
+  # SEC-05 parses its input through this library (OPE-257 moved it off python3,
+  # which the pinned CI image does not carry). A fixture that reaches control 2
+  # or control 4 needs the library too, or the gate refuses for the wrong reason.
+  cp "$SEC05_LIB" "$dir/scripts/lib/"
   printf '%s' "$dir"
 }
 
@@ -598,12 +603,32 @@ write_wrapper_jar "$d"
 write_verification_metadata "$d"
 NO_PYTHON_PATH="$(make_path_without_python "$TMP_ROOT/bin-no-python")"
 out="$(cd "$d" && PATH="$NO_PYTHON_PATH" bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
-# Without an interpreter the parse cannot run; the gate must say so, not pass.
-# The interpreter now backs two controls, so a runner without it must not be
-# able to pass a trusted-looking URL *or* a pinned-looking dependency file.
-check "no python3 on PATH exits nonzero (fail closed)" "1" "$code"
-check_contains "the missing interpreter is named" "$out" "python3 is required"
-check_contains "the publisher control is reported as unverifiable" "$out" "distributionUrl"
+# OPE-257: python3 is gone from the contract. The pinned CI image never had it,
+# so SEC-05 now parses through perl + scripts/lib/sec05-parse.pl. Losing python3
+# must therefore NOT fail the gate — that is the condition it runs under in CI —
+# while both controls must still measure the document rather than skip it.
+check "no python3 on PATH still passes (the CI image condition)" "0" "$code"
+check_contains "control 2 still identifies the publisher" "$out" "official Gradle publisher"
+check_contains "control 4 still counts the pins" "$out" "pins 1 SHA-256 checksum(s) across 1 component(s) / 1 artifact(s)"
+
+# The parser is now the dependency. Without it the gate must fail closed rather
+# than pass a trusted-looking URL or a pinned-looking dependency file unchecked.
+NO_PERL_PATH="$(make_path_without_python "$TMP_ROOT/bin-no-perl")"
+rm -f "$NO_PERL_PATH/perl"
+out="$(cd "$d" && PATH="$NO_PERL_PATH" bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "no perl on PATH exits nonzero (fail closed)" "1" "$code"
+check_contains "the missing dependency is named" "$out" "are required to verify the distributionUrl publisher"
+
+# A missing parser library must fail closed too, even with perl present: the
+# library is what makes the parse a parse instead of a guess.
+d="$(make_repo sec05-no-lib)"
+write_wrapper "$d" "$GOOD_SHA"
+write_wrapper_jar "$d"
+write_verification_metadata "$d"
+rm -f "$d/scripts/lib/sec05-parse.pl"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "a missing parser library exits nonzero (fail closed)" "1" "$code"
+check_contains "the missing library is named" "$out" "sec05-parse.pl"
 
 d="$(make_repo sec05-no-sum)"
 write_wrapper "$d" ""
@@ -825,6 +850,145 @@ d="$(make_repo sec05-no-properties)"
 write_wrapper_jar "$d"
 out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
 check "missing wrapper properties exits nonzero" "1" "$code"
+
+# --- OPE-257: the perl parser is not easier to fool than the python3 one ------
+#
+# SEC-05 moved off python3 (absent from the pinned CI image) onto perl. That is
+# only acceptable if the perl parser refuses the same documents python3 refused.
+# These cases are the adversarial inputs the rewrite could plausibly get wrong:
+# XML escaping, a trapped attribute, a BOM, CRLF, a missing version, and an
+# artifact left unpinned. Each must fail closed or pass for the stated reason.
+
+echo ""
+echo "== OPE-257: the perl parser holds the same line as the python3 one =="
+
+sec05_meta_case() { # name xml expect-code expect-needle
+  local name="$1" xml="$2" want_code="$3" needle="$4"
+  local d
+  d="$(make_repo "adv-$name")"
+  write_wrapper "$d" "$GOOD_SHA"
+  write_wrapper_jar "$d"
+  write_metadata_raw "$d" <<< "$xml"
+  local out code
+  out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+  check "[$name] exit code" "$want_code" "$code"
+  if [ -n "$needle" ]; then
+    check_contains "[$name] reason" "$out" "$needle"
+  fi
+}
+
+sec05_meta_case escaped-attr \
+  '<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata xmlns="https://schema.gradle.org/dependency-verification">
+   <components>
+      <component group="org.x" name="y" version="1.0">
+         <artifact name="a&amp;b.jar"><sha256 value="aa"/></artifact>
+         <artifact name="c.jar"><sha256XX value="bb"/></artifact>
+      </component>
+   </components>
+</verification-metadata>' \
+  "1" "neither a checksum nor a signature entry"
+
+# The unpinned artifact is named using its decoded attribute value, so a name
+# written as an entity is reported as the artifact it actually is. The artifact
+# carries no checksum and no signature at all, so this reaches the unpinned
+# report rather than the separate "no SHA-256 anywhere" rule.
+sec05_meta_case entity-decoded-name \
+  '<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata xmlns="https://schema.gradle.org/dependency-verification">
+   <components>
+      <component group="org.x" name="y" version="1.0">
+         <artifact name="y-1.0&amp;evil.jar"/>
+      </component>
+   </components>
+</verification-metadata>' \
+  "1" "org.x:y:1.0/y-1.0&evil.jar"
+
+# A checksum that exists only inside a comment pins nothing.
+sec05_meta_case comment-wrapped-pins \
+  '<verification-metadata>
+   <components>
+   <!--
+      <component group="org.x" name="y" version="1.0">
+         <artifact name="y.jar"><sha256 value="aa"/></artifact>
+      </component>
+   -->
+   </components>
+</verification-metadata>' \
+  "1" "empty <components> section"
+
+# A DOCTYPE can declare entities; the parser must refuse rather than resolve.
+sec05_meta_case doctype-refused \
+  '<!DOCTYPE verification-metadata [<!ENTITY x "y">]>
+<verification-metadata><components/></verification-metadata>' \
+  "1" "DOCTYPE"
+
+# Truncated / mismatched documents are refused, not partially counted.
+sec05_meta_case truncated-document \
+  '<verification-metadata><components><component group="g" name="n" version="1">' \
+  "1" "not well-formed XML"
+
+sec05_meta_case mismatched-end-tag \
+  '<verification-metadata><components></verification-metadata>' \
+  "1" "not well-formed XML"
+
+# Two top-level elements are not one well-formed document.
+sec05_meta_case two-root-elements \
+  '<verification-metadata><components/></verification-metadata><other/>' \
+  "1" "not well-formed XML"
+
+# A UTF-8 BOM and CRLF endings are legal XML and must not stop the parse. This
+# one has to PASS: refusing it would break the gate on a real Gradle file that
+# an editor rewrote with Windows line endings.
+sec05_meta_case bom-and-crlf-pass \
+  "$(printf '\xef\xbb\xbf<?xml version="1.0" encoding="UTF-8"?>\r\n<verification-metadata xmlns="https://schema.gradle.org/dependency-verification">\r\n   <configuration>\r\n      <verify-metadata>true</verify-metadata>\r\n   </configuration>\r\n   <components>\r\n      <component group="org.x" name="y" version="1.0">\r\n         <artifact name="y.jar"><sha256 value="aa"/></artifact>\r\n      </component>\r\n   </components>\r\n</verification-metadata>\r\n')" \
+  "0" "pins 1 SHA-256 checksum(s) across 1 component(s) / 1 artifact(s)"
+
+# A component with no version attribute is still measured, and the report uses
+# the `?` placeholder rather than silently dropping the artifact.
+sec05_meta_case missing-version-attribute \
+  '<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata xmlns="https://schema.gradle.org/dependency-verification">
+   <components>
+      <component group="org.x" name="y">
+         <artifact name="y.jar"/>
+      </component>
+   </components>
+</verification-metadata>' \
+  "1" "org.x:y:?/y.jar"
+
+# An attribute value containing `>` must not truncate the tag scanner.
+sec05_meta_case gt-inside-attribute \
+  '<verification-metadata xmlns="https://schema.gradle.org/dependency-verification" note="a>b">
+   <components>
+      <component group="org.x" name="y" version="1.0">
+         <artifact name="y.jar"><sha256 value="aa"/></artifact>
+      </component>
+   </components>
+</verification-metadata>' \
+  "0" "pins 1 SHA-256 checksum(s) across 1 component(s) / 1 artifact(s)"
+
+# A namespace-prefixed document is still dependency-verification metadata.
+sec05_meta_case namespace-prefixed \
+  '<v:verification-metadata xmlns:v="https://schema.gradle.org/dependency-verification">
+   <v:components>
+      <v:component group="org.x" name="y" version="1.0">
+         <v:artifact name="y.jar"><v:sha256 value="aa"/></v:artifact>
+      </v:component>
+   </v:components>
+</v:verification-metadata>' \
+  "0" "pins 1 SHA-256 checksum(s) across 1 component(s) / 1 artifact(s)"
+
+# The library is loaded from the repository, never from a path the caller could
+# influence. A checkout whose scripts/lib is absent must fail closed (covered
+# above); this pins the negative for a tampered library path.
+d="$(make_repo adv-lib-tampered)"
+write_wrapper "$d" "$GOOD_SHA"
+write_wrapper_jar "$d"
+write_verification_metadata "$d"
+printf 'this is not perl\n' > "$d/scripts/lib/sec05-parse.pl"
+out="$(cd "$d" && bash scripts/check-gradle-supply-chain.sh 2>&1)"; code=$?
+check "a corrupt parser library exits nonzero" "1" "$code"
 
 # --- SEC-05b control 1: the pins cover the declared build inputs ------------
 

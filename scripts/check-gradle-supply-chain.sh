@@ -40,11 +40,12 @@
 #      access. See docs/SECURITY-REVIEW.md SEC-05.
 #
 # Deliberately independent of the Gradle build (no JDK required) so it can run on
-# every pull request. Controls 2 and 4 parse their input with python3 (standard
+# every pull request. Controls 2 and 4 parse their input with perl (standard
 # library only, no network) because a substring match cannot tell a document that
 # pins an artifact from one that pins nothing, nor a URL whose publisher is
-# Gradle from one whose publisher is an attacker. python3 must exist on the
-# runner and the gate fails closed when it does not.
+# Gradle from one whose publisher is an attacker. The parsing lives in
+# scripts/lib/sec05-parse.pl; perl must exist on the runner and the gate fails
+# closed when it does not. See OPE-257 for why this is perl and not python3.
 #
 # Exit 0 when the toolchain is pinned, exit 1 otherwise.
 
@@ -68,13 +69,20 @@ fail_with() {
   fail=1
 }
 
-# Controls 2 and 4 both parse their input, so both need python3. Checked once,
-# here, so the runner reports a missing interpreter as the single actionable
-# cause instead of two dependent-looking failures.
-have_python=0
-command -v python3 >/dev/null 2>&1 && have_python=1
-if [ "$have_python" -eq 0 ]; then
-  fail_with "python3 is required to verify the distributionUrl publisher and to parse $VERIFICATION_METADATA, and is not on PATH; the SEC-05 publisher and dependency-checksum controls cannot be verified, so this gate fails closed rather than skipping them. Install it (Debian/Ubuntu: apt-get install -y python3)."
+# Controls 2 and 4 both parse their input, so both need the parser library.
+# Checked once, here, so the runner reports a missing dependency as the single
+# actionable cause instead of two dependent-looking failures.
+#
+# OPE-257: this was python3, which the digest-pinned eclipse-temurin image used
+# by `T4 static scan` does not carry (ADR 0007). The image is not changed — the
+# digest pin is the supply-chain control — so the parsing moved to perl, which
+# the base image does carry. See scripts/lib/sec05-parse.pl.
+SEC05_LIB="scripts/lib/sec05-parse.pl"
+have_parser=1
+command -v perl >/dev/null 2>&1 || have_parser=0
+[ -r "$SEC05_LIB" ] || have_parser=0
+if [ "$have_parser" -eq 0 ]; then
+  fail_with "perl and $SEC05_LIB are required to verify the distributionUrl publisher and to parse $VERIFICATION_METADATA, and at least one is missing; the SEC-05 publisher and dependency-checksum controls cannot be verified, so this gate fails closed rather than skipping them."
 fi
 
 printf 'Checking Gradle toolchain integrity controls (SEC-05)...\n'
@@ -110,141 +118,114 @@ fi
 # through a normal reviewed commit, which is the friction a supply-chain gate is
 # supposed to have.
 check_distribution_url() {
-  python3 - "$1" "$2" "$3" <<'PY'
-import re
-import sys
+  perl - "$1" "$2" "$3" <<'PERL'
+use strict;
+use warnings;
+require "./scripts/lib/sec05-parse.pl";
 
-PATH, ALLOWLIST, OFFICIAL = sys.argv[1], sys.argv[2], sys.argv[3]
+my ($path, $allowlist, $official) = @ARGV;
 
-# A host: at least two dot-separated labels of [a-z0-9-], no wildcards, no
-# scheme, no port, no path, no userinfo. Anything else is rejected rather than
-# silently ignored, so an allowlist entry that could never match fails loudly
-# instead of quietly approving nothing.
-HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
+sub refuse {
+    print "$_[0]\n";
+    exit 1;
+}
 
+sub read_allowed_hosts {
+    my ($p) = @_;
+    open(my $fh, '<', $p) or refuse("$p cannot be read ($!); the set of trusted Gradle publishers is unknown, so distributionUrl cannot be checked (SEC-05).");
+    my @hosts;
+    my $n = 0;
+    while (my $line = <$fh>) {
+        $n++;
+        # Drop a trailing comment. `.` does not match the newline, so the
+        # newline has to be part of the pattern or `#` to end-of-line never
+        # strips and every comment line looks like a malformed host.
+        $line =~ s/#.*\n?//;
+        $line =~ s/\A\s+//;
+        $line =~ s/\s+\z//;
+        next if $line eq '';
+        my $candidate = lc($line);
+        refuse("$p:$n is not a bare host name: '$line'. List the host only - no scheme, no path, no port, no wildcard (SEC-05).")
+            unless sec05_host_is_bare($candidate);
+        refuse("$p:$n lists $candidate twice (SEC-05).")
+            if grep { $_ eq $candidate } @hosts;
+        push @hosts, $candidate;
+    }
+    close($fh);
+    return \@hosts;
+}
 
-def refuse(message):
-    print(message)
-    sys.exit(1)
+sub read_distribution_url {
+    my ($p) = @_;
+    open(my $fh, '<', $p) or refuse("$p cannot be read ($!) (SEC-05).");
+    my ($url, $seen);
+    while (my $line = <$fh>) {
+        $line =~ s/\s+\z//;
+        # Capture the value now: the two substitutions below reset $1, so
+        # reading $1 after them silently yields the wrong string.
+        next unless $line =~ /\A\s*(distributionUrl)\s*=\s*(.*)\z/;
+        my ($key, $value) = ($1, $2);
+        next unless $key eq 'distributionUrl';
+        # Last assignment wins, matching java.util.Properties.
+        $url = $value;
+        $seen = 1;
+    }
+    close($fh);
+    refuse("$p declares no distributionUrl; there is no Gradle distribution to verify (SEC-05).") unless $seen;
+    $url = '' unless defined $url;
+    # Gradle escapes `:` and `=` in .properties values; undo that the same way
+    # the wrapper resolves them.
+    $url =~ s/\\//g;
+    $url =~ s/\A\s+//;
+    $url =~ s/\s+\z//;
+    return $url;
+}
 
+my $allowed = read_allowed_hosts($allowlist);
+my $url = read_distribution_url($path);
 
-def read_allowed_hosts(path):
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            raw_lines = handle.read().splitlines()
-    except OSError as exc:
-        # Fail closed. An unreadable or absent allowlist means the publisher
-        # policy cannot be established, and defaulting to "trust the PR" is
-        # exactly the failure mode this control exists to remove.
-        refuse("%s cannot be read (%s); the set of trusted Gradle publishers is unknown, so distributionUrl cannot be checked (SEC-05)." % (path, exc))
+my ($scheme, $host, $upath) = sec05_split_url($url);
 
-    hosts = []
-    for number, line in enumerate(raw_lines, 1):
-        entry = line.split("#", 1)[0].strip()
-        if not entry:
-            continue
-        candidate = entry.lower()
-        if not HOST_RE.match(candidate):
-            refuse(
-                "%s:%d is not a bare host name: %r. List the host only — no scheme, no path, no port, no wildcard (SEC-05)."
-                % (path, number, entry)
-            )
-        if candidate in hosts:
-            refuse("%s:%d lists %s twice (SEC-05)." % (path, number, candidate))
-        hosts.append(candidate)
-    return hosts
+if (!defined $scheme) {
+    refuse("$path declares distributionUrl='$url', which is not a simple absolute URL naming a bare host (SEC-05).");
+}
+if ($scheme ne 'https') {
+    refuse("distributionUrl uses the '$scheme' scheme, not https ($url); a downgrade would let an on-path attacker rewrite the Gradle distribution (SEC-05).");
+}
+if (!defined $host || $host eq '') {
+    refuse("distributionUrl names no host ($url); nothing identifies the Gradle publisher (SEC-05).");
+}
+# A trailing dot is the same DNS name in another spelling. Reject it rather
+# than strip it: an allowlist is a decision someone reviewed, and a form of it
+# that does not match the reviewed form must not pass by accident.
+if ($host =~ /\.\z/) {
+    refuse("distributionUrl host '$host' ends in a trailing dot (SEC-05). Use the plain host name so it matches the reviewed allowlist entry.");
+}
 
-
-def read_distribution_url(path):
-    # Gradle writes these as a .properties file, so `:` and `=` arrive escaped
-    # (`https\://…`). Reading the raw line and unescaping reproduces what the
-    # wrapper itself resolves; a value split across lines cannot happen here
-    # because the property is matched on a single line.
-    url = ""
-    seen = False
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            lines = handle.read().splitlines()
-    except OSError as exc:
-        refuse("%s cannot be read (%s) (SEC-05)." % (path, exc))
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("distributionUrl") and "=" in stripped:
-            key = stripped.split("=", 1)[0].strip()
-            if key == "distributionUrl":
-                # Last assignment wins, matching java.util.Properties.
-                url = stripped.split("=", 1)[1].strip()
-                seen = True
-    if not seen:
-        refuse("%s declares no distributionUrl; there is no Gradle distribution to verify (SEC-05)." % path)
-    return url.replace("\\", "")
-
-
-allowed = read_allowed_hosts(ALLOWLIST)
-url = read_distribution_url(PATH)
-
-# urlsplit gives the parsed authority: it lowercases the scheme, and exposes
-# netloc's userinfo, host and port separately, so the host below is the host
-# that would actually be connected to.
-from urllib.parse import urlsplit
-
-parts = urlsplit(url)
-scheme = parts.scheme.lower()
-
-if not scheme:
-    refuse("%s declares distributionUrl=%r, which has no URL scheme (SEC-05)." % (PATH, url))
-if scheme != "https":
-    refuse(
-        "distributionUrl uses the %r scheme, not https (%s); a downgrade would let an on-path attacker rewrite the Gradle distribution (SEC-05)."
-        % (scheme, url)
-    )
-
-try:
-    host = parts.hostname
-except ValueError as exc:
-    refuse("distributionUrl has an unparseable authority (%s): %s (SEC-05)." % (url, exc))
-if not host:
-    refuse("distributionUrl names no host (%s); nothing identifies the Gradle publisher (SEC-05)." % url)
-host = host.lower()
-
-# A trailing dot is the same DNS name in another spelling. Reject it rather than
-# strip it: an allowlist is a decision someone reviewed, and a form of it that
-# does not match the reviewed form must not pass by accident.
-if host.endswith("."):
-    refuse(
-        "distributionUrl host %r ends in a trailing dot (SEC-05). Use the plain host name so it matches the reviewed allowlist entry."
-        % (host,)
-    )
-
-if host == OFFICIAL:
+if ($host eq $official) {
     # Gradle publishes every official distribution under /distributions/ as
     # gradle-<version>-{bin,all}.zip. Requiring that shape keeps a valid host
     # from being pointed at an unrelated path on it.
-    if not re.match(r"^/distributions/gradle-[0-9][0-9A-Za-z._-]*\.zip$", parts.path):
-        refuse(
-            "distributionUrl host is the official %s but its path %r is not /distributions/gradle-<version>-{bin,all}.zip (SEC-05)."
-            % (OFFICIAL, parts.path)
-        )
-    print(
-        "distributionUrl points at the official Gradle publisher (%s), path %s." % (OFFICIAL, parts.path)
-    )
-    sys.exit(0)
-
-if host in allowed:
-    print(
-        "distributionUrl points at allowlisted mirror host %s (listed in %s)." % (host, ALLOWLIST)
-    )
-    sys.exit(0)
-
-refuse(
-    "distributionUrl host %r is not a trusted Gradle publisher. Allowed: the official %s, or a host listed in %s (currently %d entr%s). "
-    "An unlisted host means the distribution comes from whoever controls that name, and editing distributionUrl together with distributionSha256Sum in one pull request would make this gate approve the attacker's Gradle (SEC-05)."
-    % (host, OFFICIAL, ALLOWLIST, len(allowed), "y" if len(allowed) == 1 else "ies")
-)
-PY
+    unless ($upath =~ m{\A/distributions/gradle-[0-9][0-9A-Za-z._-]*\.zip\z}) {
+        refuse("distributionUrl host is the official $official but its path '$upath' is not /distributions/gradle-<version>-{bin,all}.zip (SEC-05).");
+    }
+    print "distributionUrl points at the official Gradle publisher ($official), path $upath.\n";
+    exit 0;
 }
 
-if [ "$have_python" -eq 0 ]; then
+if (grep { $_ eq $host } @$allowed) {
+    print "distributionUrl points at allowlisted mirror host $host (listed in $allowlist).\n";
+    exit 0;
+}
+
+my $count = scalar(@$allowed);
+my $plural = $count == 1 ? 'y' : 'ies';
+refuse("distributionUrl host '$host' is not a trusted Gradle publisher. Allowed: the official $official, or a host listed in $allowlist (currently $count entr$plural). "
+    . "An unlisted host means the distribution comes from whoever controls that name, and editing distributionUrl together with distributionSha256Sum in one pull request would make this gate approve the attacker's Gradle (SEC-05).");
+PERL
+}
+
+if [ "$have_parser" -eq 0 ]; then
   :
 elif [ ! -f "$PROPERTIES" ]; then
   :
@@ -289,105 +270,95 @@ fi
 # no artifact left without either a checksum or a signature entry, and
 # <verify-metadata> not downgraded to false.
 #
-# python3 does that parse with the standard library (no third-party module, no
-# network). It is required — the same interpreter control 2 needs — and its
-# absence is reported once, above, before either control runs.
+# scripts/lib/sec05-parse.pl does that parse (no third-party module, no
+# network). It is required — the same library control 2 needs — and its absence
+# is reported once, above, before either control runs.
 verify_metadata() {
-  python3 - "$1" <<'PY'
-import sys
-import xml.etree.ElementTree as ET
+  perl -I scripts/lib - "$1" <<'PERL'
+use strict;
+use warnings;
+require "./scripts/lib/sec05-parse.pl";
 
-PATH = sys.argv[1]
-CHECKSUM_TAGS = frozenset(("sha256", "sha1", "md5"))
-SIGNATURE_TAGS = frozenset(("trusting-key", "trusted-key"))
+my $path = $ARGV[0];
+my %CHECKSUM_TAGS = map { $_ => 1 } qw(sha256 sha1 md5);
+my %SIGNATURE_TAGS = map { $_ => 1 } qw(trusting-key trusted-key);
 
-
-def local(tag):
-    """Element name without the XML namespace Gradle declares."""
-    return tag.rsplit("}", 1)[-1]
-
-
-def refuse(message):
-    print(message)
-    sys.exit(1)
-
-
-try:
-    root = ET.parse(PATH).getroot()
-except ET.ParseError as exc:
-    refuse("%s is not well-formed XML (%s); Gradle cannot read it, so it pins nothing (SEC-05)." % (PATH, exc))
-except OSError as exc:
-    refuse("%s cannot be read (%s) (SEC-05)." % (PATH, exc))
-
-if local(root.tag) != "verification-metadata":
-    refuse("%s has root element <%s>, not <verification-metadata>: this is not Gradle dependency-verification metadata (SEC-05)." % (PATH, local(root.tag)))
-
-components_sections = [child for child in root if local(child.tag) == "components"]
-if not components_sections:
-    refuse("%s declares no <components> section; it pins no artifact checksum at all (SEC-05)." % PATH)
-
-components = [
-    component
-    for section in components_sections
-    for component in section
-    if local(component.tag) == "component"
-]
-if not components:
-    refuse("%s has an empty <components> section; it pins no component, so dependency verification proves nothing (SEC-05)." % PATH)
-
-sha256_count = 0
-artifact_count = 0
-unpinned = []
-for component in components:
-    for artifact in component:
-        if local(artifact.tag) != "artifact":
-            continue
-        artifact_count += 1
-        children = frozenset(local(child.tag) for child in artifact)
-        sha256_count += len([child for child in artifact if local(child.tag) == "sha256"])
-        if not children & (CHECKSUM_TAGS | SIGNATURE_TAGS):
-            unpinned.append(
-                "%s:%s:%s/%s"
-                % (
-                    component.get("group", "?"),
-                    component.get("name", "?"),
-                    component.get("version", "?"),
-                    artifact.get("name", "?"),
-                )
-            )
-
-if unpinned:
-    shown = ", ".join(unpinned[:5])
-    rest = " (+%d more)" % (len(unpinned) - 5) if len(unpinned) > 5 else ""
-    refuse(
-        "%s leaves %d artifact(s) with neither a checksum nor a signature entry: %s%s (SEC-05)."
-        % (PATH, len(unpinned), shown, rest)
-    )
-
-if sha256_count == 0:
-    refuse(
-        "%s pins %d artifact(s) but not one SHA-256 checksum; without SHA-256 an artifact substitution is cheap to arrange (SEC-05)."
-        % (PATH, artifact_count)
-    )
-
-for configuration in root:
-    if local(configuration.tag) != "configuration":
-        continue
-    for flag in configuration:
-        if local(flag.tag) == "verify-metadata" and (flag.text or "").strip().lower() != "true":
-            refuse(
-                "%s sets <verify-metadata> to '%s', which turns POM metadata verification off (SEC-05)."
-                % (PATH, (flag.text or "").strip())
-            )
-
-print(
-    "gradle/verification-metadata.xml pins %d SHA-256 checksum(s) across %d component(s) / %d artifact(s)."
-    % (sha256_count, len(components), artifact_count)
-)
-PY
+sub refuse {
+    print "$_[0]\n";
+    exit 1;
 }
 
-if [ "$have_python" -eq 0 ]; then
+open(my $fh, '<:encoding(UTF-8)', $path)
+    or refuse("$path cannot be read ($!) (SEC-05).");
+local $/;
+my $src = <$fh>;
+close($fh);
+
+my ($root, $err) = sec05_parse_xml($src);
+refuse("$path is not well-formed XML ($err); Gradle cannot read it, so it pins nothing (SEC-05).") if $err;
+
+if ($root->{name} ne 'verification-metadata') {
+    refuse("$path has root element <$root->{name}>, not <verification-metadata>: this is not Gradle dependency-verification metadata (SEC-05).");
+}
+
+my @sections = grep { $_->{name} eq 'components' } @{ $root->{kids} };
+refuse("$path declares no <components> section; it pins no artifact checksum at all (SEC-05).") unless @sections;
+
+my @components;
+for my $section (@sections) {
+    push @components, grep { $_->{name} eq 'component' } @{ $section->{kids} };
+}
+refuse("$path has an empty <components> section; it pins no component, so dependency verification proves nothing (SEC-05).")
+    unless @components;
+
+my ($sha256_count, $artifact_count) = (0, 0);
+my @unpinned;
+for my $component (@components) {
+    my $group   = defined $component->{attrs}{group}   ? $component->{attrs}{group}   : '?';
+    my $name    = defined $component->{attrs}{name}    ? $component->{attrs}{name}    : '?';
+    my $version = defined $component->{attrs}{version} ? $component->{attrs}{version} : '?';
+    for my $artifact (@{ $component->{kids} }) {
+        next unless $artifact->{name} eq 'artifact';
+        $artifact_count++;
+        my %children = map { $_->{name} => 1 } @{ $artifact->{kids} };
+        $sha256_count++ if $children{sha256};
+        unless ($children{sha256} || $children{sha1} || $children{md5}
+            || $children{'trusting-key'} || $children{'trusted-key'}) {
+            my $aname = defined $artifact->{attrs}{name} ? $artifact->{attrs}{name} : '?';
+            push @unpinned, "$group:$name:$version/$aname";
+        }
+    }
+}
+
+if (@unpinned) {
+    my $shown = join(', ', @unpinned[0 .. ($#unpinned > 4 ? 4 : $#unpinned)]);
+    my $rest = @unpinned > 5 ? sprintf(' (+%d more)', scalar(@unpinned) - 5) : '';
+    refuse("$path leaves " . scalar(@unpinned) . " artifact(s) with neither a checksum nor a signature entry: $shown$rest (SEC-05).");
+}
+
+if ($sha256_count == 0) {
+    refuse("$path pins $artifact_count artifact(s) but not one SHA-256 checksum; without SHA-256 an artifact substitution is cheap to arrange (SEC-05).");
+}
+
+for my $configuration (@{ $root->{kids} }) {
+    next unless $configuration->{name} eq 'configuration';
+    for my $flag (@{ $configuration->{kids} }) {
+        next unless $flag->{name} eq 'verify-metadata';
+        my $text = $flag->{text};
+        $text = '' unless defined $text;
+        $text =~ s/\A\s+//;
+        $text =~ s/\s+\z//;
+        unless (lc($text) eq 'true') {
+            refuse("$path sets <verify-metadata> to '$text', which turns POM metadata verification off (SEC-05).");
+        }
+    }
+}
+
+print "gradle/verification-metadata.xml pins $sha256_count SHA-256 checksum(s) across " . scalar(@components) . " component(s) / $artifact_count artifact(s).\n";
+PERL
+}
+
+if [ "$have_parser" -eq 0 ]; then
   :
 elif [ ! -f "$VERIFICATION_METADATA" ]; then
   fail_with "Missing $VERIFICATION_METADATA; transitive dependency resolution is not pinned to checksums (SEC-05). Generate it with: ./gradlew --write-verification-metadata sha256 <task>"
