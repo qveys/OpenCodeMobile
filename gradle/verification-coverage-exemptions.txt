@@ -32,19 +32,23 @@ compose.foundation           org.jetbrains.compose Gradle plugin extension, same
 compose.material3            org.jetbrains.compose Gradle plugin extension, same as compose.runtime
 compose.ui                   org.jetbrains.compose Gradle plugin extension, same as compose.runtime
 compose.components.resources org.jetbrains.compose Gradle plugin extension, same as compose.runtime
+kotlin("test")                   Kotlin Gradle plugin dependency handler (androidApp, OPE-170); it resolves to org.jetbrains.kotlin:kotlin-test:2.1.0, which is pinned (kotlin-test-2.1.0-all.jar in verification-metadata.xml). Only the plugin-side spelling hides the coordinate from a static read.
 
 # --- declared but never resolved -------------------------------------------
 #
-# architecture-tests/build.gradle.kts declares these, but the module is NOT
-# included in settings.gradle.kts, so no Gradle task resolves its
-# testCompileClasspath and --write-verification-metadata cannot pin them.
-# OPE-137 wires the module into the build and CI; that change must regenerate
-# the pins and delete these five lines in the same commit, otherwise the
-# dependency resolves for the first time without a checksum and fails the build
-# exactly as OPE-220 did.
-
-com.lemonapp.konsist:konsist:0.17.3    architecture-tests is not included in settings.gradle.kts, so this is never resolved; OPE-137 must pin it when the module is wired in
-com.lemonapp.konsist:konsist-test:0.17.3  architecture-tests is not included in settings.gradle.kts, so this is never resolved; OPE-137 must pin it when the module is wired in
-io.kotest:kotest-framework-engine:5.9.1   architecture-tests is not included in settings.gradle.kts, so this is never resolved; OPE-137 must pin it when the module is wired in
-io.kotest:kotest-assertions-core:5.9.1    architecture-tests is not included in settings.gradle.kts, so this is never resolved; OPE-137 must pin it when the module is wired in
-io.kotest:kotest-property:5.9.1           architecture-tests is not included in settings.gradle.kts, so this is never resolved; OPE-137 must pin it when the module is wired in
+# (none)
+#
+# OPE-220 removed the five konsist/kotest lines that used to live here. Their
+# stated reason -- "architecture-tests is not included in settings.gradle.kts, so
+# this is never resolved" -- stopped being true when OPE-137 wired
+# `include(":architecture-tests")` into the build and CI started running
+# `:architecture-tests:test`. Once that happened the coordinates resolved for the
+# first time with no checksum, which is what turned Architecture tests and
+# Test Android red. An exemption that grants trust to a dependency a task really
+# resolves is a bypass, not a guard, so the entries go in the same commit that
+# regenerates the pins.
+#
+# Two of them named `com.lemonapp.konsist:konsist` while the build declares
+# `com.lemonappdev:konsist`, so they did not even suppress the coordinates they
+# claimed to. Do not re-add an entry here to silence SEC-05b: the correct fix is
+# always to regenerate the pins.
