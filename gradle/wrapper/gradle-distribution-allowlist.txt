@@ -1,0 +1,39 @@
+# Trusted Gradle distribution hosts — SEC-05 control 2 (OPE-216)
+#
+# `gradle/wrapper/gradle-wrapper.properties` may point `distributionUrl` at:
+#
+#   1. the official Gradle publisher, https://services.gradle.org/distributions/
+#      gradle-<version>-{bin,all}.zip — always allowed, no entry needed; or
+#   2. a host listed below.
+#
+# Why a host is listed rather than accepted as-is: `distributionUrl` and
+# `distributionSha256Sum` are edited independently but must be trusted
+# together. Anyone who can edit both in one pull request can otherwise name
+# their own host and pin the checksum of their own archive, and the wrapper
+# will then download and execute it (threat T10). Requiring `distributionUrl`
+# to name a host that is already on this list is what binds the digest to a
+# publisher.
+#
+# The list is empty by default, which is the safe state: this repository builds
+# from the official host. A mirror (corporate proxy, internal cache, air-gapped
+# artifact server) is a supported configuration — add its host below in a pull
+# request that a reviewer approves, changing `distributionUrl` in the same
+# commit so the two are reviewed as the single decision they are.
+#
+# Format: one bare host per line, e.g.
+#
+#     gradle.internal.example
+#     repo.corp.example
+#
+# Rules (scripts/check-gradle-supply-chain.sh enforces these and fails loudly
+# rather than ignoring an entry that could never match):
+#
+#   * Host only. No scheme, no path, no port, no credentials, no wildcard,
+#     no leading dot. `https://repo.example/gradle` and `*.example` are errors.
+#   * The host is matched exactly, case-insensitively, against the parsed URL.
+#     Listing `example.com` does not allow `cdn.example.com` or
+#     `example.com.attacker.test`.
+#   * Do not list a host whose TLS certificate you do not control. An entry
+#     hands that host's owner the right to choose the bytes your build runs.
+#
+# No entries.
