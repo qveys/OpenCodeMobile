@@ -1,0 +1,122 @@
+name: CI image (Android)
+
+# OPE-255 (Stage 2 of ADR 0007) — build the repository CI image that carries
+# JDK 21 + Android SDK 35, and publish it to GitHub Container Registry (GHCR).
+#
+# The runner cannot use a locally-built image: GitHub always `docker pull`s the
+# `container:` image of a job, so the image has to live in a registry. This
+# workflow builds `ci/android/Dockerfile` with the runner's Docker daemon and
+# pushes it to:
+#
+#   ghcr.io/qveys/opencodemobile/ci-android
+#
+# The job log and step summary print the resulting `name@sha256:<digest>`. That
+# digest is what Android-SDK jobs pin in their `container:` block (never the
+# moving tag). See docs/adr/0007-ephemeral-nonroot-hostinger-jobs.md and
+# docs/CI-RUNNER-STRATEGY.md §7.
+#
+# Trigger policy:
+#   - push to `main` when the image inputs change: publish a fresh digest.
+#   - pull_request: build only (no push). A fork PR can never publish, and a
+#     same-repo PR still proves the Dockerfile compiles.
+#   - workflow_dispatch: build + publish on demand (use this to rotate the
+#     digest deliberately).
+#
+# Runner policy: this build needs the Docker daemon, which only the
+# `hostinger` VPS pool provides. It runs as a normal host job (not in a
+# `container:`), so it does touch the host daemon — but it is an administrative
+# job, path-filtered and never a required security gate, and it does not check
+# out or run untrusted PR code on the host (the build context is `ci/android`).
+#
+# Actions allowlist: the org permits only `actions/checkout@*` (and, as of the
+# latest org policy read, `actions/upload-artifact@*`) — every step here is
+# `actions/checkout` plus plain shell, so nothing is added to the allowlist.
+on:
+  push:
+    branches: [main, ci/OPE-255-ghcr-ci-image]
+    paths:
+      - "ci/**"
+      - ".github/workflows/ci-image.yml"
+  pull_request:
+    paths:
+      - "ci/**"
+      - ".github/workflows/ci-image.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-image-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # Needed to push to GHCR with the workflow's automatic token. Scoped to this
+  # workflow only; the job's `container:` consumers only need `packages: read`.
+  packages: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-and-push:
+    name: Build JDK 21 + Android SDK 35 image
+    runs-on: [self-hosted, hostinger]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # `ci/android` is the whole build context: the Dockerfile copies nothing
+      # from the repo, so the context stays tiny and no untrusted source is fed
+      # to the build.
+      - name: Build image
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/ci-android
+        run: |
+          set -euo pipefail
+          image="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
+          docker build \
+            --pull \
+            --file ci/android/Dockerfile \
+            --tag "$image:jdk21-android35" \
+            ci/android
+
+      # Publishing is skipped on pull_request so a fork PR can never push.
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "$GHCR_TOKEN" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Push image and record digest
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/ci-android
+        run: |
+          set -euo pipefail
+          image="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
+          docker push "$image:jdk21-android35"
+          digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$image:jdk21-android35")"
+          echo "Pinned image reference: $digest"
+          {
+            echo "### CI image published"
+            echo
+            echo '```'
+            echo "$digest"
+            echo '```'
+            echo
+            echo "Pin this reference (by digest) in the consuming workflows."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # On PRs the image is built but not published; still print the local id so
+      # the PR check is self-explaining.
+      - name: Report local image (pull_request)
+        if: github.event_name == 'pull_request'
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/ci-android
+        run: |
+          set -euo pipefail
+          image="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
+          docker image inspect --format 'built {{.Id}} ({{.Size}} bytes); not published on pull_request' "$image:jdk21-android35"
