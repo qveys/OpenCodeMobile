@@ -38,8 +38,12 @@ tasks.withType<Test>().configureEach {
                 include(
                     "shared/*/src/commonMain/kotlin/**/*.kt",
                     "features/*/src/commonMain/kotlin/**/*.kt",
+                    "features/*/src/androidMain/kotlin/**/*.kt",
+                    "features/*/src/iosMain/kotlin/**/*.kt",
+                    "features/*/src/androidMain/AndroidManifest.xml",
                     "design-system/src/commonMain/kotlin/**/*.kt",
                     "androidApp/src/main/kotlin/**/*.kt",
+                    "iosApp/iosApp/Info.plist",
                 )
             },
         ).withPropertyName("analyzedKotlinSources")
