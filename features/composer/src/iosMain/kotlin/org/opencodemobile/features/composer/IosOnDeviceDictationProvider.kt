@@ -16,7 +16,6 @@ import platform.Foundation.NSLocale
 import platform.Speech.SFSpeechAudioBufferRecognitionRequest
 import platform.Speech.SFSpeechRecognizer
 import platform.Speech.SFSpeechRecognizerAuthorizationStatus
-import platform.Speech.SFSpeechRecognizerAuthorizationStatusAuthorized
 
 /**
  * iOS on-device [DictationProvider] (T5,
@@ -113,7 +112,7 @@ public class IosOnDeviceDictationProvider : DictationProvider {
         val speech = suspendCancellableCoroutine { continuation ->
             SFSpeechRecognizer.requestAuthorization { status ->
                 continuation.resume(
-                    status == SFSpeechRecognizerAuthorizationStatusAuthorized,
+                    status == SFSpeechRecognizerAuthorizationStatus.SFSpeechRecognizerAuthorizationStatusAuthorized,
                 )
             }
         }
