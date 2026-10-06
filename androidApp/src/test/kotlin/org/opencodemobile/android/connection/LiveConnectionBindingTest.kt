@@ -87,6 +87,7 @@ private class ScriptedBiometricAuthenticator(
  * Runs on [Dispatchers.Default] so the mock's real inter-event delays are
  * honoured, like the realtime integration tests.
  */
+@Suppress("InjectDispatcher") // Real-time mock test: real dispatcher on purpose; DI is not wired in tests.
 class LiveConnectionBindingTest {
 
     private val profile = ServerProfile(
