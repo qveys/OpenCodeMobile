@@ -1,1 +1,8 @@
-<manifest />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      Dictation records the microphone (T5). Declared here because the
+      AndroidOnDeviceDictationProvider behind the DictationProvider port uses it.
+      The runtime permission is requested at first use, never at app startup.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+</manifest>

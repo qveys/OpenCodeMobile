@@ -90,6 +90,30 @@ public class CacheDatabase(
         openLock.withLock { closeLocked() }
     }
 
+    /**
+     * Closes the driver and deletes every cache file: the database and its
+     * `-wal`, `-shm`, and `-journal` companions.
+     *
+     * This is the at-rest half of "Tout effacer" (ADR 0009 §2.1.3). Unlike
+     * [wipeAndRebuild], it does not reopen the database: after an erase the app
+     * returns to the unauthenticated connection screen and the cache is rebuilt
+     * only from the next server snapshot. The cache's key material is removed by
+     * the caller ([org.opencodemobile.shared.domain.cache.LocalCacheEraser]).
+     *
+     * @return true when no cache file remains on disk. A false result is a
+     *   residue the caller must surface, not ignore.
+     */
+    public suspend fun eraseLocalFiles(): Boolean = openLock.withLock {
+        closeLocked()
+        try {
+            provider.deleteLocalCache()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            throw CacheUnavailableException("Could not delete the local cache", failure)
+        }
+    }
+
     private suspend fun openSqlCache(): SqlSessionCache = openLock.withLock {
         cache ?: openLocked()
     }

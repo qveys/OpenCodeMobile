@@ -33,6 +33,13 @@ kotlin {
 
         }
 
+        androidMain.dependencies {
+            // ComponentActivity + ActivityResultContracts: the microphone runtime
+            // permission is requested at first use through the activity's
+            // ActivityResultRegistry (mirrors features/connection's QR scanner).
+            implementation(libs.androidx.activity.compose)
+        }
+
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }

@@ -38,6 +38,8 @@ dependencies {
     implementation(project(":features:composer"))
     implementation(project(":features:files"))
     implementation(project(":features:permissions"))
+    implementation(project(":features:questions"))
+    implementation(project(":features:catalog"))
     implementation(project(":features:settings"))
 
     implementation(project(":shared:domain"))
@@ -65,4 +67,10 @@ dependencies {
     // variant that provides `kotlin.test.Test` and the assertions.
     testImplementation(kotlin("test"))
     testImplementation(libs.koin.core)
+    // S10a composition-root test drives the real adapter against
+    // MockOpenCodeServer, so the app module's test classpath needs the shared
+    // test-support module plus the Ktor / coroutines-test types it uses.
+    testImplementation(project(":shared:test-support"))
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.ktor.client.core)
 }
