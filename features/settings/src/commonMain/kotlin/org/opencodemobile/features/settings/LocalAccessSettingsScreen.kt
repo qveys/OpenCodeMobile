@@ -32,6 +32,13 @@ import org.opencodemobile.design.system.resources.settings_screen_capture_blocki
 import org.opencodemobile.design.system.resources.settings_screen_capture_blocking_unavailable
 import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
 
+/** User intents of the local-access settings screen, grouped to keep the call site readable. */
+public data class LocalAccessSettingsActions(
+    public val onOptionalBiometricsChange: (Boolean) -> Unit,
+    public val onMultitaskMaskingChange: (Boolean) -> Unit,
+    public val onScreenCaptureBlockingChange: (Boolean) -> Unit,
+)
+
 /**
  * The §7.3 local-access settings surface (bilingual FR/EN through the
  * design-system string catalogue).
@@ -49,9 +56,7 @@ import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
 public fun LocalAccessSettingsScreen(
     state: LocalAccessSettings,
     screenCaptureBlockingSupported: Boolean,
-    onOptionalBiometricsChange: (Boolean) -> Unit,
-    onMultitaskMaskingChange: (Boolean) -> Unit,
-    onScreenCaptureBlockingChange: (Boolean) -> Unit,
+    actions: LocalAccessSettingsActions,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -67,53 +72,86 @@ public fun LocalAccessSettingsScreen(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                TextButton(onClick = onBack) {
-                    Text(stringResource(Res.string.settings_back))
-                }
-                Text(
-                    text = stringResource(Res.string.settings_local_access_title),
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-            }
-            LocalAccessToggle(
-                title = stringResource(Res.string.settings_optional_biometrics),
-                description = stringResource(Res.string.settings_optional_biometrics_description),
-                checked = state.optionalBiometricsEnabled,
-                onCheckedChange = onOptionalBiometricsChange,
+            LocalAccessSettingsHeader(onBack)
+            OptionalBiometricsSection(state.optionalBiometricsEnabled, actions.onOptionalBiometricsChange)
+            MultitaskMaskingSection(state.multitaskMaskingEnabled, actions.onMultitaskMaskingChange)
+            ScreenCaptureBlockingSection(
+                enabled = state.screenCaptureBlockingEnabled,
+                supported = screenCaptureBlockingSupported,
+                onCheckedChange = actions.onScreenCaptureBlockingChange,
             )
-            Text(
-                text = stringResource(Res.string.settings_optional_biometrics_note),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            LocalAccessToggle(
-                title = stringResource(Res.string.settings_multitask_masking),
-                description = stringResource(Res.string.settings_multitask_masking_description),
-                checked = state.multitaskMaskingEnabled,
-                onCheckedChange = onMultitaskMaskingChange,
-            )
-            if (screenCaptureBlockingSupported) {
-                LocalAccessToggle(
-                    title = stringResource(Res.string.settings_screen_capture_blocking),
-                    description = stringResource(Res.string.settings_screen_capture_blocking_description),
-                    checked = state.screenCaptureBlockingEnabled,
-                    onCheckedChange = onScreenCaptureBlockingChange,
-                )
-                Text(
-                    text = stringResource(Res.string.settings_screen_capture_blocking_note),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            } else {
-                Text(
-                    text = stringResource(Res.string.settings_screen_capture_blocking_unavailable),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
         }
+    }
+}
+
+@Composable
+private fun LocalAccessSettingsHeader(onBack: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        TextButton(onClick = onBack) {
+            Text(stringResource(Res.string.settings_back))
+        }
+        Text(
+            text = stringResource(Res.string.settings_local_access_title),
+            style = MaterialTheme.typography.headlineSmall,
+        )
+    }
+}
+
+@Composable
+private fun OptionalBiometricsSection(enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    LocalAccessToggle(
+        title = stringResource(Res.string.settings_optional_biometrics),
+        description = stringResource(Res.string.settings_optional_biometrics_description),
+        checked = enabled,
+        onCheckedChange = onCheckedChange,
+    )
+    Text(
+        text = stringResource(Res.string.settings_optional_biometrics_note),
+        style = MaterialTheme.typography.bodySmall,
+    )
+}
+
+@Composable
+private fun MultitaskMaskingSection(enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    LocalAccessToggle(
+        title = stringResource(Res.string.settings_multitask_masking),
+        description = stringResource(Res.string.settings_multitask_masking_description),
+        checked = enabled,
+        onCheckedChange = onCheckedChange,
+    )
+}
+
+/**
+ * Renders the capture-blocking control only when the platform supports it. The
+ * explicit note on unsupported platforms replaces a switch that would have no
+ * effect (review finding F1).
+ */
+@Composable
+private fun ScreenCaptureBlockingSection(
+    enabled: Boolean,
+    supported: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    if (supported) {
+        LocalAccessToggle(
+            title = stringResource(Res.string.settings_screen_capture_blocking),
+            description = stringResource(Res.string.settings_screen_capture_blocking_description),
+            checked = enabled,
+            onCheckedChange = onCheckedChange,
+        )
+        Text(
+            text = stringResource(Res.string.settings_screen_capture_blocking_note),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    } else {
+        Text(
+            text = stringResource(Res.string.settings_screen_capture_blocking_unavailable),
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 

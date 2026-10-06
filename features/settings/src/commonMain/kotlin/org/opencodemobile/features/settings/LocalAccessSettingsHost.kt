@@ -37,9 +37,11 @@ public fun LocalAccessSettingsRoute(
     LocalAccessSettingsScreen(
         state = state,
         screenCaptureBlockingSupported = platformSupportsScreenCaptureBlocking(),
-        onOptionalBiometricsChange = controller::setOptionalBiometricsEnabled,
-        onMultitaskMaskingChange = controller::setMultitaskMaskingEnabled,
-        onScreenCaptureBlockingChange = controller::setScreenCaptureBlockingEnabled,
+        actions = LocalAccessSettingsActions(
+            onOptionalBiometricsChange = controller::setOptionalBiometricsEnabled,
+            onMultitaskMaskingChange = controller::setMultitaskMaskingEnabled,
+            onScreenCaptureBlockingChange = controller::setScreenCaptureBlockingEnabled,
+        ),
         onBack = onBack,
         modifier = modifier,
     )

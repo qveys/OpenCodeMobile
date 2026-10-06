@@ -80,6 +80,27 @@ targets:
         script: |
           set -euo pipefail
           bash "$SRCROOT/../scripts/ios/build-frameworks.sh"
+    postBuildScripts:
+      # OPE-274: the app links a single *static* framework, so Xcode does not
+      # embed the framework's Compose resources. Compose Multiplatform reads
+      # them from the main bundle at `compose-resources/`; without this copy the
+      # first `stringResource(...)` on iOS aborts at runtime.
+      - name: "Copy Compose resources"
+        shell: /bin/bash
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          SRC="$SRCROOT/build/frameworks/iosAppHost.framework/compose-resources"
+          if [ ! -d "$SRC" ]; then
+            echo "::warning::compose-resources not found at $SRC; Compose string resources may fail at runtime"
+            exit 0
+          fi
+          DEST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/compose-resources"
+          rm -rf "$DEST"
+          mkdir -p "$(dirname "$DEST")"
+          cp -R "$SRC" "$DEST"
+          echo "Staged Compose resources at $DEST"
+          ls "$DEST"
 
   iosAppUITests:
     type: bundle.ui-testing
