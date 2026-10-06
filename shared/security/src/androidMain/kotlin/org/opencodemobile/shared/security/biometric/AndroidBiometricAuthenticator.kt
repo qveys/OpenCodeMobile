@@ -45,7 +45,8 @@ public class AndroidBiometricAuthenticator(
         val allowedAuthenticators = BiometricManager.Authenticators.BIOMETRIC_WEAK or
             BiometricManager.Authenticators.DEVICE_CREDENTIAL
 
-        val manager = BiometricManager.from(appContext)
+        val manager = appContext.getSystemService(BiometricManager::class.java)
+            ?: return BiometricResult.Unavailable
         if (manager.canAuthenticate(allowedAuthenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
             return BiometricResult.Unavailable
         }
