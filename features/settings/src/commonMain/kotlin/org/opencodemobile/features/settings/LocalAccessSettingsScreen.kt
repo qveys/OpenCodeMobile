@@ -17,24 +17,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import org.jetbrains.compose.resources.stringResource
-import org.opencodemobile.design.system.resources.Res
-import org.opencodemobile.design.system.resources.settings_back
-import org.opencodemobile.design.system.resources.settings_local_access_title
-import org.opencodemobile.design.system.resources.settings_multitask_masking
-import org.opencodemobile.design.system.resources.settings_multitask_masking_description
-import org.opencodemobile.design.system.resources.settings_optional_biometrics
-import org.opencodemobile.design.system.resources.settings_optional_biometrics_description
-import org.opencodemobile.design.system.resources.settings_optional_biometrics_note
-import org.opencodemobile.design.system.resources.settings_screen_capture_blocking
-import org.opencodemobile.design.system.resources.settings_screen_capture_blocking_description
-import org.opencodemobile.design.system.resources.settings_screen_capture_blocking_note
-import org.opencodemobile.design.system.resources.settings_screen_capture_blocking_unavailable
 import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
 
 /**
- * The §7.3 local-access settings surface (bilingual FR/EN through the
- * design-system string catalogue).
+ * The §7.3 local-access settings surface, bilingual FR/EN through
+ * [LocalAccessStrings].
  *
  * It renders the device preferences and forwards every change to the presenter;
  * it holds no state itself and never reads a platform API. The Android and iOS
@@ -50,6 +37,7 @@ public fun LocalAccessSettingsScreen(
     state: LocalAccessSettings,
     screenCaptureBlockingSupported: Boolean,
     actions: LocalAccessSettingsActions,
+    strings: LocalAccessStrings,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -65,12 +53,13 @@ public fun LocalAccessSettingsScreen(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            LocalAccessSettingsHeader(onBack)
-            OptionalBiometricsSection(state.optionalBiometricsEnabled, actions.onOptionalBiometricsChange)
-            MultitaskMaskingSection(state.multitaskMaskingEnabled, actions.onMultitaskMaskingChange)
+            LocalAccessSettingsHeader(strings, onBack)
+            OptionalBiometricsSection(state.optionalBiometricsEnabled, strings, actions)
+            MultitaskMaskingSection(state.multitaskMaskingEnabled, strings, actions)
             ScreenCaptureBlockingSection(
                 enabled = state.screenCaptureBlockingEnabled,
                 supported = screenCaptureBlockingSupported,
+                strings = strings,
                 onCheckedChange = actions.onScreenCaptureBlockingChange,
             )
         }
@@ -78,43 +67,51 @@ public fun LocalAccessSettingsScreen(
 }
 
 @Composable
-private fun LocalAccessSettingsHeader(onBack: () -> Unit) {
+private fun LocalAccessSettingsHeader(strings: LocalAccessStrings, onBack: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         TextButton(onClick = onBack) {
-            Text(stringResource(Res.string.settings_back))
+            Text(strings.back)
         }
         Text(
-            text = stringResource(Res.string.settings_local_access_title),
+            text = strings.title,
             style = MaterialTheme.typography.headlineSmall,
         )
     }
 }
 
 @Composable
-private fun OptionalBiometricsSection(enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun OptionalBiometricsSection(
+    enabled: Boolean,
+    strings: LocalAccessStrings,
+    actions: LocalAccessSettingsActions,
+) {
     LocalAccessToggle(
-        title = stringResource(Res.string.settings_optional_biometrics),
-        description = stringResource(Res.string.settings_optional_biometrics_description),
+        title = strings.optionalBiometrics,
+        description = strings.optionalBiometricsDescription,
         checked = enabled,
-        onCheckedChange = onCheckedChange,
+        onCheckedChange = actions.onOptionalBiometricsChange,
     )
     Text(
-        text = stringResource(Res.string.settings_optional_biometrics_note),
+        text = strings.optionalBiometricsNote,
         style = MaterialTheme.typography.bodySmall,
     )
 }
 
 @Composable
-private fun MultitaskMaskingSection(enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun MultitaskMaskingSection(
+    enabled: Boolean,
+    strings: LocalAccessStrings,
+    actions: LocalAccessSettingsActions,
+) {
     LocalAccessToggle(
-        title = stringResource(Res.string.settings_multitask_masking),
-        description = stringResource(Res.string.settings_multitask_masking_description),
+        title = strings.multitaskMasking,
+        description = strings.multitaskMaskingDescription,
         checked = enabled,
-        onCheckedChange = onCheckedChange,
+        onCheckedChange = actions.onMultitaskMaskingChange,
     )
 }
 
@@ -127,22 +124,23 @@ private fun MultitaskMaskingSection(enabled: Boolean, onCheckedChange: (Boolean)
 private fun ScreenCaptureBlockingSection(
     enabled: Boolean,
     supported: Boolean,
+    strings: LocalAccessStrings,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     if (supported) {
         LocalAccessToggle(
-            title = stringResource(Res.string.settings_screen_capture_blocking),
-            description = stringResource(Res.string.settings_screen_capture_blocking_description),
+            title = strings.screenCaptureBlocking,
+            description = strings.screenCaptureBlockingDescription,
             checked = enabled,
             onCheckedChange = onCheckedChange,
         )
         Text(
-            text = stringResource(Res.string.settings_screen_capture_blocking_note),
+            text = strings.screenCaptureBlockingNote,
             style = MaterialTheme.typography.bodySmall,
         )
     } else {
         Text(
-            text = stringResource(Res.string.settings_screen_capture_blocking_unavailable),
+            text = strings.screenCaptureBlockingUnavailable,
             style = MaterialTheme.typography.bodySmall,
         )
     }

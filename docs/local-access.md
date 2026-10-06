@@ -83,6 +83,15 @@ use it:
 The operating-system capability decides whether the capture-blocking control is
 rendered, so the same shared screen shows the real controls on each platform.
 
+The settings copy is provided by `LocalAccessStrings`
+(`features/settings/.../LocalAccessStrings.kt`), which selects FR or EN from the
+device locale. The shared settings surface cannot use the design-system
+`composeResources` catalogue yet: the iOS app links a single **static**
+`iosAppHost` framework, and Xcode does not embed that framework's Compose
+resources, so the first `stringResource(...)` on iOS aborts at startup (this
+surface is the first shared Compose UI hosted on iOS). Moving the copy back to
+the catalogue is a follow-up once iOS Compose-resource embedding is wired.
+
 ## Real-device recipe lines (L4)
 
 Android:

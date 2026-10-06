@@ -14,10 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import org.opencodemobile.design.system.resources.Res
-import org.opencodemobile.design.system.resources.settings_open
 
 /**
  * §7.3 local-access route: resolves the settings presenter from Koin, observes
@@ -30,6 +27,7 @@ import org.opencodemobile.design.system.resources.settings_open
 public fun LocalAccessSettingsRoute(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    strings: LocalAccessStrings = LocalAccessStrings(),
 ) {
     val controller: LocalAccessSettingsController = koinInject()
     val state by controller.state.collectAsState()
@@ -42,6 +40,7 @@ public fun LocalAccessSettingsRoute(
             onMultitaskMaskingChange = controller::setMultitaskMaskingEnabled,
             onScreenCaptureBlockingChange = controller::setScreenCaptureBlockingEnabled,
         ),
+        strings = strings,
         onBack = onBack,
         modifier = modifier,
     )
@@ -62,13 +61,14 @@ public fun LocalAccessSettingsRoute(
 @Composable
 public fun LocalAccessSettingsHost(
     modifier: Modifier = Modifier,
+    strings: LocalAccessStrings = LocalAccessStrings(),
     connectionContent: @Composable () -> Unit,
 ) {
     var showSettings by remember { mutableStateOf(false) }
 
     Box(modifier = modifier.fillMaxSize()) {
         if (showSettings) {
-            LocalAccessSettingsRoute(onBack = { showSettings = false })
+            LocalAccessSettingsRoute(onBack = { showSettings = false }, strings = strings)
         } else {
             connectionContent()
             TextButton(
@@ -77,7 +77,7 @@ public fun LocalAccessSettingsHost(
                     .align(Alignment.TopEnd)
                     .padding(16.dp),
             ) {
-                Text(stringResource(Res.string.settings_open))
+                Text(strings.open)
             }
         }
     }
