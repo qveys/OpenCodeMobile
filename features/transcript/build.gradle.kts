@@ -30,7 +30,11 @@ kotlin {
             implementation(compose.ui)
             implementation(libs.koin.compose)
             implementation(libs.kotlinx.coroutines.core)
-
+            // V1-05 / ADR 0006: Markdown rendering + Highlights syntax highlighting.
+            // Declared in :features:transcript only, never in :design-system (§5.2 rule 9).
+            implementation(libs.markdown.renderer)
+            implementation(libs.markdown.renderer.m3)
+            implementation(libs.markdown.renderer.code)
         }
 
         commonTest.dependencies {
