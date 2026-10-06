@@ -49,11 +49,14 @@ cleanup() {
 trap cleanup EXIT
 sleep 2
 
-echo "== Running iosSimulatorArm64 T1 handshake tests =="
+echo "== Running iosSimulatorArm64 T1 handshake tests and T3 cache at-rest tests =="
 export JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-${JAVA_HOME:-}}}"
 chmod +x gradlew
-./gradlew :shared:security:iosSimulatorArm64Test --no-daemon --stacktrace
+./gradlew :shared:security:iosSimulatorArm64Test :shared:persistence:iosSimulatorArm64Test --no-daemon --stacktrace
 GRADLE_STATUS=$?
+
+echo "== iOS test result XML =="
+find shared/security/build/test-results shared/persistence/build/test-results -name '*.xml' -print -exec cat {} \; 2>/dev/null || true
 
 echo "== Pinned server (cert A) requests =="
 cat "$LOG_A" 2>/dev/null || true
