@@ -1,0 +1,26 @@
+<resources>
+    <string name="session_title">Sessions</string>
+    <string name="session_models_agents">Models &amp; agents</string>
+    <string name="session_new">New session</string>
+    <string name="session_offline_banner">Offline — showing cached sessions. Mutations are disabled.</string>
+    <string name="session_count_live">%1$d session(s) · live</string>
+    <string name="session_retry">Retry</string>
+    <string name="session_loading">Loading sessions…</string>
+    <string name="session_list_failed">Sessions could not be listed.</string>
+    <string name="session_empty">No sessions yet.</string>
+    <string name="session_empty_offline_hint">There is nothing cached for this project yet.</string>
+    <string name="session_empty_hint">Create a session to start an agent turn.</string>
+    <string name="session_action_open">Open</string>
+    <string name="session_action_rename">Rename</string>
+    <string name="session_action_fork">Fork</string>
+    <string name="session_action_delete">Delete</string>
+    <string name="session_rename_title">Rename session</string>
+    <string name="session_title_label">Title</string>
+    <string name="session_title_invalid">A title must be 1..%1$d characters.</string>
+    <string name="session_delete_title">Delete session</string>
+    <string name="session_delete_body">This deletes the session and its transcript on the server. It cannot be undone.</string>
+    <string name="session_cancel">Cancel</string>
+    <string name="session_error_unreachable">Cannot reach the OpenCode server. Check the connection, then retry.</string>
+    <string name="session_error_offline">Offline — cached sessions are read-only.</string>
+    <string name="session_error_not_found">Session %1$s no longer exists on the server.</string>
+</resources>

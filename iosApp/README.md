@@ -36,7 +36,7 @@ counterpart of `androidApp`:
 
 This module exists because the composition root cannot be a `features/*` module: §5.2 forbids a
 feature from reaching `shared/networking`/`shared/security`. The deviation from the §5.1
-module list is recorded in `docs/adr/0006-ios-composition-root-module.md`.
+module list is recorded in `docs/adr/0008-ios-composition-root-module.md`.
 
 ## The Xcode project (`project.yml`, generated `iosApp.xcodeproj`)
 
@@ -84,3 +84,14 @@ Keychain, notification, and `SFSpeechRecognizer` `actual` implementations live i
 (`shared/security` for Keychain/notifications, `features/composer` for dictation) — not in this
 directory. `iosApp` only hosts the SwiftUI shell; the Kotlin composition root in `:iosAppHost`
 starts Koin and presents the Compose UI.
+
+## Cache stack composition (OPE-172)
+
+The iOS cache stack is assembled in Kotlin, not in this Swift directory: `shared/data` exposes
+`createIosCacheStack()` (in `shared/data/src/iosMain`), which builds the
+`DataProtectionCacheDriverProvider` and wires it into a `CacheStack`. The write path is started
+with `stack.writer()` (the D8-gated writer), so the cache is written only from the realtime
+pipeline and the D8 gate stays structural. `iosApp/iosApp/CacheComposition.swift` holds that
+composition, but it is kept out of the `:iosAppHost`-only Xcode target until the connection
+composition root (OPE-176) binds the realtime source; T3 on iOS remains the accepted residual
+risk recorded in ADR 0005 OP2.
