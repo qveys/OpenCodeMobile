@@ -45,7 +45,8 @@ internal class PrivacyShield(
         if (settings.load().multitaskMaskingEnabled) addCover()
     }
 
-    private fun applyCapturePolicy() {
+    /** Applies the capture policy now; also called when the setting changes. */
+    fun applyCapturePolicy() {
         if (settings.load().screenCaptureBlockingEnabled) {
             activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else {
