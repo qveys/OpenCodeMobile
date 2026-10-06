@@ -36,7 +36,6 @@ import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 import org.koin.mp.KoinPlatform
 import org.opencodemobile.android.privacy.PrivacyShield
-import org.opencodemobile.shared.domain.localaccess.LocalAccessSettingsStore
 import org.opencodemobile.android.connection.ConnectionBinder
 import org.opencodemobile.android.permission.PermissionHostActivity
 import org.opencodemobile.design.system.LocalOpenCodeColors
@@ -63,6 +62,8 @@ import org.opencodemobile.features.sessions.SessionsPresenter
 import org.opencodemobile.features.sessions.SessionsScreen
 import org.opencodemobile.features.transcript.TranscriptPresenter
 import org.opencodemobile.features.transcript.TranscriptScreen
+import org.opencodemobile.features.settings.LocalAccessSettingsHost
+import org.opencodemobile.shared.domain.localaccess.LocalAccessSettingsStore
 import org.opencodemobile.shared.domain.session.SessionSummary
 
 /**
@@ -91,6 +92,7 @@ import org.opencodemobile.shared.domain.session.SessionSummary
  * - resolve `opencodemobile://permission/confirmation/{id}` to the confirmation
  *   screen only — a deep link never carries or applies a decision.
  */
+@Suppress("TooManyFunctions")
 class MainActivity : FragmentActivity() {
 
     private val notificationPermission =
@@ -128,19 +130,23 @@ class MainActivity : FragmentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    PermissionHost(
-                        presenter = presenterOrNull(),
-                        sessionsPresenter = sessionsPresenter,
-                        transcriptPresenter = transcriptPresenter,
-                        composerPresenter = composerPresenter,
-                        questionsPresenter = questionsPresenter,
-                        catalogPresenter = catalogPresenter,
-                        connectionController = connectionController,
-                        connectionBinder = connectionBinder,
-                        scanner = qrCodeScanner,
-                        requestedConfirmationId = requestedConfirmation,
-                        onConfirmationRequestHandled = { requestedConfirmation = null },
-                    )
+                    // §7.3: the settings entry point is shared Compose code; the
+                    // shell only supplies the connection/permission content.
+                    LocalAccessSettingsHost(onScreenCaptureBlockingChanged = privacyShield::applyCapturePolicy) {
+                        PermissionHost(
+                            presenter = presenterOrNull(),
+                            sessionsPresenter = sessionsPresenter,
+                            transcriptPresenter = transcriptPresenter,
+                            composerPresenter = composerPresenter,
+                            questionsPresenter = questionsPresenter,
+                            catalogPresenter = catalogPresenter,
+                            connectionController = connectionController,
+                            connectionBinder = connectionBinder,
+                            scanner = qrCodeScanner,
+                            requestedConfirmationId = requestedConfirmation,
+                            onConfirmationRequestHandled = { requestedConfirmation = null },
+                        )
+                    }
                 }
             }
         }
@@ -260,6 +266,7 @@ class MainActivity : FragmentActivity() {
         runCatching { GlobalContext.getOrNull()?.get<ConnectionBinder>() }.getOrNull()
 }
 
+@Suppress("LongParameterList")
 @Composable
 private fun PermissionHost(
     presenter: PermissionsPresenter?,
@@ -346,6 +353,7 @@ private fun PermissionHost(
  * by a connection composition root, OPE-176), the sessions list becomes the home
  * surface and a session can be opened.
  */
+@Suppress("LongParameterList")
 @Composable
 private fun AppContent(
     sessionsPresenter: SessionsPresenter?,
@@ -457,6 +465,7 @@ private fun QuestionBanner(
  * D8 offline, D9 single send, §8.1 draft) lives in the application controllers.
  * `docs/DESIGN-SYSTEM.md`: session context, monospace transcript, no bubbles.
  */
+@Suppress("LongMethod")
 @Composable
 private fun SessionContent(
     session: SessionSummary,

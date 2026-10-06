@@ -80,6 +80,28 @@ targets:
         script: |
           set -euo pipefail
           bash "$SRCROOT/../scripts/ios/build-frameworks.sh"
+    postBuildScripts:
+      # OPE-288: a *static* Kotlin/Native framework carries no bundle, so Xcode
+      # never embeds its `compose-resources`. Compose Multiplatform reads them
+      # from the main bundle at `compose-resources/`; without this step the first
+      # `stringResource(...)` on iOS aborts at runtime. The Compose Gradle
+      # plugin's `syncComposeResourcesForIos` task stages the transitively
+      # resolved resources into `$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH`,
+      # after the app bundle exists and before code signing, so the files are
+      # included in the signature. Inlined here (rather than a repo script) so
+      # the GitHub-API signed-commit path does not have to carry an executable
+      # bit; see scripts/check-executable-bits.sh.
+      - name: "Sync Compose resources"
+        shell: /bin/bash
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          ROOT="$SRCROOT/.."
+          if [ -z "${JAVA_HOME:-}" ] && [ -f "$ROOT/scripts/ci/runner-toolchain-env.sh" ]; then
+            . "$ROOT/scripts/ci/runner-toolchain-env.sh"
+          fi
+          cd "$ROOT"
+          bash ./gradlew :iosAppHost:syncComposeResourcesForIos --no-daemon --stacktrace
 
   iosAppUITests:
     type: bundle.ui-testing

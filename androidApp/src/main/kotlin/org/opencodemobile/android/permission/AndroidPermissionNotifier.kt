@@ -76,7 +76,7 @@ public class AndroidPermissionNotifier(
                 when (action) {
                     PermissionNotificationAction.OpenConfirmation -> Unit // handled by the tap
                     PermissionNotificationAction.Deny ->
-                        builder.addAction(0, denyLabel(), deny(plan.requestId))
+                        builder.addAction(0, DENY_LABEL, deny(plan.requestId))
                 }
             }
             runCatching { manager.notify(notificationId(plan.requestId), builder.build()) }
@@ -134,8 +134,6 @@ public class AndroidPermissionNotifier(
         )
     }
 
-    private fun denyLabel(): CharSequence = "Deny"
-
     private fun notificationId(requestId: String): Int =
         notificationIds.getOrPut(requestId) { nextNotificationId++ }
 
@@ -149,6 +147,7 @@ public class AndroidPermissionNotifier(
         notificationId(requestId) * REQUEST_CODE_STRIDE + offset
 
     private companion object {
+        private const val DENY_LABEL: String = "Deny"
         private const val CHANNEL_ID: String = "permission_requests"
         private const val FIRST_NOTIFICATION_ID: Int = 1
         private const val REQUEST_CODE_STRIDE: Int = 4

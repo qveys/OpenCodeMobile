@@ -1,4 +1,6 @@
 <resources>
+    <string name="settings_open">Réglages</string>
+    <string name="settings_back">Retour</string>
     <string name="settings_local_access_title">Accès local</string>
     <string name="settings_optional_biometrics">Biométrie optionnelle</string>
     <string name="settings_optional_biometrics_description">Demander Face ID, Touch ID ou BiometricPrompt à l’ouverture d’un écran protégé. Facultatif.</string>
@@ -8,6 +10,7 @@
     <string name="settings_screen_capture_blocking">Bloquer les captures d’écran et l’enregistrement</string>
     <string name="settings_screen_capture_blocking_description">Demander au système de bloquer les captures. Désactivé par défaut ; indépendant du masquage du sélecteur d’apps.</string>
     <string name="settings_screen_capture_blocking_note">Sur Android, cela bloque aussi les captures d’écran et l’enregistrement (FLAG_SECURE). Le masquage du sélecteur d’apps reste disponible dans tous les cas.</string>
+    <string name="settings_screen_capture_blocking_unavailable">Le blocage des captures n’est pas disponible sur cette plateforme. Le masquage du sélecteur d’apps continue de recouvrir le contenu.</string>
     <string name="settings_erase_everything_title">Tout effacer</string>
     <string name="settings_erase_everything_description">Supprime les données locales que cette app stocke sur cet appareil. Le serveur n’est jamais modifié.</string>
     <string name="settings_erase_everything_action">Tout effacer…</string>

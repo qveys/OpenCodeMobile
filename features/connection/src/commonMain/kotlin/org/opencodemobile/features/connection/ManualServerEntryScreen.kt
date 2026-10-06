@@ -18,6 +18,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import org.jetbrains.compose.resources.stringResource
+import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.connection_manual_address_label
+import org.opencodemobile.design.system.resources.connection_manual_address_placeholder
+import org.opencodemobile.design.system.resources.connection_manual_connect
+import org.opencodemobile.design.system.resources.connection_manual_label
+import org.opencodemobile.design.system.resources.connection_manual_scan_failed
+import org.opencodemobile.design.system.resources.connection_manual_scan_qr
+import org.opencodemobile.design.system.resources.connection_manual_title
 
 /**
  * Manual server address entry (`docs/ARCHITECTURE.md` §"Server profile import"
@@ -42,14 +51,14 @@ public fun ManualServerEntryScreen(
         modifier = modifier.fillMaxWidth().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(text = "Connect to a server", style = MaterialTheme.typography.headlineSmall)
+        Text(text = stringResource(Res.string.connection_manual_title), style = MaterialTheme.typography.headlineSmall)
 
         OutlinedTextField(
             value = state.address,
             onValueChange = onAddressChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Server address") },
-            placeholder = { Text("192.168.1.10:4096 or https://host") },
+            label = { Text(stringResource(Res.string.connection_manual_address_label)) },
+            placeholder = { Text(stringResource(Res.string.connection_manual_address_placeholder)) },
             singleLine = true,
             isError = state.manualError != null,
             enabled = !state.busy,
@@ -60,7 +69,7 @@ public fun ManualServerEntryScreen(
             value = state.label,
             onValueChange = onLabelChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Label (optional)") },
+            label = { Text(stringResource(Res.string.connection_manual_label)) },
             singleLine = true,
             enabled = !state.busy,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -71,7 +80,7 @@ public fun ManualServerEntryScreen(
         }
         if (state.scanFailed) {
             Text(
-                text = "That QR code is not an OpenCode Mobile import link.",
+                text = stringResource(Res.string.connection_manual_scan_failed),
                 color = MaterialTheme.colorScheme.error,
             )
         }
@@ -84,7 +93,7 @@ public fun ManualServerEntryScreen(
             modifier = Modifier.fillMaxWidth(),
             enabled = !state.busy,
         ) {
-            Text("Connect")
+            Text(stringResource(Res.string.connection_manual_connect))
         }
 
         if (onScanRequest != null) {
@@ -93,7 +102,7 @@ public fun ManualServerEntryScreen(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !state.busy,
             ) {
-                Text("Scan QR code")
+                Text(stringResource(Res.string.connection_manual_scan_qr))
             }
         }
 

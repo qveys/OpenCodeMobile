@@ -65,21 +65,69 @@ user explicitly opts in (criterion 4).
 | Platform | Masking | Capture blocking |
 | --- | --- | --- |
 | Android | Opaque cover `View` added to `android.R.id.content` in `Activity.onPause`, removed in `onResume` (`androidApp/.../privacy/PrivacyShield.kt`) | `WindowManager.LayoutParams.FLAG_SECURE`, only when the user enabled it |
-| iOS | SwiftUI overlay on `scenePhase` `.inactive` / `.background` (`iosApp/iosApp/ContentView.swift`), preference read through the `iosAppHost` bridge `multitaskMaskingEnabled()` | No user-facing switch in V1 (iOS cannot block captures independently of such an overlay) |
+| iOS | SwiftUI overlay on `scenePhase` `.inactive` / `.background` (`iosApp/iosApp/ContentView.swift`), preference read through the `iosAppHost` bridge `multitaskMaskingEnabled()` | Not offered. `platformSupportsScreenCaptureBlocking()` is `false` on iOS (`features/settings/.../ScreenCaptureBlocking.ios.kt`), so the settings screen hides the control and shows an explicit note instead of an inert switch |
+
+## Settings entry point
+
+`LocalAccessSettingsHost` (`features/settings/.../LocalAccessSettingsHost.kt`)
+is shared Compose code: it shows the connection flow (supplied by the shell as a
+`connectionContent` lambda) with a "Settings" action, and opens
+`LocalAccessSettingsRoute` — which resolves `LocalAccessSettingsController` from
+Koin and renders `LocalAccessSettingsScreen` — with a back action. Both shells
+use it:
+
+- Android: `androidApp/.../MainActivity.kt`.
+- iOS: `iosAppHost/.../IosConnectionCompositionRoot.kt`
+  (`connectionSetupViewController`).
+
+The operating-system capability decides whether the capture-blocking control is
+rendered, so the same shared screen shows the real controls on each platform.
+
+The settings copy is provided by `LocalAccessStrings`
+(`features/settings/.../LocalAccessStrings.kt`), which reads the design-system
+`composeResources` catalogue (`Res.string.*`) for the device locale, like every
+other screen.
+
+## Compose resources on iOS
+
+`features/settings` (and the shared connection screen) are the first shared
+Compose UI hosted on iOS. The iOS app links a single **static** `iosAppHost`
+framework, and a static framework carries no bundle, so Xcode does not embed its
+`compose-resources` while Compose Multiplatform reads them from the **main**
+bundle at `compose-resources/`. Without an explicit step, the first
+`stringResource(...)` on iOS aborts at startup.
+
+The iOS project now stages them with the Compose Gradle plugin's own task:
+`iosApp/project.yml` declares a "Sync Compose resources" **post-build** phase
+that runs `:iosAppHost:syncComposeResourcesForIos`. The phase writes the
+transitively resolved resources to
+`$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/compose-resources` before code
+signing, which is exactly the layout the runtime reads. FR/EN parity of the
+catalogues is guarded by
+`design-system/src/androidUnitTest/.../SettingsStringsCatalogParityTest.kt`.
+
+`EraseEverythingScreen` (`features/settings/.../EraseEverythingScreen.kt`) also
+reads its copy from that catalogue, so it resolves on iOS now that the resources
+are embedded. No shell composes it yet — `IosEraseEverythingCompositionRoot`
+binds the erase graph but exposes no screen — so hosting it later will not
+reintroduce the startup abort; only the navigation entry point is missing.
 
 ## Real-device recipe lines (L4)
 
 Android:
 
 1. Install the debug app on a device/emulator, connect a server, open a session.
-2. **Masking (default).** Open the app switcher. The snapshot shows the opaque
+2. **Open settings.** Tap **Settings** (or **Réglages** on a French device,
+   top-right of the connection screen). The "Local access" / "Accès local" screen
+   opens; **Back** / **Retour** returns.
+3. **Masking (default).** Open the app switcher. The snapshot shows the opaque
    cover, not the transcript. Return to the app: the transcript is back.
-3. **Capture blocking (default off).** With the setting off, a screenshot
+4. **Capture blocking (default off).** With the setting off, a screenshot
    (Power+Volume) is allowed and the app-switcher cover still appears.
-4. **Capture blocking (opt-in).** Enable "Block screenshots and screen
-   recording", then screenshot: the OS refuses and the screenshot is black. The
-   app-switcher cover still appears.
-5. **Biometrics.** On a device with no enrolled biometric and no device
+5. **Capture blocking (opt-in).** Enable "Block screenshots and screen
+   recording" in Settings, then screenshot: the OS refuses and the screenshot is
+   black. The app-switcher cover still appears.
+6. **Biometrics.** On a device with no enrolled biometric and no device
    credential, the optional biometric prompt is unavailable (fail-closed); with
    one enrolled, enabling the setting prompts for it and a cancellation returns
    to the app without granting anything.
@@ -87,9 +135,13 @@ Android:
 iOS:
 
 1. Install the debug app on a device/simulator, connect a server.
-2. **Masking (default).** Swipe up to the app switcher: the snapshot is the
+2. **Open settings.** Tap **Settings** / **Réglages**, then check that the
+   capture-blocking switch is **absent** (iOS cannot block captures) and that an
+   explanatory note is shown. **Back** / **Retour** returns to the connection
+   flow.
+3. **Masking (default).** Swipe up to the app switcher: the snapshot is the
    black cover with the lock glyph. Returning restores the UI.
-3. **Biometrics.** On a device with Face ID / Touch ID (and a passcode) the
+4. **Biometrics.** On a device with Face ID / Touch ID (and a passcode) the
    setting prompts for it; on a device with neither, the gate is unavailable
    (fail-closed). `NSFaceIDUsageDescription` must be present — it is declared in
    `iosApp/iosApp/Info.plist`.

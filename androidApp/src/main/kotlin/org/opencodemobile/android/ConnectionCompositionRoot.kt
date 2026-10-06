@@ -78,6 +78,8 @@ public val connectionCompositionModule: Module = module {
     single<OpenCodeGateway> { get<OpenCodeV2Adapter>() }
 
     single<CoroutineScope>(named(CONNECTION_SCOPE_QUALIFIER)) {
+        // Composition root: the single place allowed to pick the dispatcher.
+        @Suppress("InjectDispatcher")
         CoroutineScope(SupervisorJob() + Dispatchers.Default)
     }
 

@@ -24,6 +24,8 @@ public class PermissionDenyReceiver : BroadcastReceiver() {
         if (intent.action != ACTION_PERMISSION_DENY) return
         val requestId = intent.getStringExtra(EXTRA_REQUEST_ID) ?: return
         val pendingResult = goAsync()
+        // Broadcast receiver has no DI-provided dispatcher; goAsync() work runs off-main.
+        @Suppress("InjectDispatcher")
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             try {
                 GlobalContext.getOrNull()
