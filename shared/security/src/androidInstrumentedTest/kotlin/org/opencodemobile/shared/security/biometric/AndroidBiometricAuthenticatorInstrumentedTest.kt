@@ -27,8 +27,8 @@ class AndroidBiometricAuthenticatorInstrumentedTest {
     fun noEnrolledAuthenticatorIsUnavailableNeverSuccess() = runBlocking {
         val allowed = BiometricManager.Authenticators.BIOMETRIC_WEAK or
             BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        val available = BiometricManager.from(context).canAuthenticate(allowed) ==
-            BiometricManager.BIOMETRIC_SUCCESS
+        val available = context.getSystemService(BiometricManager::class.java)
+            ?.canAuthenticate(allowed) == BiometricManager.BIOMETRIC_SUCCESS
         assumeTrue("device has an enrolled authenticator; skip the no-authenticator path", !available)
 
         val result = AndroidBiometricAuthenticator(context).authenticate("Confirm the local-access test")
