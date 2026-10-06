@@ -83,23 +83,43 @@ targets:
     postBuildScripts:
       # OPE-274: the app links a single *static* framework, so Xcode does not
       # embed the framework's Compose resources. Compose Multiplatform reads
-      # them from the main bundle at `compose-resources/`; without this copy the
-      # first `stringResource(...)` on iOS aborts at runtime.
+      # them from the main bundle at `compose-resources/composeResources/`;
+      # without this copy the first `stringResource(...)` on iOS aborts at
+      # runtime. Prefer the resources already packed in the framework, and fall
+      # back to the Gradle processed-resources staging when the static framework
+      # does not carry them.
       - name: "Copy Compose resources"
         shell: /bin/bash
         basedOnDependencyAnalysis: false
         script: |
           set -euo pipefail
-          SRC="$SRCROOT/build/frameworks/iosAppHost.framework/compose-resources"
-          if [ ! -d "$SRC" ]; then
-            echo "::warning::compose-resources not found at $SRC; Compose string resources may fail at runtime"
+          ROOT="$SRCROOT/.."
+          BUNDLE="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/compose-resources"
+          DEST="$BUNDLE/composeResources"
+          rm -rf "$BUNDLE"
+          mkdir -p "$DEST"
+
+          staged=0
+          FW="$SRCROOT/build/frameworks/iosAppHost.framework"
+          if [ -d "$FW" ]; then
+            while IFS= read -r d; do
+              cp -R "$d"/. "$DEST"/ 2>/dev/null || true
+              staged=1
+            done < <(find "$FW" -type d -name 'composeResources' 2>/dev/null)
+          fi
+
+          if [ "$staged" -eq 0 ]; then
+            while IFS= read -r d; do
+              cp -R "$d"/. "$DEST"/ 2>/dev/null || true
+              staged=1
+            done < <(find "$ROOT" -maxdepth 5 -type d -path '*/build/processedResources/*/main/composeResources' 2>/dev/null)
+          fi
+
+          if [ "$staged" -eq 0 ]; then
+            echo "::warning::no Compose resources found to stage; string resources may fail at runtime"
             exit 0
           fi
-          DEST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/compose-resources"
-          rm -rf "$DEST"
-          mkdir -p "$(dirname "$DEST")"
-          cp -R "$SRC" "$DEST"
-          echo "Staged Compose resources at $DEST"
+          echo "Staged Compose resources at $BUNDLE"
           ls "$DEST"
 
   iosAppUITests:

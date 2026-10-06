@@ -32,13 +32,6 @@ import org.opencodemobile.design.system.resources.settings_screen_capture_blocki
 import org.opencodemobile.design.system.resources.settings_screen_capture_blocking_unavailable
 import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
 
-/** User intents of the local-access settings screen, grouped to keep the call site readable. */
-public data class LocalAccessSettingsActions(
-    public val onOptionalBiometricsChange: (Boolean) -> Unit,
-    public val onMultitaskMaskingChange: (Boolean) -> Unit,
-    public val onScreenCaptureBlockingChange: (Boolean) -> Unit,
-)
-
 /**
  * The §7.3 local-access settings surface (bilingual FR/EN through the
  * design-system string catalogue).
