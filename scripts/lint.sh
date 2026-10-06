@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # scripts/lint.sh — static analysis (detekt) for every Kotlin source file.
 #
-# Runs the root `detekt` task, configured in `build.gradle.kts` with the
-# bug-focused rules in `config/detekt/detekt.yml`. One task keeps the CI `lint`
-# gate simple: one command, one report, one pass/fail.
+# Runs the `detektAll` aggregate task, configured in `build.gradle.kts` with the
+# bug-focused rules in `config/detekt/detekt.yml`. It combines the portable root
+# scan (every `.kt`, no type resolution, covers `iosMain`) with the type-resolved
+# per-module tasks, so the rules that need a compilation classpath (OPE-213)
+# actually run. One command keeps the CI `lint` gate simple: one pass/fail.
 #
 # Usage:
 #   scripts/lint.sh [-- <extra gradle args>]
@@ -28,9 +30,10 @@ scripts/lint.sh — static analysis (detekt) for every Kotlin source file.
 Usage:
   scripts/lint.sh [-- <extra gradle args>]
 
-Runs `./gradlew detekt`. Rules are configured in config/detekt/detekt.yml and
+Runs `./gradlew detektAll`. Rules are configured in config/detekt/detekt.yml and
 focus on defects (potential bugs, coroutines, exceptions, empty blocks) rather
-than formatting style.
+than formatting style. detektAll runs the portable root scan plus the
+type-resolved per-module tasks, so rules that need a classpath are active.
 
 Environment:
   CI=1      adds `--no-daemon` for reproducible CI runs.
@@ -63,6 +66,6 @@ run_gradle() {
     "${GRADLE[@]}" "$@"
 }
 
-run_gradle detekt "$@"
+run_gradle detektAll "$@"
 
 echo "OK: detekt found no issues."

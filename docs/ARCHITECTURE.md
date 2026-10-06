@@ -51,10 +51,11 @@ Seven properties define every choice below:
 6. **Platform-native where the platform owns it.** Secure storage,
    biometrics, notifications, and speech recognition are per-platform behind
    `expect`/`actual`; everything else is shared Kotlin.
-7. **One maintainer.** Boundaries are to be enforced by machine-checked rules and
-   CI, not by review capacity. That enforcement is **not live yet**: the Konsist
-   module exists but is not in the Gradle build and no CI workflow runs it (see
-   the status note in [ADR 0004](adr/0004-architecture-dependency-rules-konsist.md)).
+7. **One maintainer.** Boundaries are enforced by machine-checked rules and CI,
+   not by review capacity. The Konsist module is registered in
+   `settings.gradle.kts`, and `.github/workflows/architecture-tests.yml` runs
+   `./gradlew :architecture-tests:test` on every pull request and push to `main`
+   (see [ADR 0004](adr/0004-architecture-dependency-rules-konsist.md)).
 
 ---
 
@@ -88,7 +89,7 @@ Clean Architecture, dependency direction pointing inward only:
 | `shared/test-support` | KMP library | Fakes, fixtures, and the deterministic `MockOpenCodeServer`. |
 | `features/{connection,projects,sessions,transcript,composer,files,permissions,settings}` | KMP libraries | One module per user-facing capability. |
 | `design-system` | KMP library | Design tokens, typography, and reusable Compose components. |
-| `architecture-tests` | JVM test module | Konsist assertions for the dependency rules below; not in the build, so not yet executed. |
+| `architecture-tests` | JVM test module | Konsist assertions for the dependency rules below; included in the Gradle build and run in CI. |
 
 The Gradle module list is authoritative in `settings.gradle.kts`; the scaffold
 is recorded in ADR 0001. `iosApp` is intentionally not a Gradle subproject: it
@@ -132,9 +133,13 @@ The architecture specification fixes the edges below.
 `architecture-tests/ModuleBoundaryTest.kt` (ADR 0004) encodes them as Konsist
 assertions and `.github/workflows/architecture-tests.yml` runs
 `./gradlew :architecture-tests:test` on every pull request and push to `main`,
-failing the job on any violation. (A red job only *blocks* merge once the
-`Architecture tests` context is listed in the `main` ruleset's required status
-checks; see ADR 0004 §Verification for the current state.)
+failing the job on any violation. The workflow always publishes an
+`Architecture tests` status — a small gate job reports it, and it delegates the
+Gradle run to a path-filtered job — so a pull request that touches no
+boundary-relevant path still gets a green check instead of a pending one. (A red
+job only *blocks* merge once the `Architecture tests` context is listed in the
+`main` ruleset's required status checks; see ADR 0004 §Verification for the
+current state.)
 
 1. `shared/domain` depends only on the Kotlin stdlib and
    `kotlinx-coroutines-core` (for the coroutine types in its port

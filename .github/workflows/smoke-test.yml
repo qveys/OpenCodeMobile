@@ -49,20 +49,23 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # OPE-250 (Phase 0.4): cancel a superseded smoke run instead of queueing it.
+  group: smoke-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   self-test:
     name: Smoke script self-test
-    runs-on: [self-hosted, hostinger]
+    # OPE-258 — untrusted `pull_request` code must not reach the hostinger
+    # self-hosted pool (repo code there runs as uid 0 on a shared host). PRs use
+    # an ephemeral GitHub-hosted runner, so fork PRs are covered too; the
+    # trusted push / workflow_dispatch triggers keep the company pool.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 10
-    # SECURITY: never execute fork-PR code on the company self-hosted pool — it
-    # is shared with the deployment jobs. Only same-repository PRs (collaborator
-    # branches, the same trust level as a push) run the self-test here. Full
-    # ephemeral-runner isolation for untrusted PRs is tracked by OPE-212.
-    if: >-
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.repo.full_name == github.repository)
+    # The self-test verifies the smoke script for its own triggers; the
+    # post-deployment `smoke` job below owns the workflow_run path.
+    if: ${{ github.event_name != 'workflow_run' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
