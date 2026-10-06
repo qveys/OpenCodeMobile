@@ -12,7 +12,11 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.headersOf
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -22,6 +26,7 @@ import kotlin.test.assertTrue
  * [installSanitizingLogging] never emits the auth token or prompt body, even at
  * the most verbose logging level.
  */
+@Suppress("InjectDispatcher") // Real-time wait on the production dispatcher on purpose; DI is not wired into tests.
 class SanitizingHttpLoggerTest {
 
     private val fakeToken = "sk-test-fedcba9876543210fedcba9876543210"
@@ -45,6 +50,16 @@ class SanitizingHttpLoggerTest {
             header(HttpHeaders.Authorization, "Bearer $fakeToken")
             contentType(ContentType.Application.Json)
             setBody("""{"sessionID":"s1","prompt":"$fakePrompt"}""")
+        }
+
+        // Ktor's Logging plugin emits through the client pipeline, which may
+        // complete on a dispatcher other than the test one. Wait (bounded) until
+        // the sink has been fed so the assertion below is not racy on a slower or
+        // more loaded host — the CI self-hosted simulator exposed exactly that.
+        withContext(Dispatchers.Default) {
+            withTimeout(15_000) {
+                while (emitted.isEmpty()) delay(20)
+            }
         }
 
         val all = emitted.joinToString(separator = "\n")

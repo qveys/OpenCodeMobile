@@ -39,7 +39,7 @@ OpenCode Mobile follows Clean Architecture principles in a feature-modular Kotli
 | **Local cache** | SQLDelight 2.0.2 | Offline, read-only, encrypted at rest, disposable. |
 | **Dependency injection** | Koin 4.0.0 | Composition root in `androidApp`. |
 | **Serialization / time** | kotlinx.serialization 1.7.3, kotlinx-datetime 0.6.1 | |
-| **Architecture tests** | Konsist 0.17.3 | The `architecture-tests` module is written but is not listed in `settings.gradle.kts`, so its rules do not run in the build. |
+| **Architecture tests** | Konsist 0.17.3 | §5.2 module-boundary rules in `architecture-tests/`, run by the `Architecture tests` CI gate on every PR. |
 
 Pinned versions live in [`gradle/libs.versions.toml`](gradle/libs.versions.toml).
 
@@ -52,7 +52,7 @@ Pinned versions live in [`gradle/libs.versions.toml`](gradle/libs.versions.toml)
 ├── androidApp/            # Android host app and Koin composition root
 ├── iosApp/                # iOS host (Swift entry point; not a Gradle module)
 ├── shared/
-│   ├── domain/            # Entities, value objects, ports (Kotlin stdlib only)
+│   ├── domain/            # Entities, value objects, ports (Kotlin stdlib + kotlinx-coroutines-core)
 │   ├── application/       # Use cases / interactors
 │   ├── data/              # Repository implementations and adapters
 │   ├── networking/        # Ktor client + generated OpenAPI client
@@ -65,13 +65,14 @@ Pinned versions live in [`gradle/libs.versions.toml`](gradle/libs.versions.toml)
 │                          # sessions, transcript, composer, files,
 │                          # permissions, settings)
 ├── design-system/         # Theme, typography, CMP components
+├── architecture-tests/    # Konsist assertions for the §5.2 module boundaries
 ├── tests/                 # Repository-level fixtures and TLS test assets
 ├── docs/                  # Architecture, API, contribution, security docs
 ├── scripts/               # Maintenance, CI/CD, and verification scripts
 └── gradle/                # Version catalog and wrapper
 ```
 
-The module list and the forbidden dependency edges are fixed by the architecture specification and are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The Konsist rules that would enforce them exist in `architecture-tests/`, but that module is not included in `settings.gradle.kts` and therefore does not run — check the dependency edges by hand until it is wired in.
+The module list and the forbidden dependency edges are fixed by the architecture specification and are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The Konsist rules that enforce them live in `architecture-tests/`, which is registered in `settings.gradle.kts` and run in CI — a forbidden edge fails the `Architecture tests` job.
 
 ---
 
@@ -121,10 +122,13 @@ Generated code is never hand-edited. See [docs/API.md](docs/API.md).
 ```bash
 # Unit tests across all modules
 ./gradlew test
+
+# §5.2 module-boundary rules (Konsist)
+./gradlew :architecture-tests:test
 ```
 
-Konsist module-boundary tests are written in `architecture-tests/` but are not wired into the
-Gradle build, so `./gradlew test` does not run them.
+The boundary task runs in CI on every pull request and push to `main`
+(`.github/workflows/architecture-tests.yml`), and a violation fails the `Architecture tests` job.
 
 ---
 
@@ -136,6 +140,9 @@ Gradle build, so `./gradlew test` does not run them.
 - [docs/git-workflow.md](docs/git-workflow.md) and [docs/pr-conventions.md](docs/pr-conventions.md) — detailed branch/PR conventions.
 - [docs/BRANCH-PROTECTION.md](docs/BRANCH-PROTECTION.md) — protected-branch and required-check rules.
 - [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) and [docs/CI-CD-SECURITY.md](docs/CI-CD-SECURITY.md) — security model and CI hardening.
+- [docs/PRIVACY.md](docs/PRIVACY.md) — privacy policy (FR/EN): what the app stores on the device, what leaves it, and the no-telemetry promise.
+- [docs/l4-mobile-integration.md](docs/l4-mobile-integration.md) — delivered behaviour of lot L4: on-device dictation, local notifications, optional biometrics, app-switcher masking, "Erase everything".
+- [docs/local-access.md](docs/local-access.md) — local-access protections: optional biometrics, app-switcher masking, capture blocking, and their real-device recipe.
 - [ROADMAP.md](ROADMAP.md) — milestones, lots L0–L6, and delivery gates.
 - [docs/adr/](docs/adr/) — architecture decision records.
 

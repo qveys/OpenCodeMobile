@@ -10,14 +10,13 @@ name: Logging Redaction (T4)
 # therefore uses ONLY `actions/checkout`.
 #
 # Runner policy: jobs run on the company self-hosted runner pool, not on
-# GitHub-hosted runners. The lightweight static scan runs on the Linux hostinger
-# VPS (`[self-hosted, hostinger]` -> vps-dokploy / vps-openclaw). The Gradle /
-# Android redaction tests target the macOS runner (`[self-hosted, mac]` ->
-# macbook-openclaw); its JDK 21 + Android SDK toolchain is provisioned by
-# `.github/workflows/provision-runner-toolchain.yml` (OPE-98) and resolved at
-# job time through `scripts/ci/runner-toolchain-env.sh`. See
-# `docs/CI-RUNNER-STRATEGY.md`. Until that provisioning is green the job stays
-# disabled on pull_request (see the job-level comment).
+# GitHub-hosted runners. Both jobs now run on the Linux hostinger VPS
+# (`[self-hosted, hostinger]` -> vps-dokploy / vps-openclaw). The redaction
+# tests are a plain JVM/Android unit test and no longer need the single-lane
+# `mac` runner (OPE-250, Phase 0.1); the hostinger pool is provisioned with
+# JDK 21 + the Android SDK by `.github/workflows/provision-runner-toolchain.yml`
+# (OPE-98) and resolved at job time through
+# `scripts/ci/runner-toolchain-env.sh`. See `docs/CI-RUNNER-STRATEGY.md`.
 #
 # The `pull_request` trigger is intentionally NOT path-filtered. A path-filtered
 # workflow produces no status when a PR touches none of its paths, which would
@@ -38,29 +37,102 @@ concurrency:
 permissions:
   contents: read
 
+# Container jobs default to `sh`; every step here uses bash.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   static-scan:
     name: T4 static scan
-    runs-on: [self-hosted, hostinger]
+    # OPE-258 — untrusted `pull_request` code must not reach the hostinger
+    # self-hosted pool: container uid 0 there owns the host Docker socket
+    # (repo-controlled uid 0 step + `-v /var/run/docker.sock`), which is host
+    # root. The same job runs on an ephemeral GitHub-hosted runner for PRs;
+    # trusted push/workflow_dispatch keep the company pool.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 5
+    # OPE-212 — ephemeral, non-root isolation. The image is pinned by digest
+    # (eclipse-temurin 21-jdk-jammy); the job gets a fresh filesystem and runs
+    # the scan as uid 10001. See
+    # docs/adr/0007-ephemeral-nonroot-hostinger-jobs.md.
+    container:
+      image: eclipse-temurin@sha256:6adefddd4a20bceef702cedb0b03952fcd7691f9c7ccffe27014992abc0b46bd
+      options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Scan for unredacted secret logging
-        run: bash scripts/check-no-secret-logging.sh
+        run: |
+          # OPE-258 — the uid-10001 wrapper exists to cross the root-owned
+          # self-hosted `_work` mount. On the ephemeral GitHub-hosted runner
+          # there is no shared host and no host Docker socket, and chowning the
+          # runner temp breaks the checkout post-step, so run the scan directly.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            bash scripts/check-no-secret-logging.sh
+          else
+            bash scripts/ci/run-as-nonroot.sh bash scripts/check-no-secret-logging.sh
+          fi
+      # These three supply-chain gates run directly, not through
+      # scripts/ci/run-as-nonroot.sh like the scan above. SEC-05 needs an
+      # interpreter to verify the distributionUrl publisher and parse
+      # verification-metadata.xml, and it is only on the PATH that su(1) hands to
+      # uid 10001. Wrapping it made SEC-05 fail closed on a missing interpreter
+      # rather than on a real integrity problem. The gates read the checkout and
+      # change nothing.
+      - name: Require SHA-pinned GitHub Actions (SEC-04)
+        run: bash scripts/check-workflow-action-pinning.sh
+      - name: Require an integrity-pinned Gradle toolchain (SEC-05)
+        run: |
+          set -euo pipefail
+          # main sets `defaults.run.shell: bash` for these container jobs, which
+          # GitHub runs as `bash --noprofile --norc`. Skipping the profile also
+          # skips the PATH that carries the interpreter this gate needs, so the
+          # gate stopped on "python3 is not on PATH" instead of on an integrity
+          # problem. Restore the standard locations, then report which
+          # interpreter the gate is about to use so a real failure stays legible.
+          #
+          # The interpreter is perl, not python3: OPE-257 moved SEC-05 off python3
+          # and OPE-264 moved SEC-05b, because this digest-pinned image carries
+          # neither python3 nor PerlIO — only perl-base. Both gates parse with
+          # scripts/lib/, and both fail closed when the interpreter or the library
+          # is missing.
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+          echo "SEC-05 parser: $(command -v perl || echo NONE)"
+          bash scripts/check-gradle-supply-chain.sh
+      # SEC-05b (OPE-238). SEC-05 proves gradle/verification-metadata.xml exists
+      # and pins something; it cannot prove the pins cover what the build
+      # resolves. OPE-220 is that gap: `main` added a dependency, the pin file
+      # was never regenerated, and every job went red at once during plugin
+      # resolution. This step fails a pull request that changes a build input
+      # without the pins catching up, and refuses any workflow that lets CI
+      # rewrite the pins from an unreviewed environment. See
+      # docs/CI-CD-SECURITY.md §8 — this comment deliberately does not spell
+      # out the regeneration flag, because the gate matches the flag anywhere
+      # in a workflow file, comments included, so a commented-out regeneration
+      # step cannot be left waiting to be re-enabled.
+      #
+      # OPE-264 moved this gate off python3, which this digest-pinned image does
+      # not carry, onto the perl parsers in scripts/lib/ that SEC-05 already
+      # uses. The image and this job's permissions are unchanged: the digest pin is
+      # the supply-chain control and the container is OPE-212's isolation.
+      - name: Require dependency pins to cover the declared build inputs (SEC-05b)
+        run: bash scripts/check-verification-metadata-coverage.sh
 
   redaction-tests:
     name: Redaction unit tests
-    # TEMPORARILY MANUAL ONLY. This job needs a JDK 21 + Android SDK toolchain.
-    # The self-hosted runner pool (hostinger / mac) has no Java runtime yet, and
-    # the repository Actions allowlist permits only `actions/checkout@*`, so the
-    # toolchain cannot be installed by an action. Downloading a JDK/Android SDK
-    # inside a security gate would add an unverified supply-chain step, so the
-    # job is disabled on pull_request/push instead. OPE-98 provisions the
-    # runners; re-enable the pull_request trigger once Java + Android SDK are
-    # present. It stays runnable by hand: Actions -> Logging Redaction (T4) ->
-    # Run workflow.
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, mac]
+    # OPE-258 / OPE-263 — never run repo-controlled Gradle on the shared
+    # hostinger pool for a pull_request (that is uid 0 on the host). It is not a
+    # required check, so guard it off until the digest-pinned GHCR image from
+    # PR #77 / OPE-255 can run it on an ephemeral runner.
+    if: github.event_name != 'pull_request'
+    # OPE-250 (Phase 0.1) moved this off the single-lane `mac` runner to
+    # `hostinger`: the job is a plain `:shared:networking:testDebugUnitTest`
+    # that only needs JDK 21 + the Android SDK, both provisioned on hostinger
+    # (OPE-98/OPE-100). On `mac` a 44-second test queued ~43 minutes behind the
+    # long iOS jobs. The job only *sources* the preinstalled toolchain via
+    # scripts/ci/runner-toolchain-env.sh; it never downloads a JDK/Android SDK
+    # itself, so the T4 supply-chain policy documented above is preserved.
+    runs-on: [self-hosted, hostinger]
     needs: static-scan
     timeout-minutes: 40
     steps:

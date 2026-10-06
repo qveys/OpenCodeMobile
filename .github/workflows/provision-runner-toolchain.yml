@@ -12,48 +12,30 @@ name: Provision runner toolchain
 #   ./gradlew :shared:networking:testDebugUnitTest --no-daemon
 #
 # It is idempotent and safe to re-run at any time. Provisioning is restricted to
-# the trusted default branch: the `push` trigger is scoped to `main` and filtered
-# to the provisioning script/helpers, and `workflow_dispatch` is ignored on any
-# other ref. This workflow executes the repo's own shell on persistent company
-# machines, so an arbitrary feature branch must not be able to run it.
+# `main`: this workflow runs repo-controlled shell on persistent company
+# machines, so a feature branch must not trigger it. `push` is scoped to `main`
+# and path-filtered; `workflow_dispatch` on any other ref is skipped by the job
+# guard.
 #
-# Each job targets one machine by its *unique* self-hosted label. The shared
-# `hostinger` label matches two Linux runners (vps-dokploy / vps-openclaw), so a
-# single job on `[self-hosted, hostinger]` would provision whichever host picked
-# it up and leave the other with no JDK — any later Gradle job scheduled there
-# would then fail with `java: command not found`. The matrix provisions every
-# runner in the pool deterministically.
+# The shared `hostinger` label matches two Linux runners (vps-dokploy /
+# vps-openclaw), so a single job on it provisions only whichever host picks it
+# up. The Linux job is a matrix keyed on each runner's unique label.
 #
 # After this workflow is green, ordinary CI jobs only need to source
 # `scripts/ci/runner-toolchain-env.sh` (see .github/workflows/security-logging.yml).
 
 on:
-  # Manual refresh. GitHub allows dispatch against any branch, so the trusted-ref
-  # guard lives on the job (`if: github.ref == 'refs/heads/main'`); a dispatch
-  # against a feature branch runs but is skipped before any shell executes.
   workflow_dispatch:
   push:
-    # Automatic provisioning only from the default branch. This workflow runs
-    # repo-controlled shell on the persistent self-hosted runners, so a feature
-    # branch (e.g. a PR) must not be able to trigger it by touching
-    # `scripts/ci/**`. Merge to `main` first; the push to `main` then provisions.
     branches: [main]
     paths:
-      # The provisioning script and its helpers.
-      - 'scripts/ci/**'
-      # This workflow file itself: the runner matrix IS the provisioning control
-      # plane, so changing it (adding/removing a runner) must re-provision the
-      # current pool. Combined with the repository-wide concurrency group below
-      # and idempotent provisioning, a self-trigger is bounded and safe.
       - '.github/workflows/provision-runner-toolchain.yml'
+      - 'scripts/ci/**'
 
 concurrency:
-  # At most one provisioning run repository-wide. Runs queue instead of
-  # cancelling: a provisioning job installs system packages (JDK, Android SDK) on
-  # persistent machines, and cancelling it mid-install can leave a runner half
-  # provisioned with no later run to repair it. Since automatic runs are scoped to
-  # `main` (see `on.push.branches`), the pile-up this group originally guarded
-  # against no longer comes from every feature branch.
+  # One provisioning run repository-wide. Queue, never cancel: cancelling a job
+  # mid-install can leave a runner half provisioned. Automatic runs are scoped to
+  # `main`, so the pile-up no longer comes from feature branches.
   group: provision-runner-toolchain
   cancel-in-progress: false
 
@@ -61,30 +43,15 @@ permissions:
   contents: read
 
 jobs:
-  provision:
-    name: Provision ${{ matrix.label }}
-    # Trusted-ref guard: block `workflow_dispatch` (or any future trigger) from
-    # running repo shell on a non-default ref. `main` is the only ref allowed to
-    # provision the persistent runners.
+  provision-linux:
+    name: Provision Linux runner (${{ matrix.runner }})
     if: github.ref == 'refs/heads/main'
-    # One job per machine, keyed on the unique self-hosted label so no runner is
-    # skipped. fail-fast: false so one wedged/offline runner does not cancel the
-    # provisioning of the others.
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - label: Linux runner (vps-dokploy)
-            os: linux
-            runs-on: [self-hosted, vps-dokploy]
-          - label: Linux runner (vps-openclaw)
-            os: linux
-            runs-on: [self-hosted, vps-openclaw]
-          - label: macOS runner (macbook-openclaw)
-            os: macos
-            runs-on: [self-hosted, macbook-openclaw]
-    runs-on: ${{ matrix.runs-on }}
-    timeout-minutes: 120
+        runner: [vps-dokploy, vps-openclaw]
+    runs-on: [self-hosted, '${{ matrix.runner }}']
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Provision JDK 21 + Android SDK
@@ -96,11 +63,28 @@ jobs:
           echo "JAVA_HOME=${JAVA_HOME:-<unset>}"
           echo "ANDROID_HOME=${ANDROID_HOME:-<unset>}"
           java -version
-      - name: Acceptance — macOS java_home resolves
-        if: matrix.os == 'macos'
+      - name: Acceptance — gradle unit tests
+        run: bash scripts/ci/run-toolchain-acceptance.sh
+
+  provision-mac:
+    name: Provision macOS runner
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, mac]
+    # The mac runner's measured download throughput is ~35 KB/s, so a 203 MB JDK
+    # plus the Android SDK can take ~2-3 h. The provisioning script bounds each
+    # phase itself; this timeout only backstops a fully wedged runner.
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Provision JDK 21 + Android SDK
+        run: bash scripts/ci/provision-runner-toolchain.sh
+      - name: Acceptance — toolchain paths resolve
         run: |
           set -euo pipefail
           . scripts/ci/runner-toolchain-env.sh
-          /usr/libexec/java_home -v 21
+          echo "JAVA_HOME=${JAVA_HOME:-<unset>}"
+          echo "ANDROID_HOME=${ANDROID_HOME:-<unset>}"
+          java -version
+          if [ -x /usr/libexec/java_home ]; then /usr/libexec/java_home -v 21; fi
       - name: Acceptance — gradle unit tests
         run: bash scripts/ci/run-toolchain-acceptance.sh

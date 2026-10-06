@@ -4,4 +4,9 @@
     <!-- The T1 identity probe and the pinned transport open TLS connections. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- §7.3 / §4 D4: AndroidBiometricAuthenticator shows the platform
+         BiometricPrompt (biometric or device credential). Normal permission,
+         granted at install time. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
 </manifest>

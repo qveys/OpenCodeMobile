@@ -20,6 +20,16 @@
 #   - the loudest pure-style `style` rules (line length, magic numbers,
 #     wildcard imports, trailing newline, return count, `check` vs `throw`).
 #     `UnusedPrivateProperty` and the rest of `style` stay on.
+#
+# Baseline (OPE-221) — temporary, tracked debt, not policy.
+#
+# `detekt-baseline.xml` at the repository root records the findings the L1
+# connection lot (PR #30) carries at its approved head. The owner approved that
+# diff; a lint-only refactor of the security-reviewed code would have
+# invalidated the review, so the findings are suppressed instead of fixing them
+# on the approved branch. A follow-up issue pays the debt down: fix the real
+# defects (exception handling, dead code, declaration name) and refactor the
+# complexity hotspots, then delete the entries. Do not add new entries.
 
 build:
   # One issue fails the gate. Keep the bar at zero; if a rule proves noisy,
