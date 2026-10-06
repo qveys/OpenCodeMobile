@@ -33,6 +33,18 @@ kotlin {
             implementation(project(":shared:test-support"))
             implementation(libs.ktor.client.core)
         }
+
+        // OPE-180 / D8: the cache write-path integration test composes the real
+        // CacheStack (shared:data) over the SQLDelight schema (shared:persistence)
+        // with an in-memory JDBC driver, so the test source set needs both plus
+        // the JVM SQLite driver.
+        val androidUnitTest by getting {
+            dependencies {
+                implementation(project(":shared:data"))
+                implementation(project(":shared:persistence"))
+                implementation(libs.sqldelight.sqlite.driver)
+            }
+        }
     }
 }
 
