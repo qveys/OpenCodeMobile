@@ -140,6 +140,10 @@ jobs:
     container:
       image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
       options: --user 0:0
+    env:
+      # OPE-291: keep the Gradle home on the per-job runner temp dir so the
+      # uid-10001 build user (see scripts/ci/run-as-nonroot.sh) can write it.
+      GRADLE_USER_HOME: ${{ runner.temp }}/gradle
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run networking redaction tests
