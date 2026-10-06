@@ -27,15 +27,14 @@ import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
  * it holds no state itself and never reads a platform API. The Android and iOS
  * hosts render the exact same screen through [LocalAccessSettingsHost].
  *
- * [screenCaptureBlockingSupported] is the platform capability. When a platform
- * cannot block captures (iOS), the capture-blocking control is **not rendered**
- * — instead of showing a switch that would do nothing — and an explicit note
- * explains why. Masking is always offered.
+ * [platformSupportsScreenCaptureBlocking] is the platform capability. When a
+ * platform cannot block captures (iOS), the capture-blocking control is **not
+ * rendered** — instead of showing a switch that would do nothing — and an
+ * explicit note explains why. Masking is always offered.
  */
 @Composable
 public fun LocalAccessSettingsScreen(
     state: LocalAccessSettings,
-    screenCaptureBlockingSupported: Boolean,
     actions: LocalAccessSettingsActions,
     strings: LocalAccessStrings,
     onBack: () -> Unit,
@@ -58,7 +57,7 @@ public fun LocalAccessSettingsScreen(
             MultitaskMaskingSection(state.multitaskMaskingEnabled, strings, actions)
             ScreenCaptureBlockingSection(
                 enabled = state.screenCaptureBlockingEnabled,
-                supported = screenCaptureBlockingSupported,
+                supported = platformSupportsScreenCaptureBlocking(),
                 strings = strings,
                 onCheckedChange = actions.onScreenCaptureBlockingChange,
             )
