@@ -140,6 +140,9 @@ The boundary task runs in CI on every pull request and push to `main`
 - [docs/git-workflow.md](docs/git-workflow.md) and [docs/pr-conventions.md](docs/pr-conventions.md) — detailed branch/PR conventions.
 - [docs/BRANCH-PROTECTION.md](docs/BRANCH-PROTECTION.md) — protected-branch and required-check rules.
 - [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) and [docs/CI-CD-SECURITY.md](docs/CI-CD-SECURITY.md) — security model and CI hardening.
+- [docs/PRIVACY.md](docs/PRIVACY.md) — privacy policy (FR/EN): what the app stores on the device, what leaves it, and the no-telemetry promise.
+- [docs/l4-mobile-integration.md](docs/l4-mobile-integration.md) — delivered behaviour of lot L4: on-device dictation, local notifications, optional biometrics, app-switcher masking, "Erase everything".
+- [docs/local-access.md](docs/local-access.md) — local-access protections: optional biometrics, app-switcher masking, capture blocking, and their real-device recipe.
 - [ROADMAP.md](ROADMAP.md) — milestones, lots L0–L6, and delivery gates.
 - [docs/adr/](docs/adr/) — architecture decision records.
 

@@ -926,7 +926,10 @@ no-telemetry promise.
   - The keyboard remains the standard fallback input method.
 - **Privacy policy disclosure**: The privacy policy (owned by Technical Writer)
   must explicitly state that V1 dictation is processed strictly on-device and
-  disabled when on-device recognition is unavailable.
+  disabled when on-device recognition is unavailable. This requirement is
+  discharged by [`docs/PRIVACY.md`](PRIVACY.md) §6, which also covers the
+  declared permissions (§5), the no-approval-from-a-notification rule (OP4,
+  §7), the optional biometrics (§8), and the task-switcher masking default (§9).
 
 ### Extensibility & Future Evolution (Post-V1)
 
