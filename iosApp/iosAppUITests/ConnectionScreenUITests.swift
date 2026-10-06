@@ -100,4 +100,35 @@ final class ConnectionScreenUITests: XCTestCase {
             "A non-import QR payload did not surface the rejection message."
         )
     }
+
+    /// OPE-274 F2: the local-access settings screen is reachable from the app,
+    /// and its platform-dependent controls are correct. On iOS, screen-capture
+    /// blocking is not available, so that control must not be shown; the
+    /// app-switcher masking control must be.
+    func testSettingsEntryOpensLocalAccess() throws {
+        let app = launchApp()
+
+        let settings = element(app, "Settings")
+        XCTAssertTrue(settings.waitForExistence(timeout: 60), "The Settings action is missing.")
+        settings.tap()
+
+        XCTAssertTrue(
+            element(app, "Local access").waitForExistence(timeout: 30),
+            "The local-access settings screen did not open."
+        )
+        XCTAssertTrue(
+            element(app, "Hide content in the app switcher").exists,
+            "The multitask-masking control must be offered on iOS."
+        )
+        XCTAssertFalse(
+            element(app, "Block screenshots and screen recording").exists,
+            "iOS cannot block captures; the control must not be offered."
+        )
+
+        element(app, "Back").tap()
+        XCTAssertTrue(
+            element(app, "Connect to a server").waitForExistence(timeout: 30),
+            "Back did not return to the connection flow."
+        )
+    }
 }

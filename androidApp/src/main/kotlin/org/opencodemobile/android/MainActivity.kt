@@ -17,6 +17,7 @@ import org.opencodemobile.android.privacy.PrivacyShield
 import org.opencodemobile.features.connection.AndroidQrCodeScanner
 import org.opencodemobile.features.connection.ConnectionSetupController
 import org.opencodemobile.features.connection.ConnectionSetupScreen
+import org.opencodemobile.features.settings.LocalAccessSettingsHost
 import org.opencodemobile.shared.domain.localaccess.LocalAccessSettingsStore
 
 /**
@@ -60,8 +61,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    val controller: ConnectionSetupController = koinInject()
-                    ConnectionSetupScreen(controller = controller, scanner = qrCodeScanner)
+                    // §7.3: the settings entry point is shared Compose code; the
+                    // shell only supplies the connection content.
+                    LocalAccessSettingsHost {
+                        val controller: ConnectionSetupController = koinInject()
+                        ConnectionSetupScreen(controller = controller, scanner = qrCodeScanner)
+                    }
                 }
             }
         }

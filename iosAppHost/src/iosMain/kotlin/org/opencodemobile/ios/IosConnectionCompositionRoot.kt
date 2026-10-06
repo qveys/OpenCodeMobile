@@ -23,6 +23,7 @@ import org.opencodemobile.features.connection.ConnectionModule
 import org.opencodemobile.features.connection.ConnectionSetupController
 import org.opencodemobile.features.connection.ConnectionSetupScreen
 import org.opencodemobile.features.connection.IosQrCodeScanner
+import org.opencodemobile.features.settings.LocalAccessSettingsHost
 import org.opencodemobile.features.settings.SettingsModule
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerIdentityStore
@@ -162,15 +163,19 @@ public fun connectionSetupViewController(
 ) {
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
-            val controller: ConnectionSetupController = koinInject()
-            // The controller hosting this Compose hierarchy is the presenter
-            // the scanner presents its full-screen capture from. It is read
-            // here (composition time) and captured for the later scan gesture.
-            val hostViewController = LocalUIViewController.current
-            val scanner = remember(hostViewController) {
-                IosQrCodeScanner(presenter = { hostViewController })
+            // §7.3: the settings entry point is the same shared Compose code as
+            // on Android; this shell only supplies the connection content.
+            LocalAccessSettingsHost {
+                val controller: ConnectionSetupController = koinInject()
+                // The controller hosting this Compose hierarchy is the presenter
+                // the scanner presents its full-screen capture from. It is read
+                // here (composition time) and captured for the later scan gesture.
+                val hostViewController = LocalUIViewController.current
+                val scanner = remember(hostViewController) {
+                    IosQrCodeScanner(presenter = { hostViewController })
+                }
+                ConnectionSetupScreen(controller = controller, scanner = scanner)
             }
-            ConnectionSetupScreen(controller = controller, scanner = scanner)
         }
     }
 }
