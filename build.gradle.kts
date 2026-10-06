@@ -9,9 +9,10 @@ plugins {
     alias(libs.plugins.composeMultiplatform) apply false
     alias(libs.plugins.composeCompiler) apply false
     alias(libs.plugins.sqldelight) apply false
-    // OPE-14 — bug-focused static analysis. Applied to the root project so the
-    // `lint` gate is a single task/report (see the `detekt` block below and
-    // scripts/lint.sh). The config lives in config/detekt/detekt.yml.
+    // OPE-14 / OPE-213 — bug-focused static analysis. Applied at the root and to
+    // every subproject (see below): the root task is the portable scan and the
+    // subproject tasks add type resolution. The config lives in
+    // config/detekt/detekt.yml.
     alias(libs.plugins.detekt)
 }
 
@@ -30,8 +31,19 @@ subprojects {
     }
 }
 
-// OPE-14 — detekt scans every Kotlin source from one root task, so CI has a
-// single `lint` check (scripts/lint.sh -> ./gradlew detekt).
+// OPE-14 / OPE-213 — detekt static analysis.
+//
+// Two kinds of scan run, and `detektAll` is the single entry point for both
+// (scripts/lint.sh -> ./gradlew detektAll):
+//
+//   1. the root `detekt` task scans every `.kt` source without type resolution,
+//      so Kotlin/Native (`iosMain`) sources that detekt cannot type-resolve are
+//      still checked; and
+//   2. one type-resolved task per subproject compilation (`detektAndroidDebug`,
+//      `detektDebugUnitTest`, ...). detekt only creates those when the plugin is
+//      applied to the subproject, and it fills their `classpath` from the
+//      compilation. Without that classpath detekt silently skips the
+//      type-dependent rules (OPE-213).
 //
 // Only `.kt` is scanned. Gradle `.kts` build scripts are excluded because
 // detekt cannot type-resolve the Gradle Kotlin DSL and flags the delegated
@@ -54,4 +66,39 @@ detekt {
             )
         },
     )
+}
+
+// OPE-213 — apply detekt to every subproject so the plugin also registers the
+// type-resolved tasks (they carry the compilation classpath).
+subprojects {
+    apply(plugin = "io.gitlab.arturbosch.detekt")
+    extensions.configure<io.gitlab.arturbosch.detekt.extensions.DetektExtension> {
+        buildUponDefaultConfig = true
+        parallel = true
+        config.setFrom(rootProject.files("$rootDir/config/detekt/detekt.yml"))
+        // Collect every report under the root build directory, one folder per
+        // module, so CI can publish all of them from one place.
+        reportsDir = rootProject.file(
+            "build/reports/detekt/" + path.trimStart(':').replace(':', '/'),
+        )
+    }
+    tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
+        // Tasks without a compile classpath cannot resolve types. The plain
+        // per-project `detekt` task and the Kotlin/Native + metadata tasks fall
+        // in this group: the first duplicates the root scan above and the others
+        // are already covered by it. Skip them so a type-resolution run does not
+        // analyse the same source twice.
+        onlyIf { !classpath.isEmpty }
+    }
+}
+
+// OPE-213 — single lint entry point: the portable root scan plus every
+// type-resolved subproject task.
+tasks.register("detektAll") {
+    group = "verification"
+    description = "Run detekt over every Kotlin source, with type resolution where possible."
+    dependsOn(tasks.named("detekt"))
+    subprojects.forEach { subproject ->
+        dependsOn(subproject.tasks.withType<io.gitlab.arturbosch.detekt.Detekt>())
+    }
 }

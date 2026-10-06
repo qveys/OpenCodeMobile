@@ -1,0 +1,34 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:ServerAddress.kt$ServerHostGrammar$!host.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' || it == ':' || it == '.' }</ID>
+    <ID>ComplexCondition:ServerAddress.kt$ServerHostGrammar$!host.all { it.isLetterOrDigit() || it == '.' || it == '-' || it == '_' }</ID>
+    <ID>ComplexCondition:ServerAddress.kt$ServerHostGrammar$host.any { it == '/' || it == '@' || it == '?' || it == '#' || it == '[' || it == ']' }</ID>
+    <ID>CyclomaticComplexMethod:DomainErrorMessages.kt$DomainErrorMessages$public fun present(error: DomainError): DomainErrorPresentation</ID>
+    <ID>CyclomaticComplexMethod:OpenCodeV2Adapter.kt$OpenCodeV2Adapter$@Suppress("TooGenericExceptionCaught") override suspend fun connect( profile: ServerProfile, credential: ServerCredential?, ): ConnectionHandshake</ID>
+    <ID>CyclomaticComplexMethod:ServerAddress.kt$ServerAddressParser$public fun parse(raw: String): ServerAddressResult</ID>
+    <ID>CyclomaticComplexMethod:ServerAddress.kt$ServerHostGrammar$fun problem(host: String): ServerInputProblem?</ID>
+    <ID>CyclomaticComplexMethod:ServerImportLink.kt$ServerImportLink$public fun parse(raw: String): ServerImportResult</ID>
+    <ID>CyclomaticComplexMethod:ServerImportReviewScreen.kt$@Composable public fun ServerImportReviewScreen( state: ConnectionSetupUiState, onConfirm: () -&gt; Unit, onConfirmIdentity: () -&gt; Unit, onCancel: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:DomainErrorMessages.kt$DomainErrorMessages$public fun present(error: DomainError): DomainErrorPresentation</ID>
+    <ID>LongMethod:ManualServerEntryScreen.kt$@Composable public fun ManualServerEntryScreen( state: ConnectionSetupUiState, onAddressChange: (String) -&gt; Unit, onLabelChange: (String) -&gt; Unit, onSubmit: () -&gt; Unit, onScanRequest: (() -&gt; Unit)?, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:OpenCodeV2Adapter.kt$OpenCodeV2Adapter$@Suppress("TooGenericExceptionCaught") override suspend fun connect( profile: ServerProfile, credential: ServerCredential?, ): ConnectionHandshake</ID>
+    <ID>LongMethod:QrScannerActivity.kt$@Composable private fun QrScannerContent( lifecycleOwner: LifecycleOwner, onPayload: (String) -&gt; Unit, onCancel: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ServerImportLink.kt$ServerImportLink$public fun parse(raw: String): ServerImportResult</ID>
+    <ID>LongMethod:ServerImportReviewScreen.kt$@Composable public fun ServerImportReviewScreen( state: ConnectionSetupUiState, onConfirm: () -&gt; Unit, onConfirmIdentity: () -&gt; Unit, onCancel: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:ConnectionSetupController.kt$ConnectionSetupController$( private val setup: ServerConnectionSetup, private val scope: CoroutineScope, private val credentialProvider: suspend (ServerProfile) -&gt; ServerCredential? = { null }, private val existingProfileProvider: suspend () -&gt; ServerProfile? = { null }, private val existingFingerprintProvider: suspend (ServerProfile) -&gt; ServerFingerprint? = { null }, private val identityConfirmer: suspend (ServerProfile, ServerFingerprint) -&gt; Unit = { _, _ -&gt; }, private val onConnected: (ConnectionHandshake) -&gt; Unit = {}, )</ID>
+    <ID>LongParameterList:ConnectionSetupScreen.kt$( state: ConnectionSetupUiState, onAddressChange: (String) -&gt; Unit, onLabelChange: (String) -&gt; Unit, onSubmit: () -&gt; Unit, onScanRequest: (() -&gt; Unit)?, onConfirm: () -&gt; Unit, onConfirmIdentity: () -&gt; Unit, onCancel: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:ManualServerEntryScreen.kt$( state: ConnectionSetupUiState, onAddressChange: (String) -&gt; Unit, onLabelChange: (String) -&gt; Unit, onSubmit: () -&gt; Unit, onScanRequest: (() -&gt; Unit)?, modifier: Modifier = Modifier, )</ID>
+    <ID>MatchingDeclarationName:ConnectionSetupState.kt$ConnectionSetupUiState</ID>
+    <ID>SwallowedException:AndroidKeystoreSecureStore.kt$AndroidKeystoreSecureStore$failure: GeneralSecurityException</ID>
+    <ID>SwallowedException:AndroidKeystoreSecureStore.kt$AndroidKeystoreSecureStore$failure: IOException</ID>
+    <ID>SwallowedException:AndroidKeystoreSecureStore.kt$AndroidKeystoreSecureStore$failure: IllegalArgumentException</ID>
+    <ID>ThrowsCount:AndroidKeystoreSecureStore.kt$AndroidKeystoreSecureStore$private fun decrypt(key: String, stored: String): String</ID>
+    <ID>ThrowsCount:SecureServerProfileStore.kt$SecureServerProfileStore$private fun decode(stored: String): ServerProfile</ID>
+    <ID>TooGenericExceptionCaught:ConnectionSetupController.kt$ConnectionSetupController$failure: Throwable</ID>
+    <ID>TooGenericExceptionCaught:ServerConnectionSetup.kt$ServerConnectionSetup$failure: Throwable</ID>
+    <ID>TooManyFunctions:ConnectionSetupController.kt$ConnectionSetupController</ID>
+    <ID>UnusedPrivateProperty:ServerImportLink.kt$ServerImportLink$val tlsText = params[PARAM_TLS]?.lowercase()</ID>
+  </CurrentIssues>
+</SmellBaseline>

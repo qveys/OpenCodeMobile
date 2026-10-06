@@ -19,12 +19,41 @@ name: iOS app (simulator)
 # names that host. The org Actions allowlist permits only `actions/checkout@*`,
 # so every tool (JDK, Android SDK, Xcode, XcodeGen) is provisioned from shell
 # steps, not marketplace actions.
+#
+# OPE-250: the `pull_request`/`push` triggers are path-filtered to Apple/Kotlin
+# inputs, and the GitHub-hosted duplicate leg is demoted to `main`/nightly.
 
 on:
   pull_request:
     branches: [main]
+    # OPE-250 (Phase 1): only run when an Apple/Kotlin-Native input changes.
+    # A path-filtered workflow is deliberately NOT a required status check, so
+    # skipping it never leaves a check "Expected" (T4 static scan stays the only
+    # required context; see docs/BRANCH-PROTECTION.md).
+    paths:
+      - "iosApp/**"
+      - "iosAppHost/**"
+      - "shared/**"
+      - "scripts/ios/**"
+      - "gradle/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/ios-app.yml"
   push:
     branches: [main]
+    paths:
+      - "iosApp/**"
+      - "iosAppHost/**"
+      - "shared/**"
+      - "scripts/ios/**"
+      - "gradle/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/ios-app.yml"
+  schedule:
+    # OPE-250 (Phase 0.2): nightly full validation on `main`. The GitHub-hosted
+    # duplicate leg below is demoted off the PR path but still runs here.
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -182,8 +211,13 @@ jobs:
   # job. This leg runs the identical steps on a GitHub-hosted macOS runner (the
   # framework script is arch-aware) so the project is still validated when the
   # self-hosted runner is busy. It is not the acceptance host named by OPE-169.
+  #
+  # OPE-250 (Phase 0.2): the self-hosted leg above is the PR acceptance host;
+  # this duplicate runs on `main` pushes, the nightly schedule, and manual
+  # dispatch only. A PR no longer pays for two identical macOS runs.
   ios-app-simulator-github:
     name: Build and smoke-test iosApp (github macos-latest)
+    if: github.event_name != 'pull_request'
     runs-on: macos-latest
     timeout-minutes: 75
     steps: *ios_app_steps

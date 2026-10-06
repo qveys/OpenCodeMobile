@@ -41,6 +41,12 @@ targets:
       - path: iosApp
         excludes:
           - "Info.plist"
+          # OPE-198: the D8 cache write composition is not reached from the
+          # :iosAppHost-only Xcode target (it imports sharedData/sharedApplication,
+          # which are not linked directly — see OTHER_LDFLAGS). The merged head
+          # keeps the file; OPE-176 re-wires it once the connection root binds
+          # the realtime source.
+          - "CacheComposition.swift"
     settings:
       base:
         PRODUCT_NAME: iosApp
