@@ -38,6 +38,8 @@ dependencies {
     implementation(project(":features:composer"))
     implementation(project(":features:files"))
     implementation(project(":features:permissions"))
+    implementation(project(":features:questions"))
+    implementation(project(":features:catalog"))
     implementation(project(":features:settings"))
 
     implementation(project(":shared:domain"))
@@ -55,6 +57,10 @@ dependencies {
     // The host renders copy through the CMP resource API (design-system's public `Res`).
     implementation(compose.components.resources)
     implementation(libs.androidx.activity.compose)
+    // V1-06/T2: MainActivity is a FragmentActivity (BiometricPrompt) and the
+    // notification uses NotificationCompat.
+    implementation(libs.androidx.fragment)
+    implementation(libs.androidx.core.ktx)
 
     implementation(libs.koin.android)
     implementation(libs.koin.compose)
@@ -65,4 +71,10 @@ dependencies {
     // variant that provides `kotlin.test.Test` and the assertions.
     testImplementation(kotlin("test"))
     testImplementation(libs.koin.core)
+    // S10a composition-root test drives the real adapter against
+    // MockOpenCodeServer, so the app module's test classpath needs the shared
+    // test-support module plus the Ktor / coroutines-test types it uses.
+    testImplementation(project(":shared:test-support"))
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.ktor.client.core)
 }

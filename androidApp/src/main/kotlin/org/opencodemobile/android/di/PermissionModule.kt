@@ -12,7 +12,6 @@ import org.opencodemobile.android.permission.DeferredPendingPermissionStore
 import org.opencodemobile.android.permission.DeferredPermissionEventDecoder
 import org.opencodemobile.android.permission.DeferredPermissionPort
 import org.opencodemobile.android.permission.PermissionConnection
-import org.opencodemobile.android.permission.PermissionHostActivity
 import org.opencodemobile.android.connection.ConnectionBinder
 import org.opencodemobile.android.permission.PermissionRuntime
 import org.opencodemobile.features.permissions.PermissionsPresenter
@@ -26,7 +25,6 @@ import org.opencodemobile.shared.domain.permission.PermissionEventDecoder
 import org.opencodemobile.shared.domain.permission.PermissionNotifier
 import org.opencodemobile.shared.domain.permission.PermissionPort
 import org.opencodemobile.shared.domain.permission.PendingPermissionStore
-import org.opencodemobile.shared.security.biometric.AndroidBiometricAuthenticator
 
 /** Koin qualifier for the app-wide scope the permission presenter lives in. */
 public const val PERMISSION_SCOPE_QUALIFIER: String = "permissionScope"
@@ -39,8 +37,8 @@ public const val PERMISSION_SCOPE_QUALIFIER: String = "permissionScope"
  *
  * - the coordinator enforces the offline (D8), foreground, content-binding and
  *   biometric gates before any approval reaches the wire,
- * - [AndroidBiometricAuthenticator] is the real `BiometricPrompt` / device-credential
- *   gate, bound to the current `FragmentActivity`,
+ * - the [BiometricAuthenticator] is the real `BiometricPrompt` / device-credential
+ *   gate bound by `eraseEverythingCompositionModule`,
  * - [AndroidPermissionNotifier] posts exactly `PermissionPolicy.notificationFor`
  *   (no approve action, tap opens the confirmation screen),
  * - the pending set is persisted in the encrypted cache so it survives an app kill.
@@ -57,10 +55,6 @@ public const val PERMISSION_SCOPE_QUALIFIER: String = "permissionScope"
 public val permissionModule: Module = module {
     single<CoroutineScope>(named(PERMISSION_SCOPE_QUALIFIER)) {
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    }
-
-    single<BiometricAuthenticator> {
-        AndroidBiometricAuthenticator { PermissionHostActivity.current }
     }
 
     single<PermissionNotifier> { AndroidPermissionNotifier(androidContext()) }

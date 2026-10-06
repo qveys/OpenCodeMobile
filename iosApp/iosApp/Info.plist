@@ -27,8 +27,16 @@
     <true/>
     <key>LSRequiresIPhoneOS</key>
     <true/>
+    <key>UIRequiresFullScreen</key>
+    <true/>
     <key>NSCameraUsageDescription</key>
     <string>Scan a server import QR code to connect to your self-hosted OpenCode Server.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Dictate prompts into the composer. Audio is transcribed on this device only.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Transcribe dictated prompts on this device only. No audio or transcript leaves the device.</string>
+    <key>NSFaceIDUsageDescription</key>
+    <string>Use Face ID for the optional local access confirmation. It never replaces the server authentication.</string>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UISupportedInterfaceOrientations</key>

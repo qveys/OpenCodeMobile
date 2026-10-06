@@ -87,6 +87,7 @@ private class ScriptedBiometricAuthenticator(
  * Runs on [Dispatchers.Default] so the mock's real inter-event delays are
  * honoured, like the realtime integration tests.
  */
+@Suppress("InjectDispatcher") // Real-time mock test: real dispatcher on purpose; DI is not wired in tests.
 class LiveConnectionBindingTest {
 
     private val profile = ServerProfile(
@@ -131,14 +132,12 @@ class LiveConnectionBindingTest {
      * to the resolved seam.
      */
     private class BoundApp(
-        val server: MockOpenCodeServer,
         val binder: ConnectionBinder,
         val controller: ConnectionBindingController,
         val store: RecordingPendingPermissionStore,
         val biometric: ScriptedBiometricAuthenticator,
         val coordinator: PermissionCoordinator,
         val bridge: PermissionRealtimeBridge,
-        val scope: CoroutineScope,
     )
 
     private suspend fun connectAndBind(
@@ -165,7 +164,7 @@ class LiveConnectionBindingTest {
         val bridge = PermissionRealtimeBridge(permission.source, permission.decoder, coordinator)
         scope.launch { coordinator.start() }
         bridge.start(scope)
-        return BoundApp(server, binder, controller, store, biometric, coordinator, bridge, scope)
+        return BoundApp(binder, controller, store, biometric, coordinator, bridge)
     }
 
     @Test

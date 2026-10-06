@@ -22,7 +22,7 @@ include(":androidApp")
 // Its Kotlin composition root (Koin graph + Compose host) cannot live in the
 // Swift/Xcode project, so it is built as :iosAppHost and linked by the Xcode
 // project like every other per-module framework. See iosApp/README.md and
-// docs/adr/0006-ios-composition-root-module.md.
+// docs/adr/0008-ios-composition-root-module.md.
 include(":iosAppHost")
 
 // shared/* — Kotlin Multiplatform, dependency direction enforced by §5.2
@@ -44,6 +44,8 @@ include(":features:transcript")
 include(":features:composer")
 include(":features:files")
 include(":features:permissions")
+include(":features:questions")
+include(":features:catalog")
 include(":features:settings")
 
 // design-system/ — theme, typography, CMP components

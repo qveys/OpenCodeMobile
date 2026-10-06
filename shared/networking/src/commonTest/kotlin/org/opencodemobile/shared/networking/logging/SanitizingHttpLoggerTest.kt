@@ -26,6 +26,7 @@ import kotlin.test.assertTrue
  * [installSanitizingLogging] never emits the auth token or prompt body, even at
  * the most verbose logging level.
  */
+@Suppress("InjectDispatcher") // Real-time wait on the production dispatcher on purpose; DI is not wired into tests.
 class SanitizingHttpLoggerTest {
 
     private val fakeToken = "sk-test-fedcba9876543210fedcba9876543210"

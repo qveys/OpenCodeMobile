@@ -1,3 +1,8 @@
+// The composition root is the single place allowed to select an infrastructure
+// dispatcher; the cache write path must run off the UI thread, and there is no
+// injected dispatcher provider in the graph to consume here.
+@file:Suppress("InjectDispatcher")
+
 package org.opencodemobile.android.di
 
 import kotlinx.coroutines.CoroutineScope

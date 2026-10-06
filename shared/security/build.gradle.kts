@@ -32,8 +32,6 @@ kotlin {
 
         androidMain.dependencies {
             implementation(libs.okhttp)
-            // T2: the real biometric / device-credential prompt.
-            implementation(libs.androidx.biometric)
         }
 
         // The Android handshake tests build an OkHttp client directly (OPE-94);
