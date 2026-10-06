@@ -17,19 +17,46 @@ name: T1 device validation
 #
 # No `actions/upload-artifact` is available, so each script prints its JUnit
 # output and host-side TLS request logs into the job log.
+#
+# OPE-250: path-filtered to T1/security inputs; the emulator and simulator legs
+# run off the PR path (`main`/nightly), and a new push cancels a superseded run.
 on:
   pull_request:
     branches: [main]
+    # OPE-250 (Phase 1): only run when a T1/security input changes. Not a
+    # required status check, so a skipped run cannot leave a check "Expected".
+    paths:
+      - "shared/security/**"
+      - "shared/**"
+      - "scripts/t1/**"
+      - "gradle/**"
+      - "gradle.properties"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/t1-device-validation.yml"
   push:
     branches: [main]
+    paths:
+      - "shared/security/**"
+      - "shared/**"
+      - "scripts/t1/**"
+      - "gradle/**"
+      - "gradle.properties"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/t1-device-validation.yml"
+  schedule:
+    # OPE-250 (Phase 0 / D2): the emulator and simulator legs no longer run on
+    # pull requests, so validate them on a nightly schedule instead.
+    - cron: "30 3 * * *"
   workflow_dispatch:
 
 concurrency:
-  # One group per run: device validation is long (emulator boot), and a new
-  # commit must not be serialized behind a stalled in-flight emulator run. Each
-  # revision gets its own validation instead.
-  group: t1-device-${{ github.workflow }}-${{ github.sha }}-${{ github.run_id }}
-  cancel-in-progress: false
+  # OPE-250 (Phase 0.3): one group per ref so a new push cancels the in-flight
+  # device validation. Device runs are long (emulator boot); keeping superseded
+  # revisions alive only delays the current one.
+  group: t1-device-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -64,6 +91,9 @@ jobs:
 
   android-emulator:
     name: T1 handshake (Android emulator)
+    # OPE-250 (D2): heavy device validation stays off the PR path; it runs on
+    # `main` pushes, nightly, and manual dispatch.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -73,6 +103,9 @@ jobs:
 
   ios-simulator:
     name: T1 handshake (iOS simulator)
+    # OPE-250 (D2): heavy device validation stays off the PR path; it runs on
+    # `main` pushes, nightly, and manual dispatch.
+    if: github.event_name != 'pull_request'
     runs-on: macos-latest
     timeout-minutes: 75
     steps:

@@ -261,10 +261,14 @@ class ConnectionSetupControllerTest {
     @Test
     fun aSuccessfulConnectionNotifiesTheCompositionRoot() = runTest {
         val connected = mutableListOf<ConnectionHandshake>()
+        val connectedProfiles = mutableListOf<ServerProfile>()
         val controller = ConnectionSetupController(
             setup = ServerConnectionSetup(FakeGateway { target, _ -> handshake(target) }),
             scope = this,
-            onConnected = { connected += it },
+            onConnected = { profile, handshake ->
+                connectedProfiles += profile
+                connected += handshake
+            },
         )
 
         controller.onAddressChange("192.168.1.10")
@@ -275,6 +279,9 @@ class ConnectionSetupControllerTest {
 
         assertEquals(1, connected.size)
         assertEquals(controller.state.value.connected, connected.single())
+        // OPE-176: the composition root needs the profile (base URL) to bind the
+        // live connection graph, not only the handshake (profile id).
+        assertEquals("192.168.1.10", connectedProfiles.single().host)
     }
 
     @Test
