@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     // §7.3: the settings entry point is shared Compose code; the
                     // shell only supplies the connection content.
-                    LocalAccessSettingsHost {
+                    LocalAccessSettingsHost(onScreenCaptureBlockingChanged = privacyShield::applyCapturePolicy) {
                         val controller: ConnectionSetupController = koinInject()
                         ConnectionSetupScreen(controller = controller, scanner = qrCodeScanner)
                     }

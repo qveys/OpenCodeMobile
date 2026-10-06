@@ -26,6 +26,7 @@ import org.koin.compose.koinInject
 @Composable
 public fun LocalAccessSettingsRoute(
     onBack: () -> Unit,
+    onScreenCaptureBlockingChanged: () -> Unit = {},
     modifier: Modifier = Modifier,
     strings: LocalAccessStrings = localAccessStrings(),
 ) {
@@ -37,7 +38,10 @@ public fun LocalAccessSettingsRoute(
         actions = LocalAccessSettingsActions(
             onOptionalBiometricsChange = controller::setOptionalBiometricsEnabled,
             onMultitaskMaskingChange = controller::setMultitaskMaskingEnabled,
-            onScreenCaptureBlockingChange = controller::setScreenCaptureBlockingEnabled,
+            onScreenCaptureBlockingChange = {
+                controller.setScreenCaptureBlockingEnabled(it)
+                onScreenCaptureBlockingChanged()
+            },
         ),
         strings = strings,
         onBack = onBack,
@@ -54,12 +58,16 @@ public fun LocalAccessSettingsRoute(
  * point) with a "Settings" action; selecting it opens the local-access route,
  * whose back action returns to the connection content.
  *
+ * [onScreenCaptureBlockingChanged] fires after the preference is saved so the
+ * platform shell can apply it at once instead of on its next resume.
+ *
  * [connectionContent] is supplied by the app shell because only the shell may
  * see both features.
  */
 @Composable
 public fun LocalAccessSettingsHost(
     modifier: Modifier = Modifier,
+    onScreenCaptureBlockingChanged: () -> Unit = {},
     strings: LocalAccessStrings = localAccessStrings(),
     connectionContent: @Composable () -> Unit,
 ) {
@@ -67,7 +75,11 @@ public fun LocalAccessSettingsHost(
 
     Box(modifier = modifier.fillMaxSize()) {
         if (showSettings) {
-            LocalAccessSettingsRoute(onBack = { showSettings = false }, strings = strings)
+            LocalAccessSettingsRoute(
+                onBack = { showSettings = false },
+                onScreenCaptureBlockingChanged = onScreenCaptureBlockingChanged,
+                strings = strings,
+            )
         } else {
             connectionContent()
             TextButton(
