@@ -27,7 +27,7 @@ import org.koin.compose.koinInject
 public fun LocalAccessSettingsRoute(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    strings: LocalAccessStrings = LocalAccessStrings(),
+    strings: LocalAccessStrings = localAccessStrings(),
 ) {
     val controller: LocalAccessSettingsController = koinInject()
     val state by controller.state.collectAsState()
@@ -60,7 +60,7 @@ public fun LocalAccessSettingsRoute(
 @Composable
 public fun LocalAccessSettingsHost(
     modifier: Modifier = Modifier,
-    strings: LocalAccessStrings = LocalAccessStrings(),
+    strings: LocalAccessStrings = localAccessStrings(),
     connectionContent: @Composable () -> Unit,
 ) {
     var showSettings by remember { mutableStateOf(false) }

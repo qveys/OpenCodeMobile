@@ -20,8 +20,8 @@ import androidx.compose.ui.unit.dp
 import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
 
 /**
- * The §7.3 local-access settings surface, bilingual FR/EN through
- * [LocalAccessStrings].
+ * The §7.3 local-access settings surface. Its FR/EN copy comes from the
+ * design-system `composeResources` catalogue through [LocalAccessStrings].
  *
  * It renders the device preferences and forwards every change to the presenter;
  * it holds no state itself and never reads a platform API. The Android and iOS

@@ -84,21 +84,42 @@ The operating-system capability decides whether the capture-blocking control is
 rendered, so the same shared screen shows the real controls on each platform.
 
 The settings copy is provided by `LocalAccessStrings`
-(`features/settings/.../LocalAccessStrings.kt`), which selects FR or EN from the
-device locale. The shared settings surface cannot use the design-system
-`composeResources` catalogue yet: the iOS app links a single **static**
-`iosAppHost` framework, and Xcode does not embed that framework's Compose
-resources, so the first `stringResource(...)` on iOS aborts at startup (this
-surface is the first shared Compose UI hosted on iOS). Moving the copy back to
-the catalogue is a follow-up once iOS Compose-resource embedding is wired.
+(`features/settings/.../LocalAccessStrings.kt`), which reads the design-system
+`composeResources` catalogue (`Res.string.*`) for the device locale, like every
+other screen.
+
+## Compose resources on iOS
+
+`features/settings` (and the shared connection screen) are the first shared
+Compose UI hosted on iOS. The iOS app links a single **static** `iosAppHost`
+framework, and a static framework carries no bundle, so Xcode does not embed its
+`compose-resources` while Compose Multiplatform reads them from the **main**
+bundle at `compose-resources/`. Without an explicit step, the first
+`stringResource(...)` on iOS aborts at startup.
+
+The iOS project now stages them with the Compose Gradle plugin's own task:
+`iosApp/project.yml` declares a "Sync Compose resources" **post-build** phase
+that runs `:iosAppHost:syncComposeResourcesForIos`. The phase writes the
+transitively resolved resources to
+`$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/compose-resources` before code
+signing, which is exactly the layout the runtime reads. FR/EN parity of the
+catalogues is guarded by
+`design-system/src/androidUnitTest/.../SettingsStringsCatalogParityTest.kt`.
+
+`EraseEverythingScreen` (`features/settings/.../EraseEverythingScreen.kt`) also
+reads its copy from that catalogue, so it resolves on iOS now that the resources
+are embedded. No shell composes it yet — `IosEraseEverythingCompositionRoot`
+binds the erase graph but exposes no screen — so hosting it later will not
+reintroduce the startup abort; only the navigation entry point is missing.
 
 ## Real-device recipe lines (L4)
 
 Android:
 
 1. Install the debug app on a device/emulator, connect a server, open a session.
-2. **Open settings.** Tap **Settings** (top-right of the connection screen). The
-   "Local access" screen opens; **Back** returns.
+2. **Open settings.** Tap **Settings** (or **Réglages** on a French device,
+   top-right of the connection screen). The "Local access" / "Accès local" screen
+   opens; **Back** / **Retour** returns.
 3. **Masking (default).** Open the app switcher. The snapshot shows the opaque
    cover, not the transcript. Return to the app: the transcript is back.
 4. **Capture blocking (default off).** With the setting off, a screenshot
@@ -114,9 +135,10 @@ Android:
 iOS:
 
 1. Install the debug app on a device/simulator, connect a server.
-2. **Open settings.** Tap **Settings**, then check that the capture-blocking
-   switch is **absent** (iOS cannot block captures) and that an explanatory note
-   is shown. **Back** returns to the connection flow.
+2. **Open settings.** Tap **Settings** / **Réglages**, then check that the
+   capture-blocking switch is **absent** (iOS cannot block captures) and that an
+   explanatory note is shown. **Back** / **Retour** returns to the connection
+   flow.
 3. **Masking (default).** Swipe up to the app switcher: the snapshot is the
    black cover with the lock glyph. Returning restores the UI.
 4. **Biometrics.** On a device with Face ID / Touch ID (and a passcode) the

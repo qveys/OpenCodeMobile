@@ -1,4 +1,16 @@
 <resources>
+    <string name="settings_open">Settings</string>
+    <string name="settings_back">Back</string>
+    <string name="settings_local_access_title">Local access</string>
+    <string name="settings_optional_biometrics">Optional biometrics</string>
+    <string name="settings_optional_biometrics_description">Ask for Face ID, Touch ID or BiometricPrompt when you open a protected screen. Optional.</string>
+    <string name="settings_optional_biometrics_note">Turning this off gives access to no server credential. Server authentication stays independent from this device setting.</string>
+    <string name="settings_multitask_masking">Hide content in the app switcher</string>
+    <string name="settings_multitask_masking_description">Cover the transcript when the app goes to the background. On by default.</string>
+    <string name="settings_screen_capture_blocking">Block screenshots and screen recording</string>
+    <string name="settings_screen_capture_blocking_description">Ask the OS to block captures. Off by default; independent from the app-switcher cover.</string>
+    <string name="settings_screen_capture_blocking_note">On Android this blocks screenshots and screen recording too (FLAG_SECURE). The app-switcher cover stays available either way.</string>
+    <string name="settings_screen_capture_blocking_unavailable">Screen capture blocking is not available on this platform. The app-switcher cover still hides the content.</string>
     <string name="settings_erase_everything_title">Erase everything</string>
     <string name="settings_erase_everything_description">Removes the local data this app stores on this device. The server is never changed.</string>
     <string name="settings_erase_everything_action">Erase everything…</string>

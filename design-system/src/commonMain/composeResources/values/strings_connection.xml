@@ -1,0 +1,9 @@
+<resources>
+    <string name="connection_manual_title">Connect to a server</string>
+    <string name="connection_manual_address_label">Server address</string>
+    <string name="connection_manual_address_placeholder">192.168.1.10:4096 or https://host</string>
+    <string name="connection_manual_label">Label (optional)</string>
+    <string name="connection_manual_connect">Connect</string>
+    <string name="connection_manual_scan_qr">Scan QR code</string>
+    <string name="connection_manual_scan_failed">That QR code is not an OpenCode Mobile import link.</string>
+</resources>
