@@ -27,12 +27,54 @@ name: Build
 #       runner image, so both jobs build with the same major JDK.
 #   If the allowlist is later widened to include `actions/upload-artifact`, add
 #   an upload step for the paths listed under each job.
+#
+# OPE-250: the triggers are path-filtered to build inputs (module sources, Gradle
+# files, CI scripts). A docs-only or UI-copy PR no longer compiles everything.
 
 on:
   pull_request:
     branches: [main]
+    # OPE-250 (Phase 1): condition the heavy build/test matrix on the files a PR
+    # actually changes. This workflow is not a required status check, so a
+    # skipped run never leaves a check "Expected".
+    paths:
+      - "androidApp/**"
+      - "iosApp/**"
+      - "iosAppHost/**"
+      - "shared/**"
+      - "features/**"
+      - "design-system/**"
+      - "tests/**"
+      - "gradle/**"
+      - "gradle.properties"
+      - "gradlew"
+      - "gradlew.bat"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "config/**"
+      - "scripts/ci/**"
+      - "scripts/test.sh"
+      - ".github/workflows/build.yml"
   push:
     branches: [main]
+    paths:
+      - "androidApp/**"
+      - "iosApp/**"
+      - "iosAppHost/**"
+      - "shared/**"
+      - "features/**"
+      - "design-system/**"
+      - "tests/**"
+      - "gradle/**"
+      - "gradle.properties"
+      - "gradlew"
+      - "gradlew.bat"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "config/**"
+      - "scripts/ci/**"
+      - "scripts/test.sh"
+      - ".github/workflows/build.yml"
   workflow_dispatch:
 
 concurrency:
@@ -78,7 +120,9 @@ jobs:
           export JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-$JAVA_HOME}}"
           chmod +x gradlew
           java -version
-          ./gradlew linkDebugFrameworkIosSimulatorArm64 linkDebugFrameworkIosArm64 --no-daemon --stacktrace
+          ./gradlew linkDebugFrameworkIosSimulatorArm64 linkDebugFrameworkIosArm64 \
+            :iosAppHost:linkDebugFrameworkIosSimulatorArm64 :iosAppHost:linkDebugFrameworkIosArm64 \
+            --no-daemon --stacktrace
       - name: Verify iOS frameworks
         run: |
           set -euo pipefail
@@ -87,6 +131,7 @@ jobs:
           test -n "$(find . -path '*/build/bin/iosArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/security/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/shared/domain/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
+          test -n "$(find . -path '*/iosAppHost/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
 
   # OPE-17 — Test step. Runs the full KMP test suite from the SAME revision as
   # the build jobs above (one workflow run => one github.sha):
@@ -108,21 +153,37 @@ jobs:
   # cannot build an in-process TLS server. Without those servers the full iOS
   # suite fails with "could not connect to the server".
   #
-  # Runner policy (docs/CI-RUNNER-STRATEGY.md §2): the test jobs run on the
-  # company self-hosted pool, not GitHub-hosted runners —
-  #   - test-android -> [self-hosted, hostinger] (JDK 21 + Android SDK)
-  #   - test-ios     -> [self-hosted, mac]       (Xcode + JDK 21)
+  # Runner policy (docs/CI-RUNNER-STRATEGY.md §2): untrusted `pull_request`
+  # runs must not execute repo-controlled Gradle as uid 0 on the shared
+  # hostinger VPS, so `test-android` routes its `pull_request` run to an
+  # ephemeral GitHub-hosted runner and keeps the company pool for trusted
+  # `push`/`workflow_dispatch` (OPE-265). `test-ios` stays on the company `mac`
+  # pool, which is not shared with other repositories.
+  #   - test-android -> ubuntu-latest (PR) / [self-hosted, hostinger] (push)
+  #   - test-ios     -> [self-hosted, mac] (Xcode + JDK 21)
   # Each test step sources scripts/ci/runner-toolchain-env.sh (OPE-98) to
   # resolve JAVA_HOME / ANDROID_HOME; the allowlist permits only `actions/checkout`.
   test-android:
     name: Test Android (JVM unit tests)
-    runs-on: [self-hosted, hostinger]
+    # OPE-265 — untrusted `pull_request` code must not reach the shared
+    # hostinger pool: repo-controlled Gradle there executes as uid 0 on a host
+    # that also owns a read-write Docker socket. The same non-container job
+    # (JDK 21 + Android SDK only) runs on an ephemeral GitHub-hosted runner for
+    # PRs; trusted push/workflow_dispatch keep the company pool.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run Android/JVM unit tests
         run: |
           set -euo pipefail
+          # OPE-265 — on the GitHub-hosted runner the JDK 21 toolchain is
+          # preinstalled as $JAVA_HOME_21_X64; on the self-hosted pool
+          # runner-toolchain-env.sh resolves it from the OPE-98 provision.
+          if [ -n "${JAVA_HOME_21_X64:-}" ]; then
+            export JAVA_HOME="$JAVA_HOME_21_X64"
+            export PATH="$JAVA_HOME/bin:$PATH"
+          fi
           . scripts/ci/runner-toolchain-env.sh
           chmod +x gradlew
           java -version

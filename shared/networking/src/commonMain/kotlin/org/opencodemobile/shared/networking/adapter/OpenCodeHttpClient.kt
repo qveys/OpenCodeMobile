@@ -17,6 +17,10 @@ import org.opencodemobile.shared.security.identity.ServerIdentityPinController
  * `installSanitizingLogging` factory, which routes every line through
  * `LogRedactor` and redacts credential headers. A raw Ktor `Logging` plugin
  * install is rejected by the T4 CI gate (`scripts/check-no-secret-logging.sh`).
+ *
+ * The connection transport policy (HTTP method allowlist, no redirect
+ * following) is applied by [createOpenCodeHttpClient]'s platform actuals, so it
+ * holds for every caller and not only for this wrapper.
  */
 public object OpenCodeHttpClient {
 
@@ -34,6 +38,10 @@ public object OpenCodeHttpClient {
         identityPin: ServerIdentityPinController,
         configure: HttpClientConfig<*>.() -> Unit = {},
     ): HttpClient = createOpenCodeHttpClient(identityPin) {
+        // Session operations distinguish "server refused" from "server
+        // unreachable" by status; without this a 4xx/5xx body would fail
+        // deserialization instead of surfacing a typed failure.
+        expectSuccess = true
         install(ContentNegotiation) {
             json(defaultJson)
         }

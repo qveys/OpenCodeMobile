@@ -1,0 +1,151 @@
+name: Deployment Smoke Test
+
+# OPE-20 — After each deployment, run a basic smoke test to verify the
+# application is healthy, check key endpoints, verify the correct version is
+# deployed, and alert on failure.
+#
+# Trigger model:
+#   - `workflow_run` on the CD workflow: runs automatically after every
+#     completed CD run (i.e. after each deployment).
+#   - `workflow_dispatch`: run on demand against a specific environment.
+#   - `pull_request` / `push`: run the self-test so the smoke script itself is
+#     verified before it guards a deployment.
+#
+# Runner policy (docs/CI-RUNNER-STRATEGY.md §2): both jobs run on the company
+# self-hosted pool (`[self-hosted, hostinger]`), never on GitHub-hosted runners.
+#
+# Repo Actions allowlist: only `actions/checkout@*` may run; every other action
+# (`actions/setup-java`, `actions/upload-artifact`, ...) is rejected with
+# `startup_failure`. This workflow therefore uses ONLY `actions/checkout` and
+# relies on the bash/curl/python3 available on the self-hosted runner. The
+# JSON report is rendered in the job summary instead of an uploaded artifact.
+on:
+  workflow_run:
+    # Must match `name:` of the CD workflow (.github/workflows/cd.yml, OPE-19).
+    workflows: ["CD"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Base URL of the deployed environment to smoke test"
+        required: true
+        type: string
+      expected_version:
+        description: "Version the deployment must report (defaults to versionName)"
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - ".github/workflows/smoke-test.yml"
+      - "scripts/smoke/**"
+      - "scripts/tests/test-deployment-smoke-test.sh"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/smoke-test.yml"
+      - "scripts/smoke/**"
+      - "scripts/tests/test-deployment-smoke-test.sh"
+
+permissions:
+  contents: read
+
+concurrency:
+  # OPE-250 (Phase 0.4): cancel a superseded smoke run instead of queueing it.
+  group: smoke-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  self-test:
+    name: Smoke script self-test
+    # OPE-258 — untrusted `pull_request` code must not reach the hostinger
+    # self-hosted pool (repo code there runs as uid 0 on a shared host). PRs use
+    # an ephemeral GitHub-hosted runner, so fork PRs are covered too; the
+    # trusted push / workflow_dispatch triggers keep the company pool.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
+    timeout-minutes: 10
+    # The self-test verifies the smoke script for its own triggers; the
+    # post-deployment `smoke` job below owns the workflow_run path.
+    if: ${{ github.event_name != 'workflow_run' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Do not leave the workflow token in .git/config on a shared runner.
+          persist-credentials: false
+      - name: Run smoke script self-test
+        run: bash scripts/tests/test-deployment-smoke-test.sh
+
+  smoke:
+    name: Post-deployment smoke test
+    runs-on: [self-hosted, hostinger]
+    timeout-minutes: 15
+    # Only smoke a deployment that actually ran: a successful CD run, or a
+    # manual dispatch of this workflow.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       (github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch'))
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Smoke the exact revision CD deployed, not the default-branch tip.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+
+      - name: Resolve smoke-test parameters
+        id: params
+        env:
+          DISPATCH_BASE_URL: ${{ inputs.base_url }}
+          DISPATCH_VERSION: ${{ inputs.expected_version }}
+          # Environment-scoped targets. A single shared URL cannot prove that
+          # the right environment was deployed (Codex finding, OPE-215).
+          REPO_SMOKE_BASE_URL_STAGING: ${{ vars.SMOKE_BASE_URL_STAGING }}
+          REPO_SMOKE_BASE_URL_PRODUCTION: ${{ vars.SMOKE_BASE_URL_PRODUCTION }}
+          # Legacy single target, kept only as a deprecated fallback.
+          REPO_SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL }}
+          # The triggering CD run: a `v*` ref deploys to production, anything
+          # else to staging (matches `cd.yml`'s trigger model).
+          TRIGGERING_REF: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            target_env="manual"
+            base_url="${DISPATCH_BASE_URL}"
+            version="${DISPATCH_VERSION}"
+          else
+            case "${TRIGGERING_REF}" in
+              v*) target_env="production" ;;
+              *)  target_env="staging" ;;
+            esac
+            if [ "${target_env}" = "production" ]; then
+              base_url="${REPO_SMOKE_BASE_URL_PRODUCTION}"
+            else
+              base_url="${REPO_SMOKE_BASE_URL_STAGING}"
+            fi
+            if [ -z "${base_url}" ] && [ -n "${REPO_SMOKE_BASE_URL}" ]; then
+              echo "::warning::SMOKE_BASE_URL is not environment-scoped; set SMOKE_BASE_URL_STAGING and SMOKE_BASE_URL_PRODUCTION instead. Smoking '${REPO_SMOKE_BASE_URL}' for '${target_env}'."
+              base_url="${REPO_SMOKE_BASE_URL}"
+            fi
+            version=""
+          fi
+          if [ -z "${version}" ]; then
+            version="$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' androidApp/build.gradle.kts | head -n1)"
+          fi
+          echo "target_env=${target_env}" >>"$GITHUB_OUTPUT"
+          echo "base_url=${base_url}" >>"$GITHUB_OUTPUT"
+          echo "version=${version}" >>"$GITHUB_OUTPUT"
+
+      - name: Run deployment smoke tests
+        if: steps.params.outputs.base_url != ''
+        env:
+          DEPLOY_SMOKE_BASE_URL: ${{ steps.params.outputs.base_url }}
+          DEPLOY_SMOKE_EXPECTED_VERSION: ${{ steps.params.outputs.version }}
+          DEPLOY_SMOKE_ENDPOINTS: ${{ vars.SMOKE_ENDPOINTS || '/health' }}
+          DEPLOY_SMOKE_VERSION_PATH: ${{ vars.SMOKE_VERSION_PATH || '/version' }}
+          DEPLOY_SMOKE_ALERT_WEBHOOK: ${{ secrets.SMOKE_ALERT_WEBHOOK }}
+        run: bash scripts/smoke/deployment-smoke-test.sh
+
+      - name: No smoke target configured
+        if: steps.params.outputs.base_url == ''
+        run: |
+          echo "::notice::No smoke target configured for '${{ steps.params.outputs.target_env }}'. Set the repository variable SMOKE_BASE_URL_STAGING (staging) and/or SMOKE_BASE_URL_PRODUCTION (production) to the deployed environment's base URL to enable post-deployment smoke tests."
