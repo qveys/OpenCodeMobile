@@ -1,6 +1,169 @@
--- Placeholder schema so the SQLDelight plugin has a database to generate.
--- Real tables (scoped ServerId -> ProjectId -> SessionId per §5.3) land with
--- the shared/persistence implementation work, not this scaffold.
-CREATE TABLE cacheMarker (
-    id INTEGER NOT NULL PRIMARY KEY
+-- Local cache schema (D8; docs/ARCHITECTURE.md §3.4).
+--
+-- Scoped ServerId -> ProjectId -> SessionId. ServerId is kept even with a single
+-- profile (OP3) so multi-profile stays a data-layer change.
+--
+-- The cache is DISPOSABLE and REBUILDABLE: it is written only from server events
+-- and snapshots, is never a source of truth, and may be wiped (with its
+-- -wal/-shm files) at any time. Encryption at rest is applied by the driver
+-- (Android: SQLCipher + Keystore passphrase; iOS: Data Protection), not here.
+--
+-- NO SECRETS: credentials, tokens, and identity pins never enter this schema
+-- (docs/ARCHITECTURE.md §7.3 / boundary 4). There is intentionally no column for
+-- them, so a secret placed in the server config cannot be persisted.
+
+CREATE TABLE serverConfig (
+    server_id TEXT NOT NULL PRIMARY KEY,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    tls_mode TEXT NOT NULL,
+    label TEXT
 );
+
+CREATE TABLE project (
+    server_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    path TEXT,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (server_id, project_id)
+);
+
+CREATE TABLE session (
+    server_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    title TEXT,
+    parent_session_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (server_id, project_id, session_id)
+);
+
+CREATE TABLE transcriptMessage (
+    server_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (server_id, project_id, session_id, sequence)
+);
+
+CREATE TABLE draft (
+    server_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (server_id, project_id, session_id)
+);
+
+CREATE TABLE preference (
+    server_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (server_id, key)
+);
+
+-- session_id is '' for a project-level sync cursor.
+CREATE TABLE syncMetadata (
+    server_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    last_event_id TEXT,
+    snapshot_version INTEGER NOT NULL,
+    last_synced_at INTEGER NOT NULL,
+    PRIMARY KEY (server_id, project_id, session_id)
+);
+
+selectServerConfig:
+SELECT * FROM serverConfig WHERE server_id = ?;
+
+upsertServerConfig:
+INSERT OR REPLACE INTO serverConfig(server_id, host, port, tls_mode, label)
+VALUES (?, ?, ?, ?, ?);
+
+deleteServerConfig:
+DELETE FROM serverConfig WHERE server_id = ?;
+
+selectProjects:
+SELECT * FROM project WHERE server_id = ? ORDER BY updated_at DESC;
+
+upsertProject:
+INSERT OR REPLACE INTO project(server_id, project_id, name, path, updated_at)
+VALUES (?, ?, ?, ?, ?);
+
+deleteProjectsForServer:
+DELETE FROM project WHERE server_id = ?;
+
+selectSessions:
+SELECT * FROM session WHERE server_id = ? AND project_id = ? ORDER BY updated_at DESC;
+
+selectSession:
+SELECT * FROM session WHERE server_id = ? AND project_id = ? AND session_id = ?;
+
+upsertSession:
+INSERT OR REPLACE INTO session(server_id, project_id, session_id, title, parent_session_id, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+deleteSessionsForServer:
+DELETE FROM session WHERE server_id = ?;
+
+selectRecentTranscript:
+SELECT * FROM transcriptMessage
+WHERE server_id = ? AND project_id = ? AND session_id = ?
+ORDER BY sequence DESC
+LIMIT ?;
+
+selectTranscriptAscending:
+SELECT * FROM transcriptMessage
+WHERE server_id = ? AND project_id = ? AND session_id = ?
+ORDER BY sequence ASC;
+
+upsertTranscriptMessage:
+INSERT OR REPLACE INTO transcriptMessage(server_id, project_id, session_id, sequence, role, content, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+pruneTranscript:
+DELETE FROM transcriptMessage
+WHERE server_id = ? AND project_id = ? AND session_id = ?
+  AND sequence NOT IN (
+      SELECT sequence FROM transcriptMessage
+      WHERE server_id = ? AND project_id = ? AND session_id = ?
+      ORDER BY sequence DESC
+      LIMIT ?
+  );
+
+deleteTranscriptForServer:
+DELETE FROM transcriptMessage WHERE server_id = ?;
+
+selectDraft:
+SELECT * FROM draft WHERE server_id = ? AND project_id = ? AND session_id = ?;
+
+upsertDraft:
+INSERT OR REPLACE INTO draft(server_id, project_id, session_id, body, updated_at)
+VALUES (?, ?, ?, ?, ?);
+
+deleteDraftsForServer:
+DELETE FROM draft WHERE server_id = ?;
+
+selectPreference:
+SELECT value FROM preference WHERE server_id = ? AND key = ?;
+
+upsertPreference:
+INSERT OR REPLACE INTO preference(server_id, key, value) VALUES (?, ?, ?);
+
+deletePreferencesForServer:
+DELETE FROM preference WHERE server_id = ?;
+
+selectSyncMetadata:
+SELECT * FROM syncMetadata WHERE server_id = ? AND project_id = ? AND session_id = ?;
+
+upsertSyncMetadata:
+INSERT OR REPLACE INTO syncMetadata(server_id, project_id, session_id, last_event_id, snapshot_version, last_synced_at)
+VALUES (?, ?, ?, ?, ?, ?);
+
+deleteSyncForServer:
+DELETE FROM syncMetadata WHERE server_id = ?;
