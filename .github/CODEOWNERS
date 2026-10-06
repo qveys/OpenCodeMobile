@@ -1,0 +1,20 @@
+# CODEOWNERS — workflow-change review (OPE-265).
+#
+# Rationale: this repository is public and its own agents author the PR
+# branches. Routing `pull_request` jobs to ephemeral GitHub-hosted runners
+# contains outside-fork PRs, but a same-repo branch is indistinguishable from a
+# `push`, so runner routing gives a same-repo PR zero protection. The residual
+# risk is a prompt-injected agent change to `.github/workflows/**` — for example
+# one that adds a `pull_request_target` trigger with repository secrets, or
+# widens a `permissions:` block. Human code-owner review is the control that
+# closes that path.
+#
+# `require_code_owner_reviews` is enabled on `main` (OPE-265). CODEOWNERS is read
+# from the base branch, so this file takes effect for pull requests opened after
+# it merges. The repository owner is the only human maintainer (and the only
+# admin), so it is the code owner here.
+/.github/workflows/** @qveys
+
+# Own the ownership file itself, so the review requirement cannot be removed by
+# a workflow-adjacent change without the same approval.
+/.github/CODEOWNERS @qveys
