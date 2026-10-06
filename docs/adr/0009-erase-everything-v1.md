@@ -52,7 +52,10 @@ OPE-275 is retained (not cancelled).
 
 ### 2.1 Data erased — exact scope
 
-One action erases, on the device only:
+One action erases, on the device only. It first drops the **live in-memory
+session** — the credential permit and the transport are released via
+`OpenCodeGateway.disconnect()`, so the erased credential can no longer authorise
+a request — and then removes:
 
 1. **SecureStore — credentials and secrets.** The stored server credential /
    access secret for the profile, via the SecureStore abstraction (Keystore on
@@ -90,8 +93,9 @@ One action erases, on the device only:
 ### 2.3 Confirmation
 
 - **Reinforced destructive confirmation**: a dedicated confirmation step, not a
-  single tap (e.g. a distinct destructive-confirmation dialog naming the four
-  categories).
+  single tap (e.g. a distinct destructive-confirmation dialog naming every
+  category: live session, credential, profile + identity pin, cache, and
+  notifications).
 - **Biometric re-authentication is an optional additional gate**, available
   when the user has enrolled and enabled biometrics. It is **not** a hard
   requirement: §7.3 makes biometrics optional and says they never replace
@@ -135,9 +139,10 @@ One action erases, on the device only:
 ## 4. Consequences
 
 - **[OPE-275](/OPE/issues/OPE-275) is unblocked and retained** (`blockedByIssueIds`
-  cleared). Its acceptance contract is now frozen by §2: erase exactly the four
-  categories, reinforced confirmation with optional biometrics, return to the
-  connection screen, empty-store tests, and no T3/OP2 regression.
+  cleared). Its acceptance contract is now frozen by §2: close the live session
+  and erase exactly the defined categories, reinforced confirmation with
+  optional biometrics, return to the connection screen, empty-store tests, and
+  no T3/OP2 regression.
 - **[OPE-277](/OPE/issues/OPE-277) (L4 docs / privacy policy)** must describe the
   erase behaviour defined here; **[OPE-278](/OPE/issues/OPE-278) (device
   acceptance)** must include a pass line for it.

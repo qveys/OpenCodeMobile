@@ -53,5 +53,12 @@ class FileLocalCacheEraserInstrumentedTest {
             )
         }
         assertNull(keyStore.existingPassphrase(), "the cache key material must be gone after the erase")
+        // F4: the wrapping Keystore key must be removed too, not just the
+        // wrapped passphrase entry.
+        val androidKeyStore = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        assertFalse(
+            androidKeyStore.containsAlias("opencodemobile.cache.passphrase_key"),
+            "the cache wrapping key alias must be gone after the erase",
+        )
     }
 }

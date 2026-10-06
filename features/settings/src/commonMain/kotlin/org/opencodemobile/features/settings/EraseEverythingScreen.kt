@@ -20,6 +20,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.jetbrains.compose.resources.stringResource
 import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.settings_erase_category_cache
+import org.opencodemobile.design.system.resources.settings_erase_category_credentials
+import org.opencodemobile.design.system.resources.settings_erase_category_identity_pin
+import org.opencodemobile.design.system.resources.settings_erase_category_notifications
+import org.opencodemobile.design.system.resources.settings_erase_category_profile
+import org.opencodemobile.design.system.resources.settings_erase_category_session
 import org.opencodemobile.design.system.resources.settings_erase_everything_action
 import org.opencodemobile.design.system.resources.settings_erase_everything_cancel
 import org.opencodemobile.design.system.resources.settings_erase_everything_confirm
@@ -28,9 +34,11 @@ import org.opencodemobile.design.system.resources.settings_erase_everything_conf
 import org.opencodemobile.design.system.resources.settings_erase_everything_description
 import org.opencodemobile.design.system.resources.settings_erase_everything_done
 import org.opencodemobile.design.system.resources.settings_erase_everything_failed
+import org.opencodemobile.design.system.resources.settings_erase_everything_failed_categories
 import org.opencodemobile.design.system.resources.settings_erase_everything_in_progress
 import org.opencodemobile.design.system.resources.settings_erase_everything_reauth_failed
 import org.opencodemobile.design.system.resources.settings_erase_everything_title
+import org.opencodemobile.shared.application.erasure.ErasedCategory
 
 /**
  * The "Tout effacer" surface (ADR 0009).
@@ -109,8 +117,8 @@ public fun EraseEverythingScreen(
                     onDismiss = actions.dismiss,
                 )
 
-                is EraseEverythingUiState.Failed -> ResultMessage(
-                    text = stringResource(Res.string.settings_erase_everything_failed),
+                is EraseEverythingUiState.Failed -> FailureMessage(
+                    state = state,
                     onDismiss = actions.dismiss,
                 )
 
@@ -161,3 +169,47 @@ private fun ResultMessage(text: String, onDismiss: () -> Unit) {
         }
     }
 }
+
+/**
+ * Reports what is still on the device after a partial erase (ADR 0009 §2.2:
+ * "after completion, it reports what was erased"). The failed categories come
+ * from the coordinator, so a credential residue (F2) is distinguishable from a
+ * failed notification clear.
+ */
+@Composable
+private fun FailureMessage(state: EraseEverythingUiState.Failed, onDismiss: () -> Unit) {
+    val failed = state.report?.failures?.map { it.category }?.distinct().orEmpty()
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = stringResource(Res.string.settings_erase_everything_failed),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (failed.isNotEmpty()) {
+            Text(
+                text = stringResource(Res.string.settings_erase_everything_failed_categories),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            failed.forEach { category ->
+                Text(
+                    text = "• ${eraseCategoryLabel(category)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+        TextButton(onClick = onDismiss) {
+            Text(stringResource(Res.string.settings_erase_everything_cancel))
+        }
+    }
+}
+
+@Composable
+private fun eraseCategoryLabel(category: ErasedCategory): String = stringResource(
+    when (category) {
+        ErasedCategory.Session -> Res.string.settings_erase_category_session
+        ErasedCategory.Credentials -> Res.string.settings_erase_category_credentials
+        ErasedCategory.Profile -> Res.string.settings_erase_category_profile
+        ErasedCategory.IdentityPin -> Res.string.settings_erase_category_identity_pin
+        ErasedCategory.Cache -> Res.string.settings_erase_category_cache
+        ErasedCategory.Notifications -> Res.string.settings_erase_category_notifications
+    },
+)

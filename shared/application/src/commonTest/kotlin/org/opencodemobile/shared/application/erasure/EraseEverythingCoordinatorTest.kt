@@ -68,6 +68,27 @@ class EraseEverythingCoordinatorTest {
     }
 
     @Test
+    fun `erase disconnects the live session before touching any store`() = runTest {
+        // F1's safety depends on the order: the session must be dropped before
+        // anything else, so a partially erased device is never still
+        // authenticated. The event log pins that order (review finding 3).
+        val events = mutableListOf<String>()
+        val coordinator = EraseEverythingCoordinator(
+            gateway = FakeGateway(events),
+            profileStore = FakeProfileStore(profile, events = events),
+            credentialStore = FakeCredentialStore(),
+            identityStore = FakeIdentityStore(),
+            cacheEraser = FakeCacheEraser(events = events),
+            notifications = LocalNotificationCoordinator(RecordingSink(events)),
+        )
+
+        coordinator.erase()
+
+        assertEquals("session", events.first(), "the live session must be closed before any store")
+        assertTrue(events.indexOf("session") < events.indexOf("profile-read"))
+    }
+
+    @Test
     fun `erase reports a residue but still erases the other stores`() = runTest {
         val gateway = FakeGateway()
         val profileStore = FakeProfileStore(profile)
@@ -158,7 +179,9 @@ class EraseEverythingCoordinatorTest {
         assertEquals(listOf(ErasedCategory.Cache), report.failures.map { it.category })
     }
 
-    private class FakeGateway : OpenCodeGateway {
+    private class FakeGateway(
+        private val events: MutableList<String>? = null,
+    ) : OpenCodeGateway {
         var disconnectCalls: Int = 0
             private set
 
@@ -169,14 +192,17 @@ class EraseEverythingCoordinatorTest {
 
         override fun disconnect() {
             disconnectCalls += 1
+            events?.add("session")
         }
     }
 
     private class FakeProfileStore(
         var profile: ServerProfile?,
         private val failOnLoad: Boolean = false,
+        private val events: MutableList<String>? = null,
     ) : ServerProfileStore {
         override suspend fun load(): ServerProfile? {
+            events?.add("profile-read")
             if (failOnLoad) throw IllegalStateException("corrupted profile entry")
             return profile
         }
@@ -215,17 +241,21 @@ class EraseEverythingCoordinatorTest {
 
     private class FakeCacheEraser(
         private val result: Boolean = true,
+        private val events: MutableList<String>? = null,
     ) : LocalCacheEraser {
         var calls: Int = 0
             private set
 
         override suspend fun eraseLocalCache(): Boolean {
             calls += 1
+            events?.add("cache")
             return result
         }
     }
 
-    private class RecordingSink : LocalNotificationSink {
+    private class RecordingSink(
+        private val events: MutableList<String>? = null,
+    ) : LocalNotificationSink {
         private val stillPosted = mutableListOf<AppNotification>()
         var cancelAllCalls: Int = 0
             private set
@@ -240,6 +270,7 @@ class EraseEverythingCoordinatorTest {
 
         override suspend fun cancelAll() {
             cancelAllCalls += 1
+            events?.add("notifications")
             stillPosted.clear()
         }
     }
