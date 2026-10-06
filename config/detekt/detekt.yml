@@ -21,15 +21,15 @@
 #     wildcard imports, trailing newline, return count, `check` vs `throw`).
 #     `UnusedPrivateProperty` and the rest of `style` stay on.
 #
-# Baseline (OPE-221) — temporary, tracked debt, not policy.
+# Baseline (OPE-221, paid down by OPE-233) — no baseline file.
 #
-# `detekt-baseline.xml` at the repository root records the findings the L1
-# connection lot (PR #30) carries at its approved head. The owner approved that
-# diff; a lint-only refactor of the security-reviewed code would have
-# invalidated the review, so the findings are suppressed instead of fixing them
-# on the approved branch. A follow-up issue pays the debt down: fix the real
-# defects (exception handling, dead code, declaration name) and refactor the
-# complexity hotspots, then delete the entries. Do not add new entries.
+# PR #47 recorded the L1 connection lot's findings in `detekt-baseline.xml`,
+# but the file was never wired into the Gradle build and its entries went
+# stale (e.g. it still names `ConnectionSetupState.kt`, renamed to
+# `ConnectionSetupUiState.kt` before #30 landed). `detektAll` is green on the
+# L1 code with no baseline, so the file was deleted instead of maintained.
+# Do not reintroduce a baseline: fix real defects and refactor complexity
+# hotspots, or disable a genuinely noisy rule here with a comment.
 
 build:
   # One issue fails the gate. Keep the bar at zero; if a rule proves noisy,
