@@ -80,7 +80,11 @@ public class ChatRealtimeBridge(
      * transcript from the server.
      */
     private suspend fun resyncFromTheAuthoritativeSnapshot() {
-        turnAbort?.onAuthoritativeSnapshot(transcripts.state.value.sessionId)
+        // The snapshot is authoritative: re-enable event-derived state only once
+        // the server transcript has been rebuilt, otherwise a late event from the
+        // aborted turn is painted during the refresh round-trip and then erased.
+        val sessionId = transcripts.state.value.sessionId
         transcripts.refresh()
+        turnAbort?.onAuthoritativeSnapshot(sessionId)
     }
 }
