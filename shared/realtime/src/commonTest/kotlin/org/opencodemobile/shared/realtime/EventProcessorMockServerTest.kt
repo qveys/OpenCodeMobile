@@ -29,6 +29,7 @@ import org.opencodemobile.shared.testsupport.OpenCodeFixtures
  * scenarios the OPE-106 acceptance criteria name: `streaming`, `disconnect`,
  * `reconnect`, `malformed-event` and `slow-network`.
  */
+@Suppress("InjectDispatcher") // Real-time mock tests on purpose; dispatchers are not wired into tests.
 class EventProcessorMockServerTest {
 
     private val servers = mutableListOf<MockOpenCodeServer>()

@@ -4,23 +4,28 @@ name: Lint
 # `main`, and fails the build on any detekt finding.
 #
 # The gate itself is configured by OPE-14: `config/detekt/detekt.yml` holds the
-# bug-focused rule set, `build.gradle.kts` applies detekt once at the root over
-# every `.kt` source, and `scripts/lint.sh` is the single entry point that runs
-# `./gradlew detekt`. This workflow only wires that entry point into CI, so the
-# detekt configuration and its CI job ship together (both live on PR #20).
+# bug-focused rule set and `scripts/lint.sh` is the single entry point. OPE-213
+# added type resolution: `build.gradle.kts` applies detekt to every subproject
+# so the per-compilation tasks carry a classpath, and `scripts/lint.sh` runs the
+# `detektAll` aggregate over the portable root scan plus those typed tasks.
+# Because type resolution needs the compiled classes, this job now compiles the
+# Android/Kotlin modules before linting. The detekt configuration and its CI job
+# ship together (both live on PR #20).
 #
 # Toolchain policy (repo Actions allowlist): the organization permits only
 # `actions/checkout@*`; every other marketplace action is rejected with
 # `startup_failure` before the job starts. This workflow therefore uses ONLY
-# `actions/checkout` plus plain shell steps, and relies on the toolchain that is
-# already installed on the runner.
+# `actions/checkout` plus plain shell steps.
 #
-# Runner policy (docs/CI-RUNNER-STRATEGY.md §2): JDK 21 + Gradle work runs on
-# the company self-hosted pool, not GitHub-hosted runners. The step sources
-# scripts/ci/runner-toolchain-env.sh (OPE-98) to resolve JAVA_HOME. The Gradle
+# Runner policy (docs/CI-RUNNER-STRATEGY.md §2, OPE-212): JDK 21 + Gradle work
+# runs on the company self-hosted pool, not GitHub-hosted runners, and since
+# OPE-212 it runs inside a throwaway, non-root container
+# (docs/adr/0007-ephemeral-nonroot-hostinger-jobs.md). The image is pinned by
+# digest and carries JDK 21, so the job no longer depends on the host toolchain:
+# fresh filesystem per job, no shared state, build as uid 10001. The Gradle
 # distribution and every dependency stay pinned in the repo
 # (gradle/wrapper/gradle-wrapper.properties, gradle/libs.versions.toml), so the
-# runner is a cache, not a source of truth.
+# container is a cache, not a source of truth.
 #
 # The `pull_request` trigger is path-filtered (OPE-250, Phase 1) to source and
 # lint-config inputs. `lint` is NOT in `required_status_checks` (only
@@ -60,22 +65,61 @@ concurrency:
 permissions:
   contents: read
 
+# Container jobs default to `sh`; every step here uses bash.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   lint:
     name: lint
-    runs-on: [self-hosted, hostinger]
-    timeout-minutes: 30
+    # OPE-265 — untrusted `pull_request` code must not reach the shared
+    # hostinger pool (repo-controlled Gradle as uid 0 on a host that also owns
+    # a read-write Docker socket). The same job runs on an ephemeral
+    # GitHub-hosted runner for PRs; trusted push/workflow_dispatch keep the
+    # company pool.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
+    timeout-minutes: 45
+    # OPE-212 — ephemeral, non-root isolation. Digest-pinned JDK 21 image; the
+    # job gets a fresh filesystem and builds as uid 10001.
+    container:
+      image: eclipse-temurin@sha256:6adefddd4a20bceef702cedb0b03952fcd7691f9c7ccffe27014992abc0b46bd
+      # OPE-254 — type-resolved detekt compiles the Android/KMP modules, so the
+      # job needs the Android SDK. The OPE-98 host toolchain lives at
+      # /opt/android-sdk on both hostinger runners; mount it read-only so the
+      # container stays ephemeral and non-root while `runner-toolchain-env.sh`
+      # can export ANDROID_HOME. Read-only keeps the host SDK out of reach for
+      # writes. This deliberately narrows ADR 0007's "no host volume" claim;
+      # reviewed by Security/DevOps in OPE-254.
+      # OPE-265 — the GitHub-hosted image ships the same SDK at
+      # /usr/local/lib/android/sdk, so the bind source is resolved per runner.
+      volumes:
+        - ${{ github.event_name == 'pull_request' && '/usr/local/lib/android/sdk:/opt/android-sdk:ro' || '/opt/android-sdk:/opt/android-sdk:ro' }}
+      options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run detekt lint gate
         run: |
           set -euo pipefail
-          . scripts/ci/runner-toolchain-env.sh
-          chmod +x gradlew
-          java -version
-          CI=1 bash scripts/lint.sh
-      # upload-artifact is not on the Actions allowlist, so inline the report
-      # into the job log on every run to keep failures actionable.
+          # OPE-265 — on the GitHub-hosted runner the JDK 21 toolchain is
+          # preinstalled as $JAVA_HOME_21_X64; on the self-hosted pool
+          # runner-toolchain-env.sh resolves it from the OPE-98 provision.
+          if [ -n "${JAVA_HOME_21_X64:-}" ]; then
+            export JAVA_HOME="$JAVA_HOME_21_X64"
+            export PATH="$JAVA_HOME/bin:$PATH"
+          fi
+          # The uid-10001 wrapper exists to cross the root-owned self-hosted
+          # `_work` mount. On the ephemeral GitHub-hosted runner there is no
+          # shared host and no host Docker socket, and chowning the runner temp
+          # breaks the checkout post-step, so run the gate directly there.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            env CI=1 bash -c '. scripts/ci/runner-toolchain-env.sh && chmod +x gradlew && java -version && bash scripts/lint.sh'
+          else
+            bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c '. scripts/ci/runner-toolchain-env.sh && chmod +x gradlew && java -version && bash scripts/lint.sh'
+          fi
+      # upload-artifact is not on the Actions allowlist, so inline the reports
+      # into the job log on every run to keep failures actionable. Type-resolved
+      # tasks write one report per compilation under build/reports/detekt/<module>.
       - name: Publish detekt report to the job log
         if: always()
         run: |
@@ -85,10 +129,9 @@ jobs:
             echo "no detekt report directory was produced"
             exit 0
           fi
-          ls -la "$report_dir"
-          for f in "$report_dir/detekt.txt" "$report_dir/detekt.md"; do
-            if [ -f "$f" ]; then
-              echo "----- $f -----"
-              cat "$f"
-            fi
-          done
+          # Only the text and markdown reports are inlined; the xml/html/sarif
+          # reports stay on the runner.
+          while IFS= read -r f; do
+            echo "----- $f -----"
+            cat "$f"
+          done < <(find "$report_dir" -type f \( -name '*.txt' -o -name '*.md' \) | sort)

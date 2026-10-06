@@ -1,0 +1,54 @@
+# Declarations that scripts/check-verification-metadata-coverage.sh cannot
+# confirm are covered by gradle/verification-metadata.xml (SEC-05b, controls 1
+# and 2).
+#
+# One entry per line: the declaration, then whitespace, then the reason. A line
+# with no reason is refused by the gate, on purpose — an exemption nobody can
+# justify is indistinguishable from a deliberate bypass. Two kinds of entry are
+# valid:
+#
+#   * a declaration that carries no coordinate at parse time (a plugin-provided
+#     extension such as `compose.runtime`, a `kotlin("stdlib")` call, a
+#     two-segment literal whose version comes from a BOM);
+#   * a `group:name:version` coordinate that is declared but that no Gradle
+#     task ever resolves, so `--write-verification-metadata` cannot produce a
+#     pin for it. This is a temporary state, not a permanent one: the moment the
+#     module that declares it is wired into a task, regenerate the pins and
+#     delete the entry.
+#
+# Nothing belongs here that a Gradle task resolves. If the gate reports a
+# coordinate that CI does resolve, regenerate the pins (docs/CI-CD-SECURITY.md
+# §8) instead of adding it here.
+#
+# --- no coordinate at parse time -------------------------------------------
+#
+# The org.jetbrains.compose Gradle plugin contributes these as a `compose`
+# dependency-handler extension. They resolve to org.jetbrains.compose.* modules
+# that are already pinned in verification-metadata.xml; only the plugin-side
+# spelling hides the coordinate from a static read.
+
+compose.runtime               org.jetbrains.compose Gradle plugin extension (compose-multiplatform 1.7.1); it resolves to org.jetbrains.compose.runtime:runtime, already pinned
+compose.foundation           org.jetbrains.compose Gradle plugin extension, same as compose.runtime
+compose.material3            org.jetbrains.compose Gradle plugin extension, same as compose.runtime
+compose.ui                   org.jetbrains.compose Gradle plugin extension, same as compose.runtime
+compose.components.resources org.jetbrains.compose Gradle plugin extension, same as compose.runtime
+kotlin("test")                   Kotlin Gradle plugin dependency handler (androidApp, OPE-170); it resolves to org.jetbrains.kotlin:kotlin-test:2.1.0, which is pinned (kotlin-test-2.1.0-all.jar in verification-metadata.xml). Only the plugin-side spelling hides the coordinate from a static read.
+
+# --- declared but never resolved -------------------------------------------
+#
+# (none)
+#
+# OPE-220 removed the five konsist/kotest lines that used to live here. Their
+# stated reason -- "architecture-tests is not included in settings.gradle.kts, so
+# this is never resolved" -- stopped being true when OPE-137 wired
+# `include(":architecture-tests")` into the build and CI started running
+# `:architecture-tests:test`. Once that happened the coordinates resolved for the
+# first time with no checksum, which is what turned Architecture tests and
+# Test Android red. An exemption that grants trust to a dependency a task really
+# resolves is a bypass, not a guard, so the entries go in the same commit that
+# regenerates the pins.
+#
+# Two of them named `com.lemonapp.konsist:konsist` while the build declares
+# `com.lemonappdev:konsist`, so they did not even suppress the coordinates they
+# claimed to. Do not re-add an entry here to silence SEC-05b: the correct fix is
+# always to regenerate the pins.
