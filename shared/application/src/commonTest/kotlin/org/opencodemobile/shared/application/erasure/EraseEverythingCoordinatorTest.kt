@@ -163,7 +163,7 @@ class EraseEverythingCoordinatorTest {
     }
 
     @Test
-    fun `a residue in the cache is surfaced, not swallowed`() = runTest {
+    fun `a residue in the cache is surfaced and not swallowed`() = runTest {
         val coordinator = EraseEverythingCoordinator(
             gateway = FakeGateway(),
             profileStore = FakeProfileStore(profile),
