@@ -28,6 +28,8 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
             // V1-05 chat: the transcript/composer tests drive the real adapter
             // against MockOpenCodeServer and replay the EventProcessor pipeline.
+            // V1-06 ingress end to end: the permission surface is driven by the
+            // real EventProcessor pipeline + gateway against MockOpenCodeServer.
             implementation(project(":shared:realtime"))
             implementation(project(":shared:networking"))
             implementation(project(":shared:test-support"))
