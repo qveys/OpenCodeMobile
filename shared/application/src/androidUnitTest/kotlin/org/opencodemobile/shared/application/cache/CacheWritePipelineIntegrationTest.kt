@@ -42,6 +42,7 @@ import org.opencodemobile.shared.persistence.db.Cache
  * connection online a snapshot is written and can be read back, and with the
  * connection offline the same write is refused and the cache stays empty.
  */
+@Suppress("InjectDispatcher") // JVM unit test: real dispatcher on purpose; DI is not wired in tests.
 class CacheWritePipelineIntegrationTest {
 
     private val scope = CacheScope(serverId = "srv_1", projectId = "prj_1")
