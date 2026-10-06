@@ -40,5 +40,11 @@ kotlin {
             implementation(libs.koin.compose)
             implementation(libs.kotlinx.coroutines.core)
         }
+
+        // V1-13: the iOS notification projection is asserted on the simulator.
+        maybeCreate("iosTest").dependencies {
+            implementation(kotlin("test"))
+            implementation(project(":shared:domain"))
+        }
     }
 }
