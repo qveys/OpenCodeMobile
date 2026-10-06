@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- V1-13: local notifications. Requested at runtime on API 33+ (MainActivity). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:name=".OpenCodeMobileApp"
         android:allowBackup="false"

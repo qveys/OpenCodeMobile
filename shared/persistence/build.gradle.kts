@@ -38,6 +38,7 @@ kotlin {
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
         }
 
         // JVM unit tests exercise the SQLDelight schema/queries over a plain

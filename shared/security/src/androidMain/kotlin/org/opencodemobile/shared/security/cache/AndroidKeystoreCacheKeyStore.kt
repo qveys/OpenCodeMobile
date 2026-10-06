@@ -75,7 +75,21 @@ public class AndroidKeystoreCacheKeyStore(
 
     override suspend fun deletePassphrase(): Unit = withContext(ioDispatcher) {
         mutex.withLock {
-            preferences.edit().remove(ENTRY_KEY).commit()
+            val persisted = preferences.edit().remove(ENTRY_KEY).commit()
+            // Fail closed like createPassphrase: a failed prefs write would
+            // otherwise be reported as a successful key wipe while the wrapped
+            // passphrase is still on disk (review F3).
+            check(persisted) { "Failed to remove the cache passphrase; failing closed" }
+            // Also drop the wrapping Keystore key, so no cache key material
+            // remains at all (ADR 0009 §2.1.3, review F4).
+            deleteWrappingKey()
+        }
+    }
+
+    private fun deleteWrappingKey() {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        if (keyStore.containsAlias(KEY_ALIAS)) {
+            keyStore.deleteEntry(KEY_ALIAS)
         }
     }
 
