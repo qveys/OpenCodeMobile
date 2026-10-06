@@ -20,7 +20,7 @@ against this policy:
 | Fork PR CI uses `pull_request`, not `pull_request_target` | **Compliant** | `ci.yml` triggers on `pull_request: branches: [main]` only |
 | CI workflow has no secrets | **Compliant** | `ci.yml` references no `secrets.*` |
 | CD/signing restricted to protected-branch pushes | **Compliant so far** | `cd.yml` triggers on `push: branches: [main]` only, no tag/PR triggers |
-| Actions pinned to full commit SHA (not floating tags) | **Compliant** | all `uses:` steps pin `@<sha> # vX.Y.Z` |
+| Actions pinned to full commit SHA (not floating tags) | **Compliant** | all `uses:` steps pin `@<sha> # vX.Y.Z`; enforced by `scripts/check-workflow-action-pinning.sh` (SEC-04), which also rejects a container action on a tag |
 | Explicit least-privilege `permissions:` block | **Gap** | neither workflow sets `permissions:`, so jobs run with the repo's default token scope instead of an explicit minimum |
 | Signing/upload implemented with short-lived creds | **N/A yet** | `deploy` job in `cd.yml` is a placeholder (OPE-19); no signing secrets exist yet — this policy governs how it must be built |
 | GitHub Environment protection (required reviewers) on deploy job | **Gap** | `deploy` has no `environment:` — nothing currently stops it from running unattended on every `main` push once implemented |
@@ -109,7 +109,17 @@ implement against, so verification isn't duplicated inside T10/OPE-23 itself.
 - [ ] No secret is readable by a job triggered from a fork PR
 - [ ] Signing/upload jobs are gated by a GitHub Environment with required reviewers
 - [ ] Signing/upload jobs only trigger on protected `main`/release-tag pushes
-- [ ] New/changed `uses:` steps are pinned to a full commit SHA, not a floating tag
+- [ ] New/changed `uses:` steps are pinned to a full commit SHA, not a floating tag. This covers a repository action, a sub-path action (`owner/repo/path/to/action`) and a reusable workflow (`owner/repo/.github/workflows/x.yml`) alike; a container action (`docker://`) is pinned to an image digest, never to a tag. Local `./path` steps are exempt
+      (enforced by `scripts/check-workflow-action-pinning.sh`, SEC-04)
+- [ ] `gradle/wrapper/gradle-wrapper.properties` still carries a `distributionSha256Sum` and an `https` `distributionUrl` whose **host** is a trusted publisher — the official `services.gradle.org` on a `/distributions/gradle-<version>-{bin,all}.zip` path, or a host listed in `gradle/wrapper/gradle-distribution-allowlist.txt` — and `gradle/wrapper/gradle-wrapper.jar.sha256` matches the committed wrapper JAR. `https` alone is not sufficient: it constrains the transport, not the publisher, so a pull request editing `distributionUrl` and `distributionSha256Sum` together would otherwise point the build at an attacker's archive (T10)
+      (enforced by `scripts/check-gradle-supply-chain.sh`, SEC-05)
+- [ ] `gradle/verification-metadata.xml` is committed, parses, and still pins a SHA-256 for every resolved artifact, and every Gradle invocation in CI still resolves cleanly under strict dependency verification
+      (enforced by `scripts/check-gradle-supply-chain.sh`, SEC-05; the gate needs `python3` on the runner and fails closed without it)
+- [ ] If a PR changes a build input (`build.gradle.kts`, `settings.gradle.kts`, `gradle/libs.versions.toml`), `gradle/verification-metadata.xml` was regenerated **from a machine reaching both Maven Central and the Gradle Plugin Portal**, and every pre-existing `.gradle.plugin` marker pin was re-read. The Portal and Central serve different bytes for six of the seven markers in this file; regenerating from a Central-only machine silently rewrites them and breaks the build (§8.1)
+      (enforced by `scripts/check-verification-metadata-coverage.sh`, SEC-05b)
+- [ ] Any declaration the coverage gate cannot resolve to a coordinate is registered in `gradle/verification-coverage-exemptions.txt` **with a reason**, and every exempt coordinate is genuinely never resolved by a task
+- [ ] No workflow under `.github/workflows/` passes `--write-verification-metadata`; a workflow that does is registered in `gradle/verification-regeneration-exemptions.txt` with a reason and triggers on `workflow_dispatch` only
+      (enforced by `scripts/check-verification-metadata-coverage.sh`, SEC-05b)
 - [ ] Any `container:` image is pinned by digest (`name@sha256:…`), never by a
       floating tag; a repository-built image is published from a reviewed
       Dockerfile by a path-filtered workflow that only pushes on trusted refs
@@ -117,7 +127,113 @@ implement against, so verification isn't duplicated inside T10/OPE-23 itself.
 - [ ] No credential value is printed to logs (`::add-mask::` used for any dynamically generated secret)
 - [ ] Static long-lived store credentials are used only where OIDC/short-lived auth isn't supported by the target platform
 
-## 8. Container images used by CI jobs
+## 8. Regenerating `gradle/verification-metadata.xml`
+
+Dependency verification is strict: every resolved artifact must have a SHA-256 in
+`gradle/verification-metadata.xml`, or the build stops. Adding a dependency therefore means
+regenerating that file:
+
+```bash
+./gradlew --write-verification-metadata sha256 <task>
+```
+
+Pick tasks that resolve the whole graph you care about — a configuration left unresolved
+leaves its artifacts unpinned, and the failure then appears later, on whatever task happens
+to touch them first.
+
+### 8.1 The Portal / Maven Central divergence — read this before regenerating
+
+**The command above is only correct from a machine that reaches *both* Maven Central and the
+Gradle Plugin Portal. The two do not serve the same bytes for plugin marker POMs.**
+
+A plugin id resolves to a marker artifact, `<id>:<id>.gradle.plugin:<version>`. For
+JetBrains-published plugins the Portal carries its own marker, and its bytes differ from the
+copy Central serves. Measured on this repository, by comparing the committed pins against the
+bytes Maven Central actually returns:
+
+| Marker | Committed pin | Maven Central bytes | Verdict |
+|---|---|---|---|
+| `app.cash.sqldelight.gradle.plugin` | `c48e1e1d…` | `c48e1e1d…` | identical |
+| `org.jetbrains.kotlin.multiplatform.gradle.plugin` | `d0be7b59…` | `a30f2698…` | **different** |
+| `org.jetbrains.kotlin.android.gradle.plugin` | `96e007b3…` | `0b1d7e9b…` | **different** |
+| `org.jetbrains.kotlin.jvm.gradle.plugin` | `df8026dc…` | `1a630541…` | **different** |
+| `org.jetbrains.compose.gradle.plugin` | `52d83f25…` | `1c945a53…` | **different** |
+| `org.jetbrains.kotlin.plugin.compose.gradle.plugin` | `fe78fa62…` | `db3bde26…` | **different** |
+| `org.jetbrains.kotlin.plugin.serialization.gradle.plugin` | `0e13653b…` | `05b990d0…` | **different** |
+
+sqldelight matches because it is published on Central, and the Portal proxies Central for
+plugins it does not publish itself. detekt behaved the same way — that is the pin that broke
+CI on [OPE-220](/OPE/issues/OPE-220) (`expected fc15b14f but was 6b7aa8ea`).
+
+`gradlePluginPortal()` is listed **first** in `pluginManagement`, so the Portal is the copy
+the build actually resolves — Central is the fallback, not the source of truth.
+
+**Consequence:** regenerating from a machine that cannot reach the Portal silently rewrites
+those six pins with the Central value and breaks the build, with no warning from Gradle. To
+regenerate safely:
+
+1. **Preferred — regenerate where both repositories are reachable.** This project's own
+   self-hosted runners reach the Portal.
+2. **Otherwise — regenerate, then re-read every pre-existing marker pin.** Do not trust the
+   diff for plugin markers. For each `<component>` whose `name` ends in `.gradle.plugin` and
+   that already existed, confirm the pin still matches what CI resolves. Where the two servers
+   genuinely disagree, keep the **Portal** bytes in `value` (the convention this file already
+   uses for the JetBrains markers) and record the Central copy as
+   `<also-trust value="…"/>`, so the pin verifies on either server without silently changing
+   which artifact is trusted.
+
+Regenerating with no new dependencies must produce an empty diff. A non-empty diff on a change
+that declares nothing new means something else moved, and that diff is worth reading.
+
+### 8.2 CI never regenerates the pins; the diff is reviewed by hand
+
+`--write-verification-metadata` **must not** run on `pull_request` or on `push` to `main`. A
+CI job running it would rewrite the pins from an environment nobody reviewed — the whole
+control, defeated in one step. Pins are regenerated by a developer and landed through the
+normal PR flow like any other change.
+
+This is enforced, not merely documented.
+`scripts/check-verification-metadata-coverage.sh` fails if `--write-verification-metadata`
+appears in any line of a file under `.github/workflows/` that YAML would execute — `run:`
+blocks included, comments excluded, since a comment cannot run a command. A workflow that
+genuinely needs it must be registered in `gradle/verification-regeneration-exemptions.txt`
+**with a reason**, and the gate then reads that workflow's own `on:` block to confirm it
+triggers on `workflow_dispatch` and nothing else. Adding the flag and a `pull_request` trigger
+in one pull request fails. The list is empty today: there is no CI pin writer.
+
+### 8.3 Drift is caught before the build runs
+
+Regeneration is a manual step, so the failure mode is a forgotten one: a dependency lands in
+`build.gradle.kts`, `settings.gradle.kts` or `gradle/libs.versions.toml`, the pins are never
+regenerated, and the build fails later during plugin resolution — every job red at once, with
+no link back to the change that caused it. That is [OPE-220](/OPE/issues/OPE-220).
+
+`scripts/check-verification-metadata-coverage.sh` closes that class of bug in the fast,
+JDK-free static step. It resolves every `libs.` alias through the version catalog, expands
+bundles, reads literal `group:name:version` coordinates, maps plugin aliases and
+`id("…") version "…"` to their marker coordinates, and requires each to exist in
+`gradle/verification-metadata.xml` as a `<component>`. On this repository it measures 37
+declared external dependencies, all pinned. It also:
+
+- **fails on a declaration it cannot resolve.** A plugin extension (`compose.runtime`), a
+  `kotlin("stdlib")` call, or a two-segment literal whose version comes from a BOM carries no
+  coordinate at parse time. Ignoring those would leave a hole exactly the shape of the bug, so
+  each must be registered in `gradle/verification-coverage-exemptions.txt` **with a reason**. A
+  line without a reason is refused — an exemption nobody can justify is indistinguishable from
+  a bypass.
+- **fails closed on an unreadable input.** A catalog entry whose form it cannot parse, an
+  unknown `libs.` alias, an exemption file it cannot read, or a missing `python3` on the runner
+  are errors, not skips.
+- **refuses to count an empty pin file as coverage.** The document is parsed and its components
+  measured, so `<components></components>` cannot pass as "fully pinned".
+
+Five coordinates are currently exempt, all of them declared by `architecture-tests/` — a
+module `settings.gradle.kts` does not include, so no task resolves it and the regeneration
+cannot pin it. That is a temporary state, and [OPE-137](/OPE/issues/OPE-137), which wires the
+module into the build, must regenerate the pins and delete those five entries in the same
+commit.
+
+## 9. Container images used by CI jobs
 
 `hostinger` jobs may declare a `container:` to get an ephemeral, non-root build
 environment (ADR `docs/adr/0007-ephemeral-nonroot-hostinger-jobs.md`). Container
@@ -143,3 +259,4 @@ images are part of the build supply chain and are governed like `uses:` steps:
 - `docs/CI-CD.md` (OPE-13) — pipeline structure and current secret inventory
 - OPE-9, OPE-10, OPE-19 — own the GitHub-settings and deploy-implementation pieces this policy can't
   self-certify from a pre-repo, pre-code state
+- [OPE-220](/OPE/issues/OPE-220) — the incident that motivated §8: the detekt marker pin, and the Portal / Central divergence behind it

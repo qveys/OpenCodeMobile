@@ -1,0 +1,9 @@
+<resources>
+    <string name="composer_placeholder">Saisissez une consigne…</string>
+    <string name="composer_send">Envoyer</string>
+    <string name="composer_dictate">Dicter</string>
+    <string name="composer_dictating">Arrêter</string>
+    <string name="composer_dictation_unavailable">La dictée n’est pas disponible sur cet appareil pour cette langue. Saisissez votre consigne.</string>
+    <string name="composer_dictation_permission">La dictée a besoin du microphone. Autorisez-le dans les réglages, ou saisissez votre consigne.</string>
+    <string name="composer_send_failed">La consigne n’a pas pu être envoyée. Le brouillon est conservé pour réessayer.</string>
+</resources>

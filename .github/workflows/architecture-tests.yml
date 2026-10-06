@@ -43,12 +43,16 @@ concurrency:
 permissions:
   contents: read
 
+# OPE-258 — runner policy: untrusted `pull_request` code runs on an ephemeral
+# GitHub-hosted runner; only trusted `push`/`workflow_dispatch` use the
+# `[self-hosted, hostinger]` pool (repo code there executes as uid 0 on a
+# shared host, and a container job there owns the host Docker socket).
 jobs:
   # Classifies the change set. Must run on every trigger: the required
   # `Architecture tests` gate reads its output.
   detect:
     name: Detect boundary changes
-    runs-on: [self-hosted, hostinger]
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     outputs:
       run: ${{ steps.detect.outputs.run }}
     steps:
@@ -101,13 +105,20 @@ jobs:
     name: Architecture tests (module boundaries)
     needs: detect
     if: needs.detect.outputs.run == 'true'
-    runs-on: [self-hosted, hostinger]
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run §5.2 module-boundary tests
         run: |
           set -euo pipefail
+          # OPE-258 — on the GitHub-hosted runner the JDK 21 toolchain is
+          # preinstalled as $JAVA_HOME_21_X64; on the self-hosted pool
+          # runner-toolchain-env.sh resolves it from the OPE-98 provision.
+          if [ -n "${JAVA_HOME_21_X64:-}" ]; then
+            export JAVA_HOME="$JAVA_HOME_21_X64"
+            export PATH="$JAVA_HOME/bin:$PATH"
+          fi
           . scripts/ci/runner-toolchain-env.sh
           chmod +x gradlew
           java -version
@@ -119,7 +130,7 @@ jobs:
     name: Architecture tests
     needs: [detect, architecture-tests]
     if: always()
-    runs-on: [self-hosted, hostinger]
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     steps:
       - name: Aggregate result
         env:

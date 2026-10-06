@@ -96,7 +96,7 @@ jobs:
     # image (JDK 21 + Android SDK 35, pinned by digest) as uid 10001, instead of
     # on a GitHub-hosted runner that carries an implicit, unpinned toolchain.
     # See .github/workflows/ci-image.yml and docs/CI-RUNNER-STRATEGY.md §7.
-    runs-on: [self-hosted, hostinger]
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 40
     container:
       image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
@@ -168,17 +168,23 @@ jobs:
   # cannot build an in-process TLS server. Without those servers the full iOS
   # suite fails with "could not connect to the server".
   #
-  # Runner policy (docs/CI-RUNNER-STRATEGY.md §2): the test jobs run on the
-  # company self-hosted pool, not GitHub-hosted runners —
-  #   - test-android -> [self-hosted, hostinger] (JDK 21 + Android SDK)
-  #   - test-ios     -> [self-hosted, mac]       (Xcode + JDK 21)
+  # Runner policy (docs/CI-RUNNER-STRATEGY.md §2): untrusted `pull_request`
+  # runs must not execute repo-controlled Gradle as uid 0 on the shared
+  # hostinger VPS, so `test-android` routes its `pull_request` run to an
+  # ephemeral GitHub-hosted runner and keeps the company pool for trusted
+  # `push`/`workflow_dispatch` (OPE-265). `test-ios` stays on the company `mac`
+  # pool, which is not shared with other repositories.
+  #   - test-android -> ubuntu-latest (PR) / [self-hosted, hostinger] (push)
+  #   - test-ios     -> [self-hosted, mac] (Xcode + JDK 21)
   # Each test step sources scripts/ci/runner-toolchain-env.sh (OPE-98) to
   # resolve JAVA_HOME / ANDROID_HOME; the allowlist permits only `actions/checkout`.
   test-android:
     name: Test Android (JVM unit tests)
-    # OPE-255 (ADR 0007 stage 2): same digest-pinned repository CI image as
-    # build-android, so the test no longer reads the host's JDK/Android SDK.
-    runs-on: [self-hosted, hostinger]
+    # OPE-265 — untrusted `pull_request` code must not reach the shared
+    # hostinger pool: repo-controlled Gradle there executes as uid 0 on a host
+    # that also owns a read-write Docker socket. The same job (digest-pinned
+    # OPE-255 CI image) runs on an ephemeral GitHub-hosted runner for PRs; trusted push/workflow_dispatch keep the company pool.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 40
     container:
       image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
