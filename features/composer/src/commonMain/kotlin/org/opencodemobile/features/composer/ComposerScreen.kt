@@ -49,7 +49,7 @@ import org.opencodemobile.shared.domain.dictation.DictationUnavailableReason
  */
 @Composable
 public fun ComposerScreen(
-    presenter: ComposerPresenter,
+    presenter: DictationComposerPresenter,
     localeTag: String,
     modifier: Modifier = Modifier,
 ) {

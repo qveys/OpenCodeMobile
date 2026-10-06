@@ -1,55 +1,38 @@
 package org.opencodemobile.features.composer
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
-import org.opencodemobile.shared.application.composer.ComposerController
-import org.opencodemobile.shared.application.composer.ComposerState
+import kotlinx.coroutines.launch
+import org.opencodemobile.shared.application.chat.ComposerController
+import org.opencodemobile.shared.application.chat.ComposerState
 
 /**
- * The V1-10 composer presenter the Compose layer observes.
+ * The V1-05 composer presenter the Compose layer observes.
  *
- * It is intentionally thin: the draft, the dictation session, the availability
- * re-check and the explicit send all live in
- * [org.opencodemobile.shared.application.composer.ComposerController]; the
- * presenter only forwards user intents and re-exposes the state flow.
+ * It is intentionally thin: the draft, the §8.1 "never sent automatically" rule,
+ * the D8 offline gate and the D9 single send all live in [ComposerController];
+ * the presenter only forwards user intents and re-exposes the state flow.
  */
 public class ComposerPresenter(
     private val controller: ComposerController,
+    private val scope: CoroutineScope,
 ) {
-    /** The state the composer screen renders. */
     public val state: StateFlow<ComposerState> = controller.state
 
-    /** Loads the persisted draft and checks capability for [localeTag] once. */
-    public fun start(localeTag: String) {
-        controller.start(localeTag)
+    /** Opens [sessionId] and restores its draft. Never sends. */
+    public fun open(sessionId: String): Unit {
+        scope.launch { controller.open(sessionId) }
     }
 
-    /** Re-checks on-device capability when the active locale changes (FR/EN). */
-    public fun onLocaleChanged(localeTag: String) {
-        controller.onLocaleChanged(localeTag)
+    /** Records a keystroke; the draft is persisted locally. */
+    public fun updateDraft(text: String): Unit {
+        scope.launch { controller.updateDraft(text) }
     }
 
-    /** Records typed text in the draft. */
-    public fun onDraftChange(text: String) {
-        controller.onDraftChange(text)
+    /** Sends the current draft exactly once. */
+    public fun send(): Unit {
+        scope.launch { controller.send() }
     }
 
-    /** Starts or stops the on-device dictation session. */
-    public fun toggleDictation() {
-        controller.toggleDictation()
-    }
-
-    /** Stops the on-device dictation session. */
-    public fun stopDictation() {
-        controller.stopDictation()
-    }
-
-    /** Sends the draft; call this only from a distinct user tap. */
-    public fun send() {
-        controller.send()
-    }
-
-    /** Dismisses the last notice. */
-    public fun dismissNotice() {
-        controller.dismissNotice()
-    }
+    public fun close(): Unit = controller.close()
 }
