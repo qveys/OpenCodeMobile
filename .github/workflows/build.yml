@@ -84,29 +84,44 @@ concurrency:
 permissions:
   contents: read
 
+# Container jobs default to `sh`; every step here uses bash.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build-android:
     name: Build Android (APK/AAB)
-    runs-on: ubuntu-latest
+    # OPE-255 (ADR 0007 stage 2): run the Android build in the repository CI
+    # image (JDK 21 + Android SDK 35, pinned by digest) as uid 10001, instead of
+    # on a GitHub-hosted runner that carries an implicit, unpinned toolchain.
+    # See .github/workflows/ci-image.yml and docs/CI-RUNNER-STRATEGY.md §7.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 40
+    container:
+      image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
+      options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Assemble Android debug + release artifacts
         run: |
-          set -euo pipefail
-          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
-          chmod +x gradlew
-          java -version
-          ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease :androidApp:bundleRelease --no-daemon --stacktrace
+          bash scripts/ci/run-as-nonroot.sh bash -c '
+            set -euo pipefail
+            chmod +x gradlew
+            java -version
+            ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease :androidApp:bundleRelease --no-daemon --stacktrace
+          '
       - name: Verify Android artifacts
         run: |
-          set -euo pipefail
-          echo "APK outputs:"
-          find androidApp/build/outputs/apk -name '*.apk' -print -exec sha256sum {} \;
-          echo "AAB outputs:"
-          find androidApp/build/outputs/bundle -name '*.aab' -print -exec sha256sum {} \;
-          test -n "$(find androidApp/build/outputs/apk -name '*.apk' -print -quit)"
-          test -n "$(find androidApp/build/outputs/bundle -name '*.aab' -print -quit)"
+          bash scripts/ci/run-as-nonroot.sh bash -c '
+            set -euo pipefail
+            echo "APK outputs:"
+            find androidApp/build/outputs/apk -name "*.apk" -print -exec sha256sum {} \;
+            echo "AAB outputs:"
+            find androidApp/build/outputs/bundle -name "*.aab" -print -exec sha256sum {} \;
+            test -n "$(find androidApp/build/outputs/apk -name "*.apk" -print -quit)"
+            test -n "$(find androidApp/build/outputs/bundle -name "*.aab" -print -quit)"
+          '
 
   build-ios:
     name: Build iOS/macOS frameworks
@@ -167,30 +182,20 @@ jobs:
     name: Test Android (JVM unit tests)
     # OPE-265 — untrusted `pull_request` code must not reach the shared
     # hostinger pool: repo-controlled Gradle there executes as uid 0 on a host
-    # that also owns a read-write Docker socket. The same non-container job
-    # (JDK 21 + Android SDK only) runs on an ephemeral GitHub-hosted runner for
-    # PRs; trusted push/workflow_dispatch keep the company pool.
+    # that also owns a read-write Docker socket. The same job (digest-pinned
+    # OPE-255 CI image) runs on an ephemeral GitHub-hosted runner for PRs; trusted push/workflow_dispatch keep the company pool.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 40
+    container:
+      image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
+      options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run Android/JVM unit tests
-        run: |
-          set -euo pipefail
-          # OPE-265 — on the GitHub-hosted runner the JDK 21 toolchain is
-          # preinstalled as $JAVA_HOME_21_X64; on the self-hosted pool
-          # runner-toolchain-env.sh resolves it from the OPE-98 provision.
-          if [ -n "${JAVA_HOME_21_X64:-}" ]; then
-            export JAVA_HOME="$JAVA_HOME_21_X64"
-            export PATH="$JAVA_HOME/bin:$PATH"
-          fi
-          . scripts/ci/runner-toolchain-env.sh
-          chmod +x gradlew
-          java -version
-          CI=1 bash scripts/test.sh android -- --continue
+        run: bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c '. scripts/ci/runner-toolchain-env.sh && chmod +x gradlew && java -version && bash scripts/test.sh android -- --continue'
       - name: Report test results
         if: always()
-        run: bash scripts/ci/report-test-results.sh
+        run: bash scripts/ci/run-as-nonroot.sh bash scripts/ci/report-test-results.sh
 
   test-ios:
     name: Test iOS simulator (Kotlin/Native)
