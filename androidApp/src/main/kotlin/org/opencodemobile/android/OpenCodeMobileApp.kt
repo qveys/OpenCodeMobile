@@ -5,6 +5,7 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.opencodemobile.android.notification.AndroidLocalNotificationSink
 import org.opencodemobile.features.connection.ConnectionModule
+import org.opencodemobile.features.settings.SettingsModule
 
 class OpenCodeMobileApp : Application() {
     override fun onCreate() {
@@ -20,8 +21,10 @@ class OpenCodeMobileApp : Application() {
             // created directly by MainActivity (see ConnectionCompositionRoot).
             modules(
                 connectionCompositionModule,
+                localAccessCompositionModule,
                 notificationCompositionModule,
                 ConnectionModule.koinModule,
+                SettingsModule.koinModule,
             )
         }
     }
