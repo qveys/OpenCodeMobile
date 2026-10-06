@@ -3,17 +3,25 @@ package org.opencodemobile.shared.application.erasure
 import kotlin.coroutines.cancellation.CancellationException
 import org.opencodemobile.shared.application.notification.LocalNotificationCoordinator
 import org.opencodemobile.shared.domain.cache.LocalCacheEraser
+import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerCredentialStore
 import org.opencodemobile.shared.domain.connection.ServerIdentityStore
 import org.opencodemobile.shared.domain.connection.ServerProfileStore
 
 /**
- * The four local data categories "Tout effacer" erases (ADR 0009 §2.1).
+ * The local data categories "Tout effacer" erases (ADR 0009 §2.1).
  *
  * The enum is the contract the UI renders ("what will be erased") and the unit
  * test asserts ("all stores empty"), so the screen and the test cannot drift.
  */
 public enum class ErasedCategory {
+    /**
+     * The live authenticated session. This is not a store: it drops the
+     * in-memory credential permit and closes the gateway, so the erased
+     * credential cannot keep authorising requests (ADR 0009 §2.4).
+     */
+    Session,
+
     /** SecureStore credentials / secrets. */
     Credentials,
 
@@ -53,18 +61,22 @@ public data class EraseEverythingReport(
  * ("Tout effacer", ADR 0009).
  *
  * It composes existing wipe primitives — it introduces no new storage layer:
- * the profile and credential secure stores, the TOFU identity pin, the encrypted
- * cache (via [LocalCacheEraser]) and the local notification surface.
+ * the live session, the profile and credential secure stores, the TOFU identity
+ * pin, the encrypted cache (via [LocalCacheEraser]) and the local notification
+ * surface.
  *
  * Design rules:
  * - **Best-effort and complete.** Each category is attempted independently; a
  *   failure in one does not stop the others, so an erase never leaves more
  *   residue than necessary. Every failure is reported.
+ * - **Session first.** [OpenCodeGateway.disconnect] drops the in-memory
+ *   credential permit and closes the transport before anything else, so a
+ *   partially erased device is never still authenticated (ADR 0009 §2.4).
  * - **Never silent.** The coordinator itself is only a composition; the explicit
  *   user confirmation is enforced by the caller
  *   ([org.opencodemobile.features.settings.EraseEverythingController]). Nothing
  *   here runs on connect, disconnect, or a background event.
- * - **Server untouched.** No method touches the network: erasing is local-only.
+ * - **Server untouched.** No method mutates server data: erasing is local-only.
  *
  * The credential and pin are keyed by the profile id, so the profile is read
  * first and its id used before the profile itself is cleared. With OP3 (one
@@ -72,6 +84,7 @@ public data class EraseEverythingReport(
  * enumerate ids here.
  */
 public class EraseEverythingCoordinator(
+    private val gateway: OpenCodeGateway,
     private val profileStore: ServerProfileStore,
     private val credentialStore: ServerCredentialStore,
     private val identityStore: ServerIdentityStore,
@@ -79,7 +92,7 @@ public class EraseEverythingCoordinator(
     private val notifications: LocalNotificationCoordinator,
 ) {
     /**
-     * Erases the four categories and returns what was actually removed.
+     * Erases the local data categories and returns what was actually removed.
      *
      * Cancellation is never swallowed: a cancelled erase propagates so the
      * caller knows it is incomplete.
@@ -89,28 +102,48 @@ public class EraseEverythingCoordinator(
         val erased = linkedSetOf<ErasedCategory>()
         val failures = mutableListOf<EraseFailure>()
 
+        // Stop authenticated traffic first: disconnect() clears the in-memory
+        // credential permit and closes the client, so the erased credential can
+        // no longer authorise a request even if a later step fails.
+        attempt(ErasedCategory.Session, erased, failures) {
+            gateway.disconnect()
+        }
+
+        var profileReadFailure: Throwable? = null
         val profile = try {
             profileStore.load()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
+            profileReadFailure = failure
             failures += EraseFailure(ErasedCategory.Profile, failure)
             null
         }
 
-        // Credentials and the pin are keyed by the profile id. They are still
-        // erased (as empty) when no profile was stored: there is no secret to
-        // keep in that case.
-        if (profile != null) {
-            attempt(ErasedCategory.Credentials, erased, failures) {
-                credentialStore.clearCredential(profile.id)
+        val readFailure = profileReadFailure
+        when {
+            profile != null -> {
+                attempt(ErasedCategory.Credentials, erased, failures) {
+                    credentialStore.clearCredential(profile.id)
+                }
+                attempt(ErasedCategory.IdentityPin, erased, failures) {
+                    identityStore.clearPinnedFingerprint(profile.id)
+                }
             }
-            attempt(ErasedCategory.IdentityPin, erased, failures) {
-                identityStore.clearPinnedFingerprint(profile.id)
+
+            // A readable but absent profile means no per-profile secret exists.
+            readFailure == null -> {
+                erased += ErasedCategory.Credentials
+                erased += ErasedCategory.IdentityPin
             }
-        } else {
-            erased += ErasedCategory.Credentials
-            erased += ErasedCategory.IdentityPin
+
+            // An unreadable profile means the id is unknown, so we cannot claim
+            // the credential or the pin were erased. Report a residue instead of
+            // a false success: a corrupted entry must not hide a secret (F2).
+            else -> {
+                failures += EraseFailure(ErasedCategory.Credentials, readFailure)
+                failures += EraseFailure(ErasedCategory.IdentityPin, readFailure)
+            }
         }
 
         attempt(ErasedCategory.Profile, erased, failures) {

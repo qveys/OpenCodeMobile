@@ -12,6 +12,7 @@ import org.opencodemobile.shared.application.erasure.EraseEverythingCoordinator
 import org.opencodemobile.shared.application.notification.LocalNotificationCoordinator
 import org.opencodemobile.shared.domain.cache.EmptyLocalCacheEraser
 import org.opencodemobile.shared.domain.cache.LocalCacheEraser
+import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerIdentityStore
 import org.opencodemobile.shared.domain.notification.LocalNotificationSink
 import org.opencodemobile.shared.domain.permission.BiometricAuthenticator
@@ -45,6 +46,7 @@ internal val iosEraseEverythingCompositionModule: Module = module {
 
     single {
         EraseEverythingCoordinator(
+            gateway = get<OpenCodeGateway>(),
             profileStore = get<SecureServerProfileStore>(),
             credentialStore = get<SecureServerCredentialStore>(),
             identityStore = get<ServerIdentityStore>(),

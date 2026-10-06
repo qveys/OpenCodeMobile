@@ -10,6 +10,8 @@ import kotlinx.coroutines.test.runTest
 import org.opencodemobile.shared.application.erasure.EraseEverythingCoordinator
 import org.opencodemobile.shared.application.notification.LocalNotificationCoordinator
 import org.opencodemobile.shared.domain.cache.LocalCacheEraser
+import org.opencodemobile.shared.domain.connection.ConnectionHandshake
+import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerCredential
 import org.opencodemobile.shared.domain.connection.ServerCredentialStore
 import org.opencodemobile.shared.domain.connection.ServerFingerprint
@@ -125,6 +127,7 @@ class EraseEverythingControllerTest {
         val cacheEraser = FakeCacheEraser()
         private val sink = RecordingSink()
         private val coordinator = EraseEverythingCoordinator(
+            gateway = FakeGateway(),
             profileStore = profileStore,
             credentialStore = credentialStore,
             identityStore = identityStore,
@@ -175,6 +178,15 @@ class EraseEverythingControllerTest {
             calls += 1
             return true
         }
+    }
+
+    private class FakeGateway : OpenCodeGateway {
+        override suspend fun connect(
+            profile: ServerProfile,
+            credential: ServerCredential?,
+        ): ConnectionHandshake = throw UnsupportedOperationException("not used by the erase path")
+
+        override fun disconnect() = Unit
     }
 
     private class FakeSettingsStore(private val enabled: Boolean) : LocalAccessSettingsStore {

@@ -43,6 +43,7 @@ public val eraseEverythingCompositionModule: Module = module {
 
     single {
         EraseEverythingCoordinator(
+            gateway = get(),
             profileStore = get<SecureServerProfileStore>(),
             credentialStore = get<SecureServerCredentialStore>(),
             identityStore = get(),
