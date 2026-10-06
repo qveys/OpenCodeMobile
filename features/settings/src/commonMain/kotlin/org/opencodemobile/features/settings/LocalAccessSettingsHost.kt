@@ -59,8 +59,8 @@ public fun LocalAccessSettingsRoute(
  */
 @Composable
 public fun LocalAccessSettingsHost(
-    connectionContent: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    connectionContent: @Composable () -> Unit,
 ) {
     var showSettings by remember { mutableStateOf(false) }
 
