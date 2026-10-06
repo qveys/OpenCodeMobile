@@ -49,8 +49,11 @@ fi
 user_home="$(getent passwd "$user" | cut -d: -f6)"
 [ -n "$user_home" ] || user_home="/home/$user"
 
-# Writable Gradle home for the unprivileged user. $RUNNER_TEMP is per-job and
-# host-owned, so both the container user and the host cleanup can traverse it.
+# Writable Gradle home for the unprivileged user. $RUNNER_TEMP is per-job but
+# shared with the host runner, so it is NEVER chown-ed wholesale: the runner
+# keeps `_github_workflow/event.json` there and the host-side checkout cleanup
+# cannot delete it once re-owned (only the Gradle subdir below is handed over,
+# a sibling of `_github_workflow`, never the temp dir itself).
 if [ -z "${GRADLE_USER_HOME:-}" ]; then
   if [ -n "${RUNNER_TEMP:-}" ]; then
     export GRADLE_USER_HOME="$RUNNER_TEMP/gradle"
@@ -58,21 +61,32 @@ if [ -z "${GRADLE_USER_HOME:-}" ]; then
     export GRADLE_USER_HOME="$user_home/.gradle"
   fi
 fi
+if [ -d "$GRADLE_USER_HOME" ]; then
+  # Remember who should own it back: its own owner if it already exists,
+  # else its parent's owner (mkdir below runs as root).
+  _gradle_owner="$(stat -c '%u:%g' "$GRADLE_USER_HOME" 2>/dev/null || true)"
+else
+  _gradle_owner="$(stat -c '%u:%g' "$(dirname "$GRADLE_USER_HOME")" 2>/dev/null || true)"
+fi
 mkdir -p "$GRADLE_USER_HOME"
 
-# The runner mounts the checkout (and its temp dir) owned by the runner user.
-# Record the pre-job owner of each repaired mount so the EXIT trap can hand
-# the mounts back; otherwise the host-side checkout cleanup fails with
+# The runner mounts the checkout owned by the runner user. Record the pre-job
+# owner of every repaired path so the EXIT trap can hand it back; otherwise
+# the host-side checkout cleanup fails with
 # "Access to the path ... is denied".
 _restore_dirs=""
-for _om_dir in "$GITHUB_WORKSPACE" "${RUNNER_TEMP:-}" /__w/_temp; do
+for _om_dir in "$GITHUB_WORKSPACE" "$GRADLE_USER_HOME"; do
   [ -n "$_om_dir" ] && [ -d "$_om_dir" ] || continue
-  _om_owner="$(stat -c '%u:%g' "$_om_dir" 2>/dev/null || true)"
+  if [ "$_om_dir" = "$GRADLE_USER_HOME" ] && [ -n "${_gradle_owner:-}" ]; then
+    _om_owner="$_gradle_owner"
+  else
+    _om_owner="$(stat -c '%u:%g' "$_om_dir" 2>/dev/null || true)"
+  fi
   [ -n "$_om_owner" ] || continue
   _restore_dirs="$_restore_dirs$_om_dir:$_om_owner
 "
 done
-unset _om_dir _om_owner
+unset _om_dir _om_owner _gradle_owner
 
 restore_ownership() {
   # Best effort: never fail the step on the way out.
@@ -86,7 +100,7 @@ restore_ownership() {
 }
 trap restore_ownership EXIT
 
-chown -R "$user:$user" "$GITHUB_WORKSPACE" "${RUNNER_TEMP:-}" /__w/_temp "$GRADLE_USER_HOME" 2>/dev/null || true
+chown -R "$user:$user" "$GITHUB_WORKSPACE" "$GRADLE_USER_HOME" 2>/dev/null || true
 
 # `su` resets the environment, so re-export the toolchain variables and cd to
 # the checkout inside a script that is passed through safely (handles spaces
