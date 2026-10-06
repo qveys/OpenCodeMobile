@@ -8,4 +8,15 @@
     <string name="settings_screen_capture_blocking">Block screenshots and screen recording</string>
     <string name="settings_screen_capture_blocking_description">Ask the OS to block captures. Off by default; independent from the app-switcher cover.</string>
     <string name="settings_screen_capture_blocking_note">On Android this blocks screenshots and screen recording too (FLAG_SECURE). The app-switcher cover stays available either way.</string>
+    <string name="settings_erase_everything_title">Erase everything</string>
+    <string name="settings_erase_everything_description">Removes the local data this app stores on this device. The server is never changed.</string>
+    <string name="settings_erase_everything_action">Erase everything…</string>
+    <string name="settings_erase_everything_confirm_title">Erase everything?</string>
+    <string name="settings_erase_everything_confirm_body">This erases, on this device only:\n• your server credential (SecureStore)\n• the stored server profile and its identity pin\n• the encrypted cache (database, sidecars and key)\n• the notifications posted by the app\n\nYour server, its sessions and its messages are not touched. The cache is rebuilt from the server on the next connection.</string>
+    <string name="settings_erase_everything_confirm">Erase</string>
+    <string name="settings_erase_everything_cancel">Cancel</string>
+    <string name="settings_erase_everything_in_progress">Erasing local data…</string>
+    <string name="settings_erase_everything_done">Local data erased. Connect to a server to build the cache again.</string>
+    <string name="settings_erase_everything_failed">The erase did not finish. Some local data may remain.</string>
+    <string name="settings_erase_everything_reauth_failed">Authentication was cancelled or failed. Nothing was erased.</string>
 </resources>

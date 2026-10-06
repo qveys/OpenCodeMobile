@@ -96,10 +96,28 @@ public class LocalNotificationCoordinator(
         lock.withLock { cancelLocked(id) }
     }
 
-    /** Cancels every notification this coordinator currently tracks. */
+    /**
+     * Cancels every notification this coordinator tracks **and** any the app
+     * posted before the last restart, then forgets the tracking state.
+     *
+     * Used by "Tout effacer" (ADR 0009 §2.1.4): after this returns no
+     * session/permission content lingers on the lock screen or in the shade.
+     * The platform [sink] clears its whole surface, which is what covers the
+     * notifications a fresh process has no record of.
+     */
+    @Suppress("TooGenericExceptionCaught", "SwallowedException") // a failed clear leaves a stale signal, never broken state
     public suspend fun cancelAll() {
         lock.withLock {
-            posted.keys.toList().forEach { cancelLocked(it) }
+            posted.clear()
+            previousSessionTypes.clear()
+            try {
+                sink.cancelAll()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Throwable) {
+                // best-effort: a platform that refuses to clear must not break
+                // the erase; the notification is a signal, not state.
+            }
         }
     }
 

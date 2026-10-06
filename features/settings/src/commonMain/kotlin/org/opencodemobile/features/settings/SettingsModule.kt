@@ -8,10 +8,14 @@ public object SettingsModule {
 
     /**
      * Koin wiring for the settings feature. The composition root binds the
-     * platform [org.opencodemobile.shared.domain.localaccess.LocalAccessSettingsStore];
-     * this module only assembles the presenter that reads it.
+     * platform [org.opencodemobile.shared.domain.localaccess.LocalAccessSettingsStore],
+     * the [org.opencodemobile.shared.domain.permission.BiometricAuthenticator],
+     * the [org.opencodemobile.shared.application.erasure.EraseEverythingCoordinator]
+     * and the coroutine scope; this module only assembles the presenters that
+     * read them.
      */
     public val koinModule: Module = module {
         factory { LocalAccessSettingsController(get()) }
+        factory { EraseEverythingController(get(), get(), get(), get()) }
     }
 }

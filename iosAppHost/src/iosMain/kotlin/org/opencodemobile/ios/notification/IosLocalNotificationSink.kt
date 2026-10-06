@@ -66,6 +66,19 @@ public class IosLocalNotificationSink : LocalNotificationSink {
     }
 
     /**
+     * Cancels every notification this app posted, delivered or pending.
+     *
+     * "Tout effacer" (ADR 0009 §2.1.4) uses this so erased session/permission
+     * content does not linger on the lock screen. Clearing the whole app surface
+     * also covers notifications posted before a restart, which the in-memory
+     * coordinator no longer tracks.
+     */
+    override suspend fun cancelAll() {
+        center.removeAllPendingNotificationRequests()
+        center.removeAllDeliveredNotifications()
+    }
+
+    /**
      * Registers the single permission category. It carries the safe "Deny"
      * action only; there is deliberately no approving action to register.
      */

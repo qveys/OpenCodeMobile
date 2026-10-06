@@ -23,6 +23,7 @@ class OpenCodeMobileApp : Application() {
                 connectionCompositionModule,
                 localAccessCompositionModule,
                 notificationCompositionModule,
+                eraseEverythingCompositionModule,
                 ConnectionModule.koinModule,
                 SettingsModule.koinModule,
             )

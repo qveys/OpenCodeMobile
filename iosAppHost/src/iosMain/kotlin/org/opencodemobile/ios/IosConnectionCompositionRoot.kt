@@ -111,7 +111,12 @@ public fun startIosKoin() {
     if (koinStarted) return
     koinStarted = true
     startKoin {
-        modules(iosConnectionCompositionModule, ConnectionModule.koinModule, SettingsModule.koinModule)
+        modules(
+            iosConnectionCompositionModule,
+            iosEraseEverythingCompositionModule,
+            ConnectionModule.koinModule,
+            SettingsModule.koinModule,
+        )
     }
 }
 

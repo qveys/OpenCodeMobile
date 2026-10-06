@@ -20,6 +20,23 @@ public interface LocalNotificationSink {
 
     /** Cancels the notification with [id], if it is currently shown. */
     public suspend fun cancel(id: String)
+
+    /**
+     * Cancels every notification this app posted, delivered or pending.
+     *
+     * Used by "Tout effacer" (ADR 0009 §2.1.4) so erased session/permission
+     * content does not linger on the lock screen or in the shade. It is
+     * deliberately separate from [cancel]: a platform can clear its whole
+     * notification surface without the app tracking ids, including notifications
+     * posted before the last process restart.
+     *
+     * Best-effort like [post]: a platform that refuses must not throw, because
+     * the notification is a signal and the erase must still complete.
+     */
+    public suspend fun cancelAll() {
+        // No-op by default so a platform (or test) that never posted anything
+        // needs no extra code. Real sinks override this.
+    }
 }
 
 /**
