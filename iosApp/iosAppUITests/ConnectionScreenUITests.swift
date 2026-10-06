@@ -20,6 +20,9 @@ final class ConnectionScreenUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// Connection-screen title, localized with the simulator locale (OPE-288).
+    private let connectTitle = ["Connect to a server", "Se connecter à un serveur"]
+
     /// Launches the app with accessibility sync enabled and any extra arguments.
     @discardableResult
     private func launchApp(extraArguments: [String] = []) -> XCUIApplication {
@@ -48,10 +51,10 @@ final class ConnectionScreenUITests: XCTestCase {
         let app = launchApp()
 
         XCTAssertTrue(
-            element(app, "Connect to a server").waitForExistence(timeout: 60),
+            element(app, connectTitle).waitForExistence(timeout: 60),
             "The Compose connection screen did not appear; Koin or Compose failed to start."
         )
-        XCTAssertTrue(element(app, "Connect").exists, "The Connect action is missing.")
+        XCTAssertTrue(element(app, ["Connect", "Se connecter"]).exists, "The Connect action is missing.")
     }
 
     /// OPE-153 criterion 2: "Scan QR code" presents the AVFoundation capture and
@@ -63,7 +66,7 @@ final class ConnectionScreenUITests: XCTestCase {
     func testScanQrCodePresentsCaptureAndCancelReturns() throws {
         let app = launchApp()
 
-        let scan = element(app, "Scan QR code")
+        let scan = element(app, ["Scan QR code", "Scanner un QR code"])
         XCTAssertTrue(scan.waitForExistence(timeout: 60), "The scan action is missing.")
         scan.tap()
 
@@ -74,7 +77,7 @@ final class ConnectionScreenUITests: XCTestCase {
             print("SCAN_TREE_NO_CANCEL:\n\(app.debugDescription)")
         }
 
-        let returned = element(app, "Connect to a server").waitForExistence(timeout: 30)
+        let returned = element(app, connectTitle).waitForExistence(timeout: 30)
         if !returned {
             print("SCAN_TREE_NOT_RETURNED:\n\(app.debugDescription)")
         }
@@ -102,7 +105,13 @@ final class ConnectionScreenUITests: XCTestCase {
         let app = launchApp(extraArguments: ["-OPEQRPayload", "https://example.com/not-an-import"])
 
         XCTAssertTrue(
-            element(app, "That QR code is not an OpenCode Mobile import link.")
+            element(
+                app,
+                [
+                    "That QR code is not an OpenCode Mobile import link.",
+                    "Ce QR code n’est pas un lien d’import OpenCode Mobile.",
+                ]
+            )
                 .waitForExistence(timeout: 60),
             "A non-import QR payload did not surface the rejection message."
         )
@@ -143,7 +152,7 @@ final class ConnectionScreenUITests: XCTestCase {
 
         element(app, ["Back", "Retour"]).tap()
         XCTAssertTrue(
-            element(app, "Connect to a server").waitForExistence(timeout: 30),
+            element(app, connectTitle).waitForExistence(timeout: 30),
             "Back did not return to the connection flow."
         )
     }
