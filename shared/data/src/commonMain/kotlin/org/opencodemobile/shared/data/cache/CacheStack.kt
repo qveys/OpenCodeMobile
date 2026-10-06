@@ -29,6 +29,10 @@ import org.opencodemobile.shared.persistence.cache.CacheDriverProvider
  * Protection on iOS — so the cache stack is a live object graph instead of a
  * library only tests construct.
  */
+@Suppress("TooManyFunctions")
+// The facade deliberately exposes the whole composed cache port surface
+// (SessionCache reads + the gated writer/wipe/close lifecycle): splitting it
+// would leak CacheDatabase to the composition roots it is meant to hide.
 public class CacheStack(
     driverProvider: CacheDriverProvider,
     initialConnectionState: ConnectionState = ConnectionState.Offline,
