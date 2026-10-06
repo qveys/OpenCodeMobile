@@ -23,15 +23,18 @@ import org.opencodemobile.features.connection.ConnectionModule
 import org.opencodemobile.features.connection.ConnectionSetupController
 import org.opencodemobile.features.connection.ConnectionSetupScreen
 import org.opencodemobile.features.connection.IosQrCodeScanner
+import org.opencodemobile.features.settings.SettingsModule
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerIdentityStore
 import org.opencodemobile.shared.domain.connection.ServerIdentityVerifier
+import org.opencodemobile.shared.domain.localaccess.LocalAccessSettingsStore
 import org.opencodemobile.shared.networking.adapter.createOpenCodeGateway
 import org.opencodemobile.shared.security.identity.IosKeychainServerIdentityStore
 import org.opencodemobile.shared.security.identity.IosServerIdentityVerifier
 import org.opencodemobile.shared.security.identity.ServerIdentityGate
 import org.opencodemobile.shared.security.identity.ServerIdentityPinController
 import org.opencodemobile.shared.security.identity.TofuServerIdentityCoordinator
+import org.opencodemobile.shared.security.localaccess.IosLocalAccessSettingsStore
 import org.opencodemobile.shared.security.store.IosKeychainSecureStore
 import org.opencodemobile.shared.security.store.SecureServerCredentialStore
 import org.opencodemobile.shared.security.store.SecureServerProfileStore
@@ -65,6 +68,11 @@ internal val iosConnectionCompositionModule: Module = module {
     single { ServerIdentityPinController() }
     single { TofuServerIdentityCoordinator(get(), get()) }
     single { ServerIdentityGate(get()) }
+
+    // §7.3 device-local access preferences (app-switcher masking default,
+    // optional biometrics, optional capture blocking). NSUserDefaults-backed,
+    // never the Keychain: these are preferences, not secrets.
+    single<LocalAccessSettingsStore> { IosLocalAccessSettingsStore() }
 
     // One OpenCodeGateway per process, built by the sanctioned factory (the same
     // one Android uses) so the Ktor HttpClient type never reaches this module's
@@ -103,8 +111,21 @@ public fun startIosKoin() {
     if (koinStarted) return
     koinStarted = true
     startKoin {
-        modules(iosConnectionCompositionModule, ConnectionModule.koinModule)
+        modules(iosConnectionCompositionModule, ConnectionModule.koinModule, SettingsModule.koinModule)
     }
+}
+
+/**
+ * §7.3: whether the Swift shell must mask the app-switcher snapshot.
+ *
+ * SwiftUI owns the scene phase on iOS, so the cover is installed by
+ * `ContentView`; it asks Kotlin for the persisted preference through this
+ * bridge. It reads the same [LocalAccessSettingsStore] the Compose settings
+ * screen writes, so the two platforms stay consistent.
+ */
+public fun multitaskMaskingEnabled(): Boolean {
+    startIosKoin()
+    return KoinPlatform.getKoin().get<LocalAccessSettingsStore>().load().multitaskMaskingEnabled
 }
 
 /**

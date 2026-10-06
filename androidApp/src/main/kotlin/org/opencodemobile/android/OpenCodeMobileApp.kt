@@ -4,6 +4,7 @@ import android.app.Application
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.opencodemobile.features.connection.ConnectionModule
+import org.opencodemobile.features.settings.SettingsModule
 
 class OpenCodeMobileApp : Application() {
     override fun onCreate() {
@@ -14,7 +15,12 @@ class OpenCodeMobileApp : Application() {
             // layer is implemented; D12 keeps shared/domain free of Koin entirely.
             // The camera port stays out of Koin: it is activity-scoped and is
             // created directly by MainActivity (see ConnectionCompositionRoot).
-            modules(connectionCompositionModule, ConnectionModule.koinModule)
+            modules(
+                connectionCompositionModule,
+                localAccessCompositionModule,
+                ConnectionModule.koinModule,
+                SettingsModule.koinModule,
+            )
         }
     }
 }
