@@ -36,6 +36,13 @@ final class ConnectionScreenUITests: XCTestCase {
         return app.descendants(matching: .any).matching(predicate).firstMatch
     }
 
+    /// Matches an element whose label/identifier is any of [texts]. Used for the
+    /// localized local-access copy, which follows the simulator locale.
+    private func element(_ app: XCUIApplication, _ texts: [String]) -> XCUIElement {
+        let predicate = NSPredicate(format: "label IN %@ OR identifier IN %@", texts, texts)
+        return app.descendants(matching: .any).matching(predicate).firstMatch
+    }
+
     /// OPE-153 criterion 1: the connection screen opens, hosted by Koin + Compose.
     func testConnectionScreenOpens() throws {
         let app = launchApp()
@@ -108,24 +115,33 @@ final class ConnectionScreenUITests: XCTestCase {
     func testSettingsEntryOpensLocalAccess() throws {
         let app = launchApp()
 
-        let settings = element(app, "Settings")
+        let settings = element(app, ["Settings", "Réglages"])
         XCTAssertTrue(settings.waitForExistence(timeout: 60), "The Settings action is missing.")
         settings.tap()
 
         XCTAssertTrue(
-            element(app, "Local access").waitForExistence(timeout: 30),
+            element(app, ["Local access", "Accès local"]).waitForExistence(timeout: 30),
             "The local-access settings screen did not open."
         )
         XCTAssertTrue(
-            element(app, "Hide content in the app switcher").exists,
+            element(
+                app,
+                ["Hide content in the app switcher", "Masquer le contenu dans le sélecteur d’apps"]
+            ).exists,
             "The multitask-masking control must be offered on iOS."
         )
         XCTAssertFalse(
-            element(app, "Block screenshots and screen recording").exists,
+            element(
+                app,
+                [
+                    "Block screenshots and screen recording",
+                    "Bloquer les captures d’écran et l’enregistrement",
+                ]
+            ).exists,
             "iOS cannot block captures; the control must not be offered."
         )
 
-        element(app, "Back").tap()
+        element(app, ["Back", "Retour"]).tap()
         XCTAssertTrue(
             element(app, "Connect to a server").waitForExistence(timeout: 30),
             "Back did not return to the connection flow."
