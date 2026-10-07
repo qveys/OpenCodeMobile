@@ -45,12 +45,11 @@ defaults:
 jobs:
   static-scan:
     name: T4 static scan
-    # OPE-258 — untrusted `pull_request` code must not reach the hostinger
-    # self-hosted pool: container uid 0 there owns the host Docker socket
-    # (repo-controlled uid 0 step + `-v /var/run/docker.sock`), which is host
-    # root. The same job runs on an ephemeral GitHub-hosted runner for PRs;
-    # trusted push/workflow_dispatch keep the company pool.
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
+    # OPE-291 (review @qveys): every event runs on the company hostinger
+    # pool — no GitHub-hosted minutes. Isolation relies on the digest-pinned
+    # image running as uid 10001 (ADR 0007); the OPE-258 routing reservation
+    # is superseded.
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 5
     # OPE-212 — ephemeral, non-root isolation. The image is pinned by digest
     # (eclipse-temurin 21-jdk-jammy); the job gets a fresh filesystem and runs
@@ -120,10 +119,10 @@ jobs:
 
   redaction-tests:
     name: Redaction unit tests
-    # OPE-258 / OPE-263 / OPE-265 — a pull_request never runs repo-controlled
-    # Gradle on the shared hostinger pool (uid 0 on the host): PRs use an
-    # ephemeral GitHub-hosted runner with the same digest-pinned GHCR image;
-    # push/workflow_dispatch keep the company pool.
+    # OPE-291 (review @qveys): every event runs on the company hostinger
+    # pool — no GitHub-hosted minutes. Isolation relies on the digest-pinned
+    # GHCR image running as uid 10001 (ADR 0007); the OPE-258/OPE-265 routing
+    # reservation is superseded.
     # OPE-250 (Phase 0.1) moved this off the single-lane `mac` runner to
     # `hostinger`: the job is a plain `:shared:networking:testDebugUnitTest`
     # that only needs JDK 21 + the Android SDK, both provisioned on hostinger
@@ -134,7 +133,7 @@ jobs:
     # digest-pinned repository CI image instead of the host toolchain, and runs
     # as uid 10001. This preserves the T4 supply-chain policy: the toolchain is
     # a reviewed, digest-pinned image, not an unverified per-run download.
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
+    runs-on: [self-hosted, hostinger]
     needs: static-scan
     timeout-minutes: 40
     container:

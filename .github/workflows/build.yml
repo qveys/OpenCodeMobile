@@ -96,7 +96,7 @@ jobs:
     # image (JDK 21 + Android SDK 35, pinned by digest) as uid 10001, instead of
     # on a GitHub-hosted runner that carries an implicit, unpinned toolchain.
     # See .github/workflows/ci-image.yml and docs/CI-RUNNER-STRATEGY.md §7.
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 40
     container:
       image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
@@ -180,11 +180,11 @@ jobs:
   # resolve JAVA_HOME / ANDROID_HOME; the allowlist permits only `actions/checkout`.
   test-android:
     name: Test Android (JVM unit tests)
-    # OPE-265 — untrusted `pull_request` code must not reach the shared
-    # hostinger pool: repo-controlled Gradle there executes as uid 0 on a host
-    # that also owns a read-write Docker socket. The same job (digest-pinned
-    # OPE-255 CI image) runs on an ephemeral GitHub-hosted runner for PRs; trusted push/workflow_dispatch keep the company pool.
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
+    # OPE-291 (review @qveys): every event runs on the company hostinger
+    # pool — no GitHub-hosted minutes. Untrusted-PR isolation now relies on
+    # the digest-pinned CI image running as uid 10001 (ADR 0007); the OPE-265
+    # routing reservation is superseded.
+    runs-on: [self-hosted, hostinger]
     timeout-minutes: 40
     container:
       image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
