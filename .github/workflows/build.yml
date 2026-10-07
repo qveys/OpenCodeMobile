@@ -15,16 +15,17 @@ name: Build
 #   action (`actions/setup-java`, `gradle/actions/setup-gradle`,
 #   `android-actions/setup-android`, `actions/upload-artifact`) is rejected with
 #   `startup_failure` before the job starts. This workflow therefore uses ONLY
-#   `actions/checkout` and relies on the JDK / Gradle / Android SDK / Xcode that
-#   the runner image already provides: the build jobs run on GitHub-hosted
-#   runners, while the OPE-17 test jobs run on the company self-hosted pool
-#   (see the test-job comment below and docs/CI-RUNNER-STRATEGY.md).
+#   `actions/checkout` and relies on the JDK / Gradle / Android SDK / Xcode
+#   installed on the company self-hosted pool: the build jobs run on the same
+#   `[self-hosted, ...]` runners as the OPE-17 test jobs below (see
+#   docs/CI-RUNNER-STRATEGY.md).
 #   Reproducibility across environments
 #   comes from the checked-in pinning instead:
 #     - Gradle 8.10.2, pinned by gradle/wrapper/gradle-wrapper.properties
 #     - Kotlin / AGP / Compose Multiplatform, pinned in gradle/libs.versions.toml
-#     - JDK: JAVA_HOME_21_X64 (ubuntu) / JAVA_HOME_21_* (macOS) supplied by the
-#       runner image, so both jobs build with the same major JDK.
+#     - JDK 21 / Android SDK: resolved per step by
+#       scripts/ci/runner-toolchain-env.sh (OPE-98), so both jobs build with the
+#       same provisioned major JDK.
 #   If the allowlist is later widened to include `actions/upload-artifact`, add
 #   an upload step for the paths listed under each job.
 #
@@ -87,14 +88,16 @@ permissions:
 jobs:
   build-android:
     name: Build Android (APK/AAB)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, hostinger]
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Assemble Android debug + release artifacts
         run: |
           set -euo pipefail
-          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          . scripts/ci/runner-toolchain-env.sh
           chmod +x gradlew
           java -version
           ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease :androidApp:bundleRelease --no-daemon --stacktrace
@@ -110,14 +113,16 @@ jobs:
 
   build-ios:
     name: Build iOS/macOS frameworks
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS, mac]
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Link Kotlin/Native iOS frameworks
         run: |
           set -euo pipefail
-          export JAVA_HOME="${JAVA_HOME_21_ARM64:-${JAVA_HOME_21_X64:-$JAVA_HOME}}"
+          . scripts/ci/runner-toolchain-env.sh
           chmod +x gradlew
           java -version
           ./gradlew linkDebugFrameworkIosSimulatorArm64 linkDebugFrameworkIosArm64 \

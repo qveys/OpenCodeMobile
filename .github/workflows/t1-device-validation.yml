@@ -64,28 +64,28 @@ permissions:
 jobs:
   jvm-handshake:
     name: T1 handshake (JVM)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, hostinger]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run T1 handshake unit tests
         run: |
           set -euo pipefail
-          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          . scripts/ci/runner-toolchain-env.sh
           chmod +x gradlew
           java -version
           ./gradlew :shared:security:testDebugUnitTest --no-daemon --stacktrace
 
   android-instrumented-compile:
     name: T1 Android instrumented test compiles
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, hostinger]
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Assemble Android instrumented test APK
         run: |
           set -euo pipefail
-          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          . scripts/ci/runner-toolchain-env.sh
           chmod +x gradlew
           ./gradlew :shared:security:assembleDebugAndroidTest --no-daemon --stacktrace
 
@@ -94,21 +94,27 @@ jobs:
     # OPE-250 (D2): heavy device validation stays off the PR path; it runs on
     # `main` pushes, nightly, and manual dispatch.
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, hostinger]
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Provision emulator and run instrumented T1 tests
-        run: bash scripts/t1/run-android-device-validation.sh
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          bash scripts/t1/run-android-device-validation.sh
 
   ios-simulator:
-    name: T1 handshake (iOS simulator)
+    name: T1 handshake (iOS simulator)    
     # OPE-250 (D2): heavy device validation stays off the PR path; it runs on
     # `main` pushes, nightly, and manual dispatch.
     if: github.event_name != 'pull_request'
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS, mac]
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run iOS simulator T1 tests against host TLS servers
-        run: bash scripts/t1/run-ios-simulator-validation.sh
+        run: |
+          set -euo pipefail
+          . scripts/ci/runner-toolchain-env.sh
+          bash scripts/t1/run-ios-simulator-validation.sh
