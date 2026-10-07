@@ -120,6 +120,9 @@ implement against, so verification isn't duplicated inside T10/OPE-23 itself.
 - [ ] Any declaration the coverage gate cannot resolve to a coordinate is registered in `gradle/verification-coverage-exemptions.txt` **with a reason**, and every exempt coordinate is genuinely never resolved by a task
 - [ ] No workflow under `.github/workflows/` passes `--write-verification-metadata`; a workflow that does is registered in `gradle/verification-regeneration-exemptions.txt` with a reason and triggers on `workflow_dispatch` only
       (enforced by `scripts/check-verification-metadata-coverage.sh`, SEC-05b)
+- [ ] Any `container:` image is pinned by digest (`name@sha256:…`), never by a
+      floating tag; a repository-built image is published from a reviewed
+      Dockerfile by a path-filtered workflow that only pushes on trusted refs
 - [ ] `permissions:` is explicit and least-privilege
 - [ ] No credential value is printed to logs (`::add-mask::` used for any dynamically generated secret)
 - [ ] Static long-lived store credentials are used only where OIDC/short-lived auth isn't supported by the target platform
@@ -229,6 +232,26 @@ module `settings.gradle.kts` does not include, so no task resolves it and the re
 cannot pin it. That is a temporary state, and [OPE-137](/OPE/issues/OPE-137), which wires the
 module into the build, must regenerate the pins and delete those five entries in the same
 commit.
+
+## 9. Container images used by CI jobs
+
+`hostinger` jobs may declare a `container:` to get an ephemeral, non-root build
+environment (ADR `docs/adr/0007-ephemeral-nonroot-hostinger-jobs.md`). Container
+images are part of the build supply chain and are governed like `uses:` steps:
+
+- Every `container.image` **must be pinned by digest** (`repo@sha256:…`), not by
+  a tag. Tags are mutable; a digest is the auditable artifact. Refresh a digest
+  deliberately and record it in the workflow and in ADR 0007.
+- The digest-pinned public JDK image (`eclipse-temurin`) carries only JDK 21.
+  Android-SDK jobs use the repository-built, digest-pinned image
+  `ghcr.io/qveys/opencodemobile/ci-android` (`ci/android/Dockerfile`), published
+  by `.github/workflows/ci-image.yml`: path-filtered, pushing only on `main` and
+  manual dispatch, build-only on pull requests.
+- The image is built from reviewed, checked-in instructions and the toolchain is
+  pinned to explicit versions (`platforms;android-35`, `build-tools;35.0.0`).
+  No job downloads a toolchain at run time.
+- The build job itself uses the host Docker daemon; it runs only on trusted refs
+  and never executes untrusted PR code on the host.
 
 ## Related
 
