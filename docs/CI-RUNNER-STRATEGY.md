@@ -23,16 +23,17 @@ job, and workflows may only use `actions/checkout` plus plain shell steps.
 | Workflow | Job | Runner | Rationale |
 |---|---|---|---|
 | `lint.yml` | `lint` | `[self-hosted, hostinger]` (push) / `ubuntu-latest` (PR, OPE-265) | Detekt gate. Since OPE-212 runs in a digest-pinned, non-root `container:` (see §7). |
-| `security-logging.yml` | `T4 static scan` | `[self-hosted, hostinger]` (push) / `ubuntu-latest` (PR, OPE-258) | JDK-free bash gate; already green on `vps-dokploy`. Keep it cheap and always-reportable — it is the **required** check. |
-| `security-logging.yml` | `Redaction unit tests` | `[self-hosted, hostinger]` (push/workflow_dispatch only) | Plain JVM/Android unit test (`:shared:networking:testDebugUnitTest`); moved off the single-lane `mac` runner in OPE-250 (Phase 0.1). Guarded off `pull_request` until the digest-pinned GHCR image exists (OPE-255/OPE-263). |
-| `build.yml` | `Build Android (APK/AAB)` | `ubuntu-latest` | The GitHub-hosted image carries JDK 21 + Android SDK; green on `main`. |
+| `security-logging.yml` | `T4 static scan` | `[self-hosted, hostinger]` (all events, OPE-291) | JDK-free bash gate; already green on `vps-dokploy`. Keep it cheap and always-reportable — it is the **required** check. |
+| `security-logging.yml` | `Redaction unit tests` | `[self-hosted, hostinger]` (all events, OPE-291) | Plain JVM/Android unit test (`:shared:networking:testDebugUnitTest`); moved off the single-lane `mac` runner in OPE-250 (Phase 0.1). Runs in the digest-pinned repository CI image (JDK 21 + Android SDK 35) as uid 10001 (OPE-255). |
+| `build.yml` | `Build Android (APK/AAB)` | `[self-hosted, hostinger]` (all events, OPE-291) | Runs in the digest-pinned repository CI image (JDK 21 + Android SDK 35) as uid 10001 (OPE-255). |
 | `build.yml` | `Build iOS/macOS frameworks` | `macos-latest` | The GitHub-hosted macOS image carries Xcode + JDK 21. |
-| `t1-device-validation.yml` | `T1 handshake (JVM)` | `[self-hosted, hostinger]` | JDK 21 + Android SDK only. |
-| `t1-device-validation.yml` | `T1 Android instrumented test compiles` | `[self-hosted, hostinger]` | JDK 21 + Android SDK only (compile, no emulator). |
+| `t1-device-validation.yml` | `T1 handshake (JVM)` | `[self-hosted, hostinger]` (all events, OPE-291) | same digest-pinned repository CI image (OPE-255). |
+| `t1-device-validation.yml` | `T1 Android instrumented test compiles` | `[self-hosted, hostinger]` (all events, OPE-291) | same digest-pinned repository CI image (OPE-255) (compile, no emulator). |
+| `build.yml` | `Test Android (JVM unit tests)` | `[self-hosted, hostinger]` (all events, OPE-291) | Runs in the digest-pinned repository CI image (JDK 21 + Android SDK 35) as uid 10001 (OPE-255). |
 | `t1-device-validation.yml` | `T1 handshake (Android emulator)` | `[self-hosted, hostinger]` | Needs an AVD **and** hardware acceleration (`/dev/kvm`). Provisioned by `scripts/t1/run-android-device-validation.sh`; depends on host capability, see §5. |
 | `t1-device-validation.yml` | `T1 handshake (iOS simulator)` | `[self-hosted, mac]` | Needs Xcode + a bootable simulator. macOS only. |
 | `cd.yml` | `prepare` | `[self-hosted, hostinger]` | Pure bash parameter resolution; no toolchain. |
-| `cd.yml` | `deploy-android` | `[self-hosted, hostinger]` | Builds the release bundle: JDK 21 + Android SDK. Sources `scripts/ci/runner-toolchain-env.sh`. |
+| `cd.yml` | `deploy-android` | `[self-hosted, hostinger]` | Builds the release bundle; still sources the **host** toolchain via `scripts/ci/runner-toolchain-env.sh` (handles deploy secrets; not yet moved to the CI image — see ADR 0007 *Migration*). |
 | `cd.yml` | `deploy-ios` | `[self-hosted, mac]` | Apple deployment leg; runs on the Xcode-capable host. |
 | `cd.yml` | `smoke-test` | `[self-hosted, hostinger]` | Pure bash/curl pipeline check. |
 | `smoke-test.yml` | `self-test` | `[self-hosted, hostinger]` | Pure bash/curl self-test of the smoke script. |
@@ -41,24 +42,19 @@ job, and workflows may only use `actions/checkout` plus plain shell steps.
 **Default rule for new workflows:** prefer the self-hosted pool for trusted
 runs. Use `[self-hosted, hostinger]` for JDK/Android/Gradle work and
 `[self-hosted, mac]` for anything that needs Xcode or a simulator. GitHub-hosted
-minutes are not part of the plan for `push`/`workflow_dispatch`.
+minutes are not part of the plan for any event (OPE-291 review).
 
-**Untrusted `pull_request` routing (OPE-258, OPE-265).** Repo-controlled code
-from a `pull_request` must not run on the shared `hostinger` VPS, where it
-executes as uid 0 on a host that also exposes a read-write Docker socket. Every
-such job declares
-
-```yaml
-runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
-```
-
-so a `pull_request` run lands on an ephemeral GitHub-hosted runner while trusted
-runs keep the company pool: `architecture-tests.yml`, `executable-bits.yml`,
-`security-logging.yml` (`T4 static scan`), `smoke-test.yml`, `build.yml`
-(`test-android`) and `lint.yml` (`lint`). `security-logging.yml` `Redaction unit
-tests` stays off `pull_request` until the digest-pinned GHCR image exists
-(OPE-255). The company `mac` pool is single-tenant, so `test-ios` and
-`ios-app.yml` are not routed this way.
+**Untrusted `pull_request` routing (OPE-258, OPE-265 — superseded by OPE-291 review).**
+Repo-controlled code from a `pull_request` used to stay off the shared
+`hostinger` VPS, where it executes as uid 0 on a host that also exposes a
+read-write Docker socket: every such job declared a conditional `runs-on`
+so a `pull_request` run landed on an ephemeral GitHub-hosted runner while
+trusted runs kept the company pool. Per @qveys review on PR #90 (GitHub-hosted
+minutes are not in the plan), all events now run on `[self-hosted, hostinger]`
+and untrusted-PR isolation relies on the digest-pinned CI image running as
+uid 10001 (ADR 0007). The other workflows that still route `pull_request` to
+`ubuntu-latest` (`lint.yml`, `architecture-tests.yml`, `executable-bits.yml`,
+`smoke-test.yml`) are pre-existing on `main` and out of scope of PR #90.
 
 **Untrusted changes need human review (OPE-265).** Runner routing cannot protect
 a same-repo branch, which is indistinguishable from a `push`. `.github/CODEOWNERS`
@@ -197,13 +193,31 @@ in an **ephemeral, non-root container**:
   the JDK are per-job. That is the whole of the isolation claim, and it was
   already narrower than "no host volume" — see §7.1 for the real mount set.
 
-Applied to `lint.yml` (`lint`) and `security-logging.yml` (`T4 static scan`).
-Both were validated on `vps-dokploy` **and** `vps-openclaw` before wiring.
+Applied first to `lint.yml` (`lint`) and `security-logging.yml` (`T4 static
+scan`); both were validated on `vps-dokploy` **and** `vps-openclaw` before
+wiring.
 
-Not yet done: the runner **service** still runs as root as the scheduler, and
-the Android-SDK jobs still use the host toolchain / GitHub-hosted runners. The
-staged plan (repository-built digest-pinned Android image in GHCR, then a
-non-root runner service) is in the ADR's *Migration* section.
+OPE-255 (stage 2) extends the model to the Android-SDK jobs with a
+**repository-built** image instead of the JDK-only public one:
+
+- `ci/android/Dockerfile` builds JDK 21 + Android SDK 35 (platform-tools,
+  `platforms;android-35`, `build-tools;35.0.0`) from a digest-pinned
+  `eclipse-temurin` base, accepts the SDK licenses at build time and ships the
+  `builder` uid 10001 account.
+- `.github/workflows/ci-image.yml` builds and pushes it to
+  `ghcr.io/qveys/opencodemobile/ci-android`, printing the `name@sha256` digest.
+  Only `main` pushes and manual dispatch publish; pull requests build without
+  pushing.
+- `build.yml` (`build-android`, `test-android`), `t1-device-validation.yml`
+  (`jvm-handshake`, `android-instrumented-compile`) and
+  `security-logging.yml` (`Redaction unit tests`) now consume that digest and
+  run as uid 10001.
+
+Not yet done: the runner **service** still runs as root as the scheduler;
+`cd.yml` `deploy-android` still sources the host toolchain (so
+`provision-runner-toolchain.yml` cannot be retired yet); and the Android
+emulator leg needs `/dev/kvm`, which a container cannot get, so it stays on
+`ubuntu-latest`. The staged plan is in the ADR's *Migration* section.
 
 ### 7.1 The real mount set of a `container:` job (OPE-259)
 
