@@ -86,11 +86,15 @@ jobs:
       image: eclipse-temurin@sha256:6adefddd4a20bceef702cedb0b03952fcd7691f9c7ccffe27014992abc0b46bd
       # OPE-254 — type-resolved detekt compiles the Android/KMP modules, so the
       # job needs the Android SDK. The OPE-98 host toolchain lives at
-      # /opt/android-sdk on both hostinger runners; mount it read-only so the
+      # /opt/android-sdk on the hostinger runners; mount it read-only so the
       # container stays ephemeral and non-root while `runner-toolchain-env.sh`
       # can export ANDROID_HOME. Read-only keeps the host SDK out of reach for
-      # writes. This deliberately narrows ADR 0007's "no host volume" claim;
-      # reviewed by Security/DevOps in OPE-254.
+      # writes. Reviewed by Security/DevOps in OPE-254. This is the only host
+      # toolchain a `container:` job here mounts (ADR 0007 "no host toolchain or
+      # cache volume"); the runner's own workspace/temp/docker.sock mounts are
+      # listed in docs/CI-RUNNER-STRATEGY.md §7.1.
+      # OPE-259 fail-fast: `docker -v` CREATES an empty root-owned dir when the
+      # host path is missing, so the self-hosted step below asserts the SDK.
       # OPE-265 — the GitHub-hosted image ships the same SDK at
       # /usr/local/lib/android/sdk, so the bind source is resolved per runner.
       volumes:
@@ -115,7 +119,15 @@ jobs:
           if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
             env CI=1 bash -c '. scripts/ci/runner-toolchain-env.sh && chmod +x gradlew && java -version && bash scripts/lint.sh'
           else
-            bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c '. scripts/ci/runner-toolchain-env.sh && chmod +x gradlew && java -version && bash scripts/lint.sh'
+            bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c '
+              set -euo pipefail
+              . scripts/ci/runner-toolchain-env.sh
+              test -d "$ANDROID_HOME/platforms/android-35" \
+                || { echo "::error::host Android SDK missing at $ANDROID_HOME on $RUNNER_NAME — run the \"Provision runner toolchain\" workflow on this host"; exit 1; }
+              chmod +x gradlew
+              java -version
+              bash scripts/lint.sh
+            '
           fi
       # upload-artifact is not on the Actions allowlist, so inline the reports
       # into the job log on every run to keep failures actionable. Type-resolved

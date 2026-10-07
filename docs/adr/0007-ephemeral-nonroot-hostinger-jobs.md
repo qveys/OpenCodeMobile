@@ -46,13 +46,19 @@ Run `hostinger` **jobs** in an ephemeral, non-root container:
 1. Each such job declares `container:` with a **digest-pinned** public base
    image (`eclipse-temurin@sha256:6adefddd…`, JDK 21, Ubuntu 22.04). The image
    is pulled on every run, so nothing is cached on the host between jobs.
-2. The job's wrapper step runs as root inside the container only to repair the
-   ownership of the runner-mounted checkout (`/__w`). The **actual build runs
-   as an unprivileged user** (`uid 10001`) via
-   `scripts/ci/run-as-nonroot.sh`.
-3. No host volume is mounted. The workspace, Gradle cache and toolchain are
-   per-job and are discarded with the container, so no state is shared between
-   jobs.
+2. The job's wrapper step runs as root inside the container to repair the
+   ownership of the runner-mounted checkout (`/__w`), and then executes
+   `scripts/ci/run-as-nonroot.sh` — **a file from this repository** — as uid 0.
+   The **build** runs as an unprivileged user (`uid 10001`); the **steps**
+   (`actions/checkout`, the wrapper, the report-publishing step) run as uid 0.
+   Corrected in OPE-259: an earlier revision of this item said the wrapper ran
+   as root "only to repair the ownership", which understated the root-executed
+   repository code. Consequence in *Consequences* below.
+3. **No host `toolchain` or `cache` volume is mounted.** The Gradle cache and
+   the JDK are per-job and are discarded with the container, so no state is
+   shared between jobs. This claim has always been narrower than "no host
+   volume is mounted", because the runner injects its own bind mounts into
+   every container job — see *The real mount set* below, added in OPE-259.
 4. The runner agent itself stays registered on the host as the scheduler.
    Removing the root runner service is a separate, host-level change
    (see *Consequences*).
@@ -67,12 +73,38 @@ Both were validated end-to-end on **both** hosts before wiring:
 (run `36853180860`); the full detekt command ran as `uid 10001` and printed
 the detekt result (run `36853841018`).
 
+### The real mount set (OPE-259)
+
+Decision item 3 originally read "No host volume is mounted". That was never
+true and the isolation claim must be stated precisely, so the runner-injected
+mounts are listed here. These exist in **every** container job, declared or
+not (evidence: run `37369536318`, step `Initialize containers`):
+
+| Container path | Host source | Mode |
+|---|---|---|
+| `/__w` | `<runner>/_work` | rw |
+| `/__w/_temp` | `<runner>/_work/_temp` | rw |
+| `/__w/_actions` | `<runner>/_work/_actions` | rw |
+| `/__w/_tool` | `<runner>/_work/_tool` | rw |
+| `/github/home` | `<runner>/_work/_temp/_github_home` | rw |
+| `/github/workflow` | the workflow repository checkout | rw |
+| `/__e` | `<runner>/_externals` | **ro** |
+| `/var/run/docker.sock` | the host Docker socket | rw |
+
+They are how the runner delivers the checkout, its own temp/action caches and
+its execution environment. They are **outside** the isolation claim of items 1
+and 3: items 1 and 3 are about the *toolchain and cache* being per-job, not
+about the host being invisible. The only host toolchain either job adds on top
+is `lint`'s read-only `/opt/android-sdk` (OPE-254 amendment below); `T4 static
+scan` adds none.
+
 ### Amendment — type-resolved lint needs the Android SDK (OPE-254)
 
 OPE-213 turned on detekt's type resolution. The type-resolved tasks compile the
 Android/KMP modules, so the `lint` job now needs the Android SDK, which the
-`eclipse-temurin` image does not carry. Decision item 3 above ("No host volume
-is mounted") therefore no longer holds for `lint`:
+`eclipse-temurin` image does not carry. Decision item 3 above ("no host
+**toolchain or cache** volume is mounted") is therefore narrowed for `lint` by
+one read-only toolchain path:
 
 - `lint.yml` bind-mounts the OPE-98 host toolchain **read-only** at
   `/opt/android-sdk` (`volumes: - /opt/android-sdk:/opt/android-sdk:ro`), and
@@ -82,9 +114,15 @@ is mounted") therefore no longer holds for `lint`:
 - Verified on `hostinger` (run `37369536318`): the type-resolved tasks
   (`:androidApp:detektDebug`, `:design-system:detektAndroidDebug`, …) ran and
   reported 0 findings.
-- This narrowing is routed to Security/DevOps for sign-off on OPE-254. The
-  staged replacement stays the repository-built digest-pinned Android image in
-  GHCR noted in *Migration* below; until then the read-only mount is the
+- This narrowing is routed to Security/DevOps for sign-off on OPE-254, and the
+  Security review on **OPE-259** approved the mount and corrected the record:
+  this amendment is **not** "the one exception" to an otherwise empty mount
+  set, it sits on top of the runner-injected mounts catalogued in *The real
+  mount set*. OPE-259 also made `lint` fail fast when the host SDK is absent,
+  because `docker -v` silently creates an empty `/opt/android-sdk` on a
+  never-provisioned runner.
+- The staged replacement stays the repository-built digest-pinned Android image
+  in GHCR noted in *Migration* below; until then the read-only mount is the
   smallest change that keeps both the OPE-212 container and OPE-213 type
   resolution.
 
@@ -111,6 +149,19 @@ is mounted") therefore no longer holds for `lint`:
 
 ## Consequences / known gaps
 
+- **Steps run as uid 0 with the host Docker socket mounted** (OPE-259 record
+  correction). The runner bind-mounts `/var/run/docker.sock` **rw** into every
+  container job, and `container.options: --user 0:0` makes the step process
+  uid 0 — both visible in the `docker create` line of run `37369536318`. The
+  **build** is dropped to `uid 10001`, but the wrapper that performs that drop,
+  `scripts/ci/run-as-nonroot.sh`, is a **repository file** executing as uid 0
+  with the host Docker socket reachable, so a step can drive the host daemon.
+  The OPE-212/254 mitigation is therefore "the *build* is unprivileged", not
+  "the *job* is unprivileged". The read-only OPE-254 SDK mount does not change
+  this: it is a separate, read-only path. PR #78 (OPE-258) already moved the
+  `T4 static scan` job off the `hostinger` pool for untrusted `pull_request`
+  runs; `lint` still runs on `hostinger` for every PR. Closing the socket gap
+  is the DevOps follow-up and is **not** addressed by this ADR revision.
 - **The runner service still runs as root** as the job scheduler. The job no
   longer does, and it no longer touches host state, but the agent process and
   its `_work` staging directory are still root-owned. Fully removing root means
