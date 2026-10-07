@@ -71,6 +71,13 @@ compilation. It derives the Kotlin/Native target from Xcode's `PLATFORM_NAME`/`A
 Gradle variant from `CONFIGURATION`, builds `iosAppHost.framework`, and stages it in
 `iosApp/build/frameworks`, where `FRAMEWORK_SEARCH_PATHS` points.
 
+A `Sync Compose resources` **post-build** run-script phase runs
+`:iosAppHost:syncComposeResourcesForIos`. A static framework carries no bundle, so Xcode never
+embeds its `compose-resources`; the phase runs the Compose Gradle plugin's task to copy them
+into `$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/compose-resources`, the layout Compose
+Multiplatform reads at runtime. Without it the first `stringResource(...)` aborts at startup.
+The phase runs before code signing, so the files are included in the signature.
+
 `.github/workflows/ios-app.yml` builds the app for an iOS simulator on the company `mac`
 self-hosted runner, launches it, and runs `iosAppUITests/ConnectionScreenUITests.swift`, which
 checks the OPE-153 runtime acceptance (connection screen opens; scan/cancel returns; valid vs.

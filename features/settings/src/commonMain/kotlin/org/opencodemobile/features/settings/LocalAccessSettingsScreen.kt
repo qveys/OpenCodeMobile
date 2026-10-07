@@ -12,37 +12,32 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import org.jetbrains.compose.resources.stringResource
-import org.opencodemobile.design.system.resources.Res
-import org.opencodemobile.design.system.resources.settings_local_access_title
-import org.opencodemobile.design.system.resources.settings_multitask_masking
-import org.opencodemobile.design.system.resources.settings_multitask_masking_description
-import org.opencodemobile.design.system.resources.settings_optional_biometrics
-import org.opencodemobile.design.system.resources.settings_optional_biometrics_description
-import org.opencodemobile.design.system.resources.settings_optional_biometrics_note
-import org.opencodemobile.design.system.resources.settings_screen_capture_blocking
-import org.opencodemobile.design.system.resources.settings_screen_capture_blocking_description
-import org.opencodemobile.design.system.resources.settings_screen_capture_blocking_note
 import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
 
 /**
- * The §7.3 local-access settings surface (bilingual FR/EN through the
- * design-system string catalogue).
+ * The §7.3 local-access settings surface. Its FR/EN copy comes from the
+ * design-system `composeResources` catalogue through [LocalAccessStrings].
  *
- * It renders the three device preferences and forwards every change to the
- * presenter; it holds no state itself and never reads a platform API, so the
- * Android and iOS hosts can render the exact same screen.
+ * It renders the device preferences and forwards every change to the presenter;
+ * it holds no state itself and never reads a platform API. The Android and iOS
+ * hosts render the exact same screen through [LocalAccessSettingsHost].
+ *
+ * [platformSupportsScreenCaptureBlocking] is the platform capability. When a
+ * platform cannot block captures (iOS), the capture-blocking control is **not
+ * rendered** — instead of showing a switch that would do nothing — and an
+ * explicit note explains why. Masking is always offered.
  */
 @Composable
 public fun LocalAccessSettingsScreen(
     state: LocalAccessSettings,
-    onOptionalBiometricsChange: (Boolean) -> Unit,
-    onMultitaskMaskingChange: (Boolean) -> Unit,
-    onScreenCaptureBlockingChange: (Boolean) -> Unit,
+    actions: LocalAccessSettingsActions,
+    strings: LocalAccessStrings,
+    onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -57,37 +52,96 @@ public fun LocalAccessSettingsScreen(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            Text(
-                text = stringResource(Res.string.settings_local_access_title),
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            LocalAccessToggle(
-                title = stringResource(Res.string.settings_optional_biometrics),
-                description = stringResource(Res.string.settings_optional_biometrics_description),
-                checked = state.optionalBiometricsEnabled,
-                onCheckedChange = onOptionalBiometricsChange,
-            )
-            Text(
-                text = stringResource(Res.string.settings_optional_biometrics_note),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            LocalAccessToggle(
-                title = stringResource(Res.string.settings_multitask_masking),
-                description = stringResource(Res.string.settings_multitask_masking_description),
-                checked = state.multitaskMaskingEnabled,
-                onCheckedChange = onMultitaskMaskingChange,
-            )
-            LocalAccessToggle(
-                title = stringResource(Res.string.settings_screen_capture_blocking),
-                description = stringResource(Res.string.settings_screen_capture_blocking_description),
-                checked = state.screenCaptureBlockingEnabled,
-                onCheckedChange = onScreenCaptureBlockingChange,
-            )
-            Text(
-                text = stringResource(Res.string.settings_screen_capture_blocking_note),
-                style = MaterialTheme.typography.bodySmall,
+            LocalAccessSettingsHeader(strings, onBack)
+            OptionalBiometricsSection(state.optionalBiometricsEnabled, strings, actions)
+            MultitaskMaskingSection(state.multitaskMaskingEnabled, strings, actions)
+            ScreenCaptureBlockingSection(
+                enabled = state.screenCaptureBlockingEnabled,
+                supported = platformSupportsScreenCaptureBlocking(),
+                strings = strings,
+                onCheckedChange = actions.onScreenCaptureBlockingChange,
             )
         }
+    }
+}
+
+@Composable
+private fun LocalAccessSettingsHeader(strings: LocalAccessStrings, onBack: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        TextButton(onClick = onBack) {
+            Text(strings.back)
+        }
+        Text(
+            text = strings.title,
+            style = MaterialTheme.typography.headlineSmall,
+        )
+    }
+}
+
+@Composable
+private fun OptionalBiometricsSection(
+    enabled: Boolean,
+    strings: LocalAccessStrings,
+    actions: LocalAccessSettingsActions,
+) {
+    LocalAccessToggle(
+        title = strings.optionalBiometrics,
+        description = strings.optionalBiometricsDescription,
+        checked = enabled,
+        onCheckedChange = actions.onOptionalBiometricsChange,
+    )
+    Text(
+        text = strings.optionalBiometricsNote,
+        style = MaterialTheme.typography.bodySmall,
+    )
+}
+
+@Composable
+private fun MultitaskMaskingSection(
+    enabled: Boolean,
+    strings: LocalAccessStrings,
+    actions: LocalAccessSettingsActions,
+) {
+    LocalAccessToggle(
+        title = strings.multitaskMasking,
+        description = strings.multitaskMaskingDescription,
+        checked = enabled,
+        onCheckedChange = actions.onMultitaskMaskingChange,
+    )
+}
+
+/**
+ * Renders the capture-blocking control only when the platform supports it. The
+ * explicit note on unsupported platforms replaces a switch that would have no
+ * effect (review finding F1).
+ */
+@Composable
+private fun ScreenCaptureBlockingSection(
+    enabled: Boolean,
+    supported: Boolean,
+    strings: LocalAccessStrings,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    if (supported) {
+        LocalAccessToggle(
+            title = strings.screenCaptureBlocking,
+            description = strings.screenCaptureBlockingDescription,
+            checked = enabled,
+            onCheckedChange = onCheckedChange,
+        )
+        Text(
+            text = strings.screenCaptureBlockingNote,
+            style = MaterialTheme.typography.bodySmall,
+        )
+    } else {
+        Text(
+            text = strings.screenCaptureBlockingUnavailable,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
