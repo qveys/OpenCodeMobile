@@ -11,9 +11,15 @@ name: Provision runner toolchain
 #
 #   ./gradlew :shared:networking:testDebugUnitTest --no-daemon
 #
-# It is idempotent and safe to re-run at any time. `workflow_dispatch` forces a
-# refresh; the `push` trigger is path-filtered to the provisioning files so
-# ordinary pushes do not re-run it.
+# It is idempotent and safe to re-run at any time. Provisioning is restricted to
+# `main`: this workflow runs repo-controlled shell on persistent company
+# machines, so a feature branch must not trigger it. `push` is scoped to `main`
+# and path-filtered; `workflow_dispatch` on any other ref is skipped by the job
+# guard.
+#
+# The shared `hostinger` label matches two Linux runners (vps-dokploy /
+# vps-openclaw), so a single job on it provisions only whichever host picks it
+# up. The Linux job is a matrix keyed on each runner's unique label.
 #
 # After this workflow is green, ordinary CI jobs only need to source
 # `scripts/ci/runner-toolchain-env.sh` (see .github/workflows/security-logging.yml).
@@ -21,17 +27,16 @@ name: Provision runner toolchain
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - '.github/workflows/provision-runner-toolchain.yml'
       - 'scripts/ci/**'
 
 concurrency:
-  # Isolated per-ref group: on the slow mac runner a provisioning run takes
-  # 2-3 h, and a repo-wide group let any other branch's push cancel this
-  # branch's run within seconds (observed 2026-09-29). OPE-98 owns the
-  # repository-wide supersession policy; this branch stays uncancellable so it
-  # can actually finish and verify the fix.
-  group: provision-runner-toolchain-${{ github.ref }}
+  # One provisioning run repository-wide. Queue, never cancel: cancelling a job
+  # mid-install can leave a runner half provisioned. Automatic runs are scoped to
+  # `main`, so the pile-up no longer comes from feature branches.
+  group: provision-runner-toolchain
   cancel-in-progress: false
 
 permissions:
@@ -39,8 +44,13 @@ permissions:
 
 jobs:
   provision-linux:
-    name: Provision Linux runner (hostinger)
-    runs-on: [self-hosted, hostinger]
+    name: Provision Linux runner (${{ matrix.runner }})
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [vps-dokploy, vps-openclaw]
+    runs-on: [self-hosted, '${{ matrix.runner }}']
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -58,6 +68,7 @@ jobs:
 
   provision-mac:
     name: Provision macOS runner
+    if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, mac]
     # The mac runner's measured download throughput is ~35 KB/s, so a 203 MB JDK
     # plus the Android SDK can take ~2-3 h. The provisioning script bounds each
