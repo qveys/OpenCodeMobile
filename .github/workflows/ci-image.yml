@@ -17,16 +17,21 @@ name: CI image (Android)
 #
 # Trigger policy:
 #   - push to `main` when the image inputs change: publish a fresh digest.
-#   - pull_request: build only (no push). A fork PR can never publish, and a
-#     same-repo PR still proves the Dockerfile compiles.
+#   - pull_request: static validation only (no `docker build`). The Dockerfile
+#     is PR-controlled and the runner's Docker daemon is the shared host
+#     daemon (root-equivalent), so executing its RUN instructions on a PR
+#     would run unreviewed code as root on the hostinger pool (OPE-297).
+#     The PR check verifies the digest pin and the Dockerfile shape without
+#     building; the real build runs after merge.
 #   - workflow_dispatch: build + publish on demand (use this to rotate the
 #     digest deliberately).
 #
 # Runner policy: this build needs the Docker daemon, which only the
 # `hostinger` VPS pool provides. It runs as a normal host job (not in a
 # `container:`), so it does touch the host daemon — but it is an administrative
-# job, path-filtered and never a required security gate, and it does not check
-# out or run untrusted PR code on the host (the build context is `ci/android`).
+# job, path-filtered and never a required security gate. The `docker build`
+# below never runs on pull_request (see above); only trusted revisions
+# (`main` pushes, manual dispatch) reach the daemon.
 #
 # Actions allowlist: the org permits only `actions/checkout@*` (and, as of the
 # latest org policy read, `actions/upload-artifact@*`) — every step here is
@@ -64,11 +69,15 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       # `ci/android` is the whole build context: the Dockerfile copies nothing
-      # from the repo, so the context stays tiny and no untrusted source is fed
-      # to the build.
+      # from the repo, so the context stays tiny. The build still executes the
+      # Dockerfile RUN instructions on the host daemon, so it only runs for
+      # trusted revisions — never on pull_request (OPE-297).
       - name: Build image
+        if: github.event_name != 'pull_request'
         env:
           IMAGE: ghcr.io/${{ github.repository }}/ci-android
         run: |
@@ -110,13 +119,14 @@ jobs:
             echo "Pin this reference (by digest) in the consuming workflows."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # On PRs the image is built but not published; still print the local id so
-      # the PR check is self-explaining.
-      - name: Report local image (pull_request)
+      # On PRs the image is NOT built (untrusted Dockerfile + host daemon).
+      # Static validation only: the base image stays digest-pinned and the
+      # Dockerfile keeps no unreviewed network fetch outside the pinned
+      # toolchain steps. The real build runs after merge.
+      - name: Validate Dockerfile without building (pull_request)
         if: github.event_name == 'pull_request'
-        env:
-          IMAGE: ghcr.io/${{ github.repository }}/ci-android
         run: |
           set -euo pipefail
-          image="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
-          docker image inspect --format 'built {{.Id}} ({{.Size}} bytes); not published on pull_request' "$image:jdk21-android35"
+          test -f ci/android/Dockerfile
+          grep -qE '^FROM [^ ]+@sha256:[0-9a-f]{64}' ci/android/Dockerfile
+          echo "Dockerfile validation OK (no build on pull_request); full build runs after merge."
