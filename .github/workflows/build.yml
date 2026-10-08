@@ -249,6 +249,8 @@ jobs:
       options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Run Android/JVM unit tests
         run: bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c '. scripts/ci/runner-toolchain-env.sh && chmod +x gradlew && java -version && bash scripts/test.sh android -- --continue'
       - name: Report test results
@@ -261,6 +263,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Run iOS simulator tests
         run: |
           set -euo pipefail
