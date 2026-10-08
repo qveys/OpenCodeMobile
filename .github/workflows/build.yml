@@ -153,6 +153,52 @@ jobs:
           test -n "$(find . -path '*/shared/domain/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
           test -n "$(find . -path '*/iosAppHost/build/bin/iosSimulatorArm64/debugFramework/*.framework' -print -quit)"
 
+  # Unsigned iOS Simulator .app, downloadable per commit (MVP v1 exit criterion).
+  package-ios-simulator:
+    name: Package iOS Simulator app
+    # OPE-295 (@qveys review): GitHub-hosted macOS runners are cost-forbidden;
+    # run on the company self-hosted mac pool, like test-ios below.
+    runs-on: [self-hosted, mac]
+    timeout-minutes: 60
+    env:
+      APP_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build unsigned simulator app
+        run: |
+          set -euo pipefail
+          # Same pool as build-ios/test-ios: OPE-98 provisioned JDK 21.
+          . scripts/ci/runner-toolchain-env.sh
+          chmod +x gradlew
+          # XcodeGen: prefer a preinstalled copy, else Homebrew, else the
+          # pinned upstream release (same 2.44.1 fallback as ios-app.yml).
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            if command -v brew >/dev/null 2>&1; then brew install xcodegen; else
+              XCODEGEN_VERSION="2.44.1"
+              mkdir -p "$RUNNER_TEMP/xcodegen"
+              curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" \
+                "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+              unzip -q -o "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+              export PATH="$RUNNER_TEMP/xcodegen/bin:$PATH"
+            fi
+          fi
+          xcodegen --version
+          cd iosApp
+          xcodegen generate
+          xcodebuild -project iosApp.xcodeproj -scheme iosApp -sdk iphonesimulator \
+            -configuration Debug -derivedDataPath build/dd ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO build
+          ditto -c -k --keepParent build/dd/Build/Products/Debug-iphonesimulator/iosApp.app \
+            "iosApp-simulator-${APP_SHA}.zip"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: iosApp-simulator-${{ env.APP_SHA }}
+          path: iosApp/iosApp-simulator-${{ env.APP_SHA }}.zip
+          retention-days: 14
+          if-no-files-found: error
+
   # OPE-17 — Test step. Runs the full KMP test suite from the SAME revision as
   # the build jobs above (one workflow run => one github.sha):
   #   - test-android: Android/JVM unit tests (`testDebugUnitTest`) on Linux.
