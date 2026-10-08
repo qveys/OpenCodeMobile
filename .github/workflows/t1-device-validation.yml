@@ -78,6 +78,8 @@ jobs:
       options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Run T1 handshake unit tests
         run: bash scripts/ci/run-as-nonroot.sh bash -c 'set -euo pipefail; chmod +x gradlew; java -version; ./gradlew :shared:security:testDebugUnitTest --no-daemon --stacktrace'
 
@@ -91,6 +93,8 @@ jobs:
       options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Assemble Android instrumented test APK
         run: bash scripts/ci/run-as-nonroot.sh bash -c 'set -euo pipefail; chmod +x gradlew; ./gradlew :shared:security:assembleDebugAndroidTest --no-daemon --stacktrace'
 
@@ -103,6 +107,8 @@ jobs:
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Provision emulator and run instrumented T1 tests
         run: |
           set -euo pipefail
@@ -118,6 +124,8 @@ jobs:
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Run iOS simulator T1 tests against host TLS servers
         run: |
           set -euo pipefail
