@@ -414,6 +414,27 @@ Zéro test à `tests="0"` : un run vert sans test exécuté ne prouve rien
 
 ## 7. Rapport de recette (template — recopié par OPE-304)
 
+### Smoke automatisé en une commande
+
+Depuis la racine du dépôt, avec un émulateur Android API 31+ déjà démarré ou
+un Mac équipé de Xcode/XcodeGen :
+
+```bash
+bash scripts/smoke/recette-v1-smoke.sh android
+bash scripts/smoke/recette-v1-smoke.sh ios
+```
+
+Le script Android exécute les tests JVM ciblés (dont les scénarios
+`MockOpenCodeServer`), installe, lance puis efface les données de l'application.
+Le script iOS construit l'app, l'installe et la lance, exécute les tests
+`ConnectionScreenUITests`, puis désinstalle l'app pour effacer son état local.
+Toute étape en échec produit un code retour non nul. Ces tests ne remplacent pas
+le parcours manuel avec `opencode serve` décrit plus haut : le mock serveur est
+in-process et ne reçoit pas de trafic réseau d'une app installée.
+
+Un run réussi imprime `PASS` et peut être reporté dans la matrice ci-dessous ;
+il ne prouve pas les étapes marquées **[M]** ou **[R]**.
+
 Environnement : commit SHA `…………`, APK (sha256 `…………`), `.app` simulateur
 (sha256 `…………`), AVD `…………` (API `…………`), simulateur `…………` (iOS `…………`),
 serveur `opencode serve` version `…………` (sortie de `/global/health`).
