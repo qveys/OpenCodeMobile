@@ -11,14 +11,18 @@ name: Build
 #     and iosArm64
 #
 # Toolchain policy (repo Actions allowlist):
-#   The organization allows only `actions/checkout@*` to run. Every other
-#   action (`actions/setup-java`, `gradle/actions/setup-gradle`,
-#   `android-actions/setup-android`, `actions/upload-artifact`) is rejected with
-#   `startup_failure` before the job starts. This workflow therefore uses ONLY
-#   `actions/checkout` and relies on the JDK / Gradle / Android SDK / Xcode
-#   installed on the company self-hosted pool: the build jobs run on the same
-#   `[self-hosted, ...]` runners as the OPE-17 test jobs below (see
-#   docs/CI-RUNNER-STRATEGY.md).
+#   The organization allowlists `actions/checkout@*` plus the pinned
+#   `actions/upload-artifact@*` used by the two per-commit package jobs below
+#   (`package-ios-simulator`, added in #94 for the iOS Simulator .app, and
+#   `package-android-debug`, added in OPE-300 for the Android debug APK).
+#   Every other action (`actions/setup-java`, `gradle/actions/setup-gradle`,
+#   `android-actions/setup-android`) is rejected with `startup_failure` before
+#   the job starts. This workflow therefore uses ONLY `actions/checkout` plus
+#   the allowlisted `actions/upload-artifact`, and relies on the JDK / Gradle /
+#   Android SDK / Xcode installed on the company self-hosted pool: the build
+#   jobs run on the same `[self-hosted, ...]` runners as the OPE-17 test jobs
+#   below (see docs/CI-RUNNER-STRATEGY.md). Every action reference is pinned
+#   to a full commit SHA (SEC-04); workflow changes require PR review by @qveys.
 #   Reproducibility across environments
 #   comes from the checked-in pinning instead:
 #     - Gradle 8.10.2, pinned by gradle/wrapper/gradle-wrapper.properties
@@ -26,8 +30,10 @@ name: Build
 #     - JDK 21 / Android SDK: resolved per step by
 #       scripts/ci/runner-toolchain-env.sh (OPE-98), so both jobs build with the
 #       same provisioned major JDK.
-#   If the allowlist is later widened to include `actions/upload-artifact`, add
-#   an upload step for the paths listed under each job.
+#   Per-commit installables (OPE-300): `package-ios-simulator` (#94) and
+#   `package-android-debug` upload one artifact per commit, named by commit
+#   SHA with a 14-day retention — see docs/ANDROID-DEBUG-APK.md for download
+#   and `adb install` instructions.
 #
 # OPE-250: the triggers are path-filtered to build inputs (module sources, Gradle
 # files, CI scripts). A docs-only or UI-copy PR no longer compiles everything.
@@ -203,6 +209,39 @@ jobs:
         with:
           name: iosApp-simulator-${{ env.APP_SHA }}
           path: ${{ runner.temp }}/iosApp-simulator-${{ env.APP_SHA }}.zip
+          retention-days: 14
+          if-no-files-found: error
+
+  # Debug APK, downloadable per commit (OPE-300; mirrors package-ios-simulator
+  # from #94 for Android). MVP v1 exit criterion: the team can install the
+  # current `main` on an emulator without a local build.
+  #
+  # Signed with the Gradle debug key only (`assembleDebug` generates and uses
+  # `~/.android/debug.keystore` when none exists): never a release key, no
+  # `secrets.*` referenced anywhere in this job.
+  package-android-debug:
+    name: Package Android debug APK
+    # OPE-255/OPE-291: same self-hosted hostinger pool and digest-pinned CI
+    # image as build-android/test-android — no GitHub-hosted minutes.
+    runs-on: [self-hosted, linux, hostinger]
+    timeout-minutes: 40
+    container:
+      image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
+      options: --user 0:0
+    env:
+      APK_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Assemble and stage the debug APK
+        # The wrapper drops custom env vars (su resets the environment), so
+        # the commit SHA is passed as an argument, not via the environment.
+        run: bash scripts/ci/run-as-nonroot.sh bash scripts/ci/package-android-debug-apk.sh "$APK_SHA"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-debug-${{ env.APK_SHA }}
+          path: dist-android-debug/
           retention-days: 14
           if-no-files-found: error
 
