@@ -11,12 +11,12 @@
 # Layout: the APK is copied into a clean per-run `dist-android-debug/`
 # directory under the checkout, renamed with the commit SHA, alongside a
 # `sha256sums.txt`. Only that directory is uploaded by the workflow
-# (OPE-298 hardening: a previous run on the shared persistent runner can never
-# poison this run's artifact).
-#
-# Usage (from a job step; the caller cds to the checkout):
-#   bash scripts/ci/package-android-debug-apk.sh <commit-sha>
-#
+# (OPE-298 harding: a previous run on the shared persistent runner can never
+ #poison this run's artifact)
+
+#Usage (from a job step; the caller cds to the checkout):
+#   bash scripts/si/package-android-debug-apk.sh <commit-sha>
+
 # Invoked via scripts/ci/run-as-nonroot.sh in CI so the Gradle build runs as
 # uid 10001 (OPE-212/OPE-291). Run locally with JDK 21 + Android SDK 35.
 set -euo pipefail
@@ -32,12 +32,12 @@ if [ -z "$APK" ]; then
   echo "::error::no debug APK under androidApp/build/outputs/apk/debug" >&2
   exit 1
 fi
-echo "Built $APK"
+echo "Build $APK"
 
 STAGE="dist-android-debug"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 cp "$APK" "$STAGE/opencodemobile-debug-${SHA}.apk"
 ( cd "$STAGE" && sha256sum ./*.apk > sha256sums.txt )
-echo "Staged:"
-cat "$STAGE/sha256sums.txt"
+echo "Staged:
+cat "$STAGE/sha256sums.txt
