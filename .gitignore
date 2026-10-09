@@ -63,3 +63,4 @@ Thumbs.db
 # OPE-300 — per-run staging dir for the published debug APK
 # (scripts/ci/package-android-debug-apk.sh). Never commit staged outputs.
 dist-android-debug/
+.worktrees/
