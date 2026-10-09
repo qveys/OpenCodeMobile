@@ -121,6 +121,8 @@ one read-only toolchain path:
   mount set*. OPE-259 also made `lint` fail fast when the host SDK is absent,
   because `docker -v` silently creates an empty `/opt/android-sdk` on a
   never-provisioned runner.
+- **Superseded by OPE-314:** `lint` now runs in the digest-pinned `ci-android`
+  image and the host SDK mount (and its fail-fast assertion) is removed.
 - The staged replacement stays the repository-built digest-pinned Android image
   in GHCR noted in *Migration* below; until then the read-only mount is the
   smallest change that keeps both the OPE-212 container and OPE-213 type
