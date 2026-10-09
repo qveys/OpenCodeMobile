@@ -23,6 +23,7 @@ name: Provision runner toolchain
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - '.github/workflows/provision-runner-toolchain.yml'
       - 'scripts/ci/provision-runner-toolchain.sh'
