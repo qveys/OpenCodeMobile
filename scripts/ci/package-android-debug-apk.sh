@@ -15,7 +15,7 @@
  #poison this run's artifact)
 
 #Usage (from a job step; the caller cds to the checkout):
-#   bash scripts/si/package-android-debug-apk.sh <commit-sha>
+#   bash scripts/ci/package-android-debug-apk.sh <commit-sha>
 
 # Invoked via scripts/ci/run-as-nonroot.sh in CI so the Gradle build runs as
 # uid 10001 (OPE-212/OPE-291). Run locally with JDK 21 + Android SDK 35.
@@ -39,5 +39,5 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 cp "$APK" "$STAGE/opencodemobile-debug-${SHA}.apk"
 ( cd "$STAGE" && sha256sum ./*.apk > sha256sums.txt )
-echo "Staged:
-cat "$STAGE/sha256sums.txt
+echo "Staged:"
+cat "$STAGE/sha256sums.txt"
