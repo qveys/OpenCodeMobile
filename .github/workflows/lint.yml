@@ -80,54 +80,25 @@ jobs:
     # company pool.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 45
-    # OPE-212 — ephemeral, non-root isolation. Digest-pinned JDK 21 image; the
-    # job gets a fresh filesystem and builds as uid 10001.
+    # OPE-212/OPE-314 — ephemeral, non-root isolation. The digest-pinned CI image
+    # carries JDK 21 + Android SDK 35 (type-resolved detekt needs the SDK), so no
+    # host SDK volume is mounted and runner-toolchain-env.sh is not sourced.
     container:
-      image: eclipse-temurin@sha256:6adefddd4a20bceef702cedb0b03952fcd7691f9c7ccffe27014992abc0b46bd
-      # OPE-254 — type-resolved detekt compiles the Android/KMP modules, so the
-      # job needs the Android SDK. The OPE-98 host toolchain lives at
-      # /opt/android-sdk on the hostinger runners; mount it read-only so the
-      # container stays ephemeral and non-root while `runner-toolchain-env.sh`
-      # can export ANDROID_HOME. Read-only keeps the host SDK out of reach for
-      # writes. Reviewed by Security/DevOps in OPE-254. This is the only host
-      # toolchain a `container:` job here mounts (ADR 0007 "no host toolchain or
-      # cache volume"); the runner's own workspace/temp/docker.sock mounts are
-      # listed in docs/CI-RUNNER-STRATEGY.md §7.1.
-      # OPE-259 fail-fast: `docker -v` CREATES an empty root-owned dir when the
-      # host path is missing, so the self-hosted step below asserts the SDK.
-      # OPE-265 — the GitHub-hosted image ships the same SDK at
-      # /usr/local/lib/android/sdk, so the bind source is resolved per runner.
-      volumes:
-        - ${{ github.event_name == 'pull_request' && '/usr/local/lib/android/sdk:/opt/android-sdk:ro' || '/opt/android-sdk:/opt/android-sdk:ro' }}
+      image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
       options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run detekt lint gate
         run: |
           set -euo pipefail
-          # OPE-265 — on the GitHub-hosted runner the JDK 21 toolchain is
-          # preinstalled as $JAVA_HOME_21_X64; on the self-hosted pool
-          # runner-toolchain-env.sh resolves it from the OPE-98 provision.
-          if [ -n "${JAVA_HOME_21_X64:-}" ]; then
-            export JAVA_HOME="$JAVA_HOME_21_X64"
-            export PATH="$JAVA_HOME/bin:$PATH"
-          fi
           # The uid-10001 wrapper exists to cross the root-owned self-hosted
           # `_work` mount. On the ephemeral GitHub-hosted runner there is no
           # shared host and no host Docker socket, and chowning the runner temp
           # breaks the checkout post-step, so run the gate directly there.
           if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            env CI=1 bash -c '. scripts/ci/runner-toolchain-env.sh && chmod +x gradlew && java -version && bash scripts/lint.sh'
+            env CI=1 bash -c 'chmod +x gradlew && java -version && bash scripts/lint.sh'
           else
-            bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c '
-              set -euo pipefail
-              . scripts/ci/runner-toolchain-env.sh
-              test -d "$ANDROID_HOME/platforms/android-35" \
-                || { echo "::error::host Android SDK missing at $ANDROID_HOME on $RUNNER_NAME — run the \"Provision runner toolchain\" workflow on this host"; exit 1; }
-              chmod +x gradlew
-              java -version
-              bash scripts/lint.sh
-            '
+            bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c 'chmod +x gradlew && java -version && bash scripts/lint.sh'
           fi
       # upload-artifact is not on the Actions allowlist, so inline the reports
       # into the job log on every run to keep failures actionable. Type-resolved
