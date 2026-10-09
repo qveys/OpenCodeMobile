@@ -9,7 +9,8 @@
 > **Durée estimée :** ~20 minutes (hors installation des outils).
 >
 > Légende de vérification — chaque commande porte son statut :
-> ✅ **vérifiée** = exécutée le 2026-10-09 pendant la rédaction ;
+> ✅ **vérifiée** = exécutée le 2026-10-09 pendant la rédaction ou la
+> relecture tierce ([OPE-310](/OPE/issues/OPE-310)) ;
 > ⚠️ **non vérifiée** = reprise de la documentation du dépôt, à confirmer
 > lors de la recette ([OPE-301](/OPE/issues/OPE-301)).
 
@@ -20,9 +21,9 @@
 | Besoin | Détail |
 | --- | --- |
 | Un téléphone Android (API 31+) ou un Mac avec Xcode 16+ (simulateur iOS 16+) | L'app est un client natif, il n'y a pas de version web |
-| Un ordinateur qui fait tourner **OpenCode Server v2** (`opencode serve`) | Votre machine, ou une machine du même réseau |
+| Un ordinateur qui fait tourner **OpenCode Server 1.x** (`opencode serve`) | Votre machine, ou une machine du même réseau |
 | Le téléphone et le serveur sur le **même réseau local (LAN)** ou le même **réseau Tailscale** | L'app se connecte en point à point à *votre* serveur ; il n'y a ni cloud ni relais |
-| Serveur supporté | OpenCode Server v2, gamme `>= 1.18.0` (profil `CompatibilityProfile.OpenCodeServerV2`, voir [docs/API.md](API.md)) |
+| Serveur supporté | OpenCode Server **1.x (`>= 1.18.0`)** (profil `CompatibilityProfile.OpenCodeServerV2`, voir [docs/API.md](API.md)) — la **v2.x est refusée** par l'app (écran « serveur incompatible ») |
 
 Confidentialité (à lire avant d'installer) :
 [docs/PRIVACY.md](PRIVACY.md) — aucune télémétrie, stockage local chiffré,
@@ -32,32 +33,52 @@ Confidentialité (à lire avant d'installer) :
 
 ## 2. Lancer OpenCode Server
 
-Sur l'ordinateur qui hébergera le serveur :
+Sur l'ordinateur qui hébergera le serveur, installez d'abord un serveur
+compatible (**1.x**, voir §1). Le paquet npm `opencode-ai` publie la
+lignée 1.x (✅ **vérifié** le 2026-10-09 : `npm view opencode-ai` donne
+`latest = 1.18.35`, sans aucune 2.x) :
 
 ```bash
-opencode --version   # ✅ vérifiée : affiche p. ex. « opencode v2.0.18 »
+npm install -g opencode-ai        # ⚠️ non vérifiée (installe la 1.x courante, p. ex. 1.18.35)
+npm install -g opencode-ai@1.18.35   # ⚠️ non vérifiée (épingle une version exacte)
 ```
 
 ```bash
-opencode serve --port 4096 --hostname 0.0.0.0   # ⚠️ non vérifiée sous cette forme exacte
+opencode --version   # ✅ vérifiée : doit afficher une 1.x, p. ex. « opencode 1.18.35 »
+```
+
+> Si `opencode --version` affiche une **2.x** (p. ex. `v2.0.18`, autre
+> canal d'installation), l'app affichera « serveur incompatible » et
+> **aucun** des parcours V1-01…V1-09 ne pourra s'exécuter : réinstallez
+> une 1.18.x avec les commandes ci-dessus avant de continuer.
+
+```bash
+opencode serve --port 4096 --hostname 0.0.0.0   # ✅ vérifiée sous cette forme exacte en relecture (OPE-310) : `/` → 200 HTML, `/api/health` → 401 sans mot de passe
 ```
 
 Notes :
 
 - ✅ **vérifié** en boucle locale le 2026-10-09 :
   `opencode serve --port 45678 --hostname 127.0.0.1` démarre bien un
-  serveur (v2.0.18) ; la racine `/` sert l'interface web OpenCode.
+  serveur ; la racine `/` sert l'interface web OpenCode.
 - Pour que le téléphone atteigne le serveur, liez une adresse du LAN
-  (`--hostname 0.0.0.0`, ⚠️ non vérifiée) ou l'adresse Tailscale de la
+  (`--hostname 0.0.0.0`) ou l'adresse Tailscale de la
   machine, et ouvrez le port choisi (ici `4096`) dans le pare-feu.
 - Si vous protégez le serveur par mot de passe (`OPENCODE_SERVER_PASSWORD`),
   retenez-le : l'app vous le demandera une fois, puis le conservera dans le
   Keystore Android / le Keychain iOS (jamais en clair, jamais dans un QR —
   voir [docs/API.md](API.md#authentication)).
+- Mot de passe auto-généré : sans `OPENCODE_SERVER_PASSWORD`, `opencode
+  serve` **génère un mot de passe et l'affiche sur sa sortie standard**
+  (`server password …`, constaté 2× en relecture OPE-310 — copiez-le depuis
+  le terminal du serveur, l'app vous le demandera à la connexion). Si vous
+  avez perdu le terminal, relancez le serveur (le mot de passe change à
+  chaque démarrage sans variable d'environnement).
 - ⚠️ **Écart de version constaté** (serveur v2.0.18, 2026-10-09) : sur ce
   serveur, `/global/health` répond `200 text/html` (interface web) et
   `/api/health` répond `401 {"_tag":"UnauthorizedError"}` sans mot de passe.
-  L'app cible le profil documenté dans [docs/API.md](API.md) ; si l'écran de
+  Rappel : la v2.x est de toute façon **hors gamme supportée** (l'app
+  n'accepte que la 1.x, voir §1) ; si l'écran de
   connexion affiche « serveur incompatible », vérifiez d'abord la version du
   serveur (`opencode --version`) avant de conclure à un bug de l'app.
 
@@ -73,17 +94,23 @@ Notes :
 
 ### 3a. Android — APK de développement (⚠️ non vérifiée de bout en bout)
 
+Pré-requis outils : **JDK 17+** (le projet cible Java 17), `adb`
+(Android platform-tools) et un appareil en mode développeur (USB
+debugging activé).
+
 ```bash
 git clone https://github.com/qveys/OpenCodeMobile.git   # ⚠️ non vérifiée
 cd OpenCodeMobile
 
-./gradlew :androidApp:assembleDebug   # ⚠️ non vérifiée (produit aussi :assembleRelease + :bundleRelease en CI, voir .github/workflows/build.yml)
+./gradlew :androidApp:assembleDebug   # ⚠️ non vérifiée (ne produit que l'APK de débogage ; :assembleRelease + :bundleRelease ne sont construits qu'en CI, voir .github/workflows/build.yml)
 ```
 
-Installez ensuite l'APK sur un appareil en mode développeur :
+Repérez l'APK produit puis installez **ce fichier exact** (pas de glob
+`*.apk` : il casse dès que plusieurs APK coexistent) :
 
 ```bash
-adb install androidApp/build/outputs/apk/debug/*.apk   # ⚠️ non vérifiée (nécessite adb + USB debugging)
+ls androidApp/build/outputs/apk/debug/   # ⚠️ non vérifiée (liste l'APK, p. ex. androidApp-debug.apk)
+adb install androidApp/build/outputs/apk/debug/androidApp-debug.apk   # ⚠️ non vérifiée (adaptez le nom exact affiché par ls)
 ```
 
 Repère : la CI construit exactement
@@ -91,6 +118,12 @@ Repère : la CI construit exactement
 (`Build Android (APK/AAB)`, [.github/workflows/build.yml](../.github/workflows/build.yml)).
 
 ### 3b. Simulateur iOS — build `.app` (⚠️ non vérifiée, Mac uniquement)
+
+Pré-requis : Xcode 16+ et `xcodegen` :
+
+```bash
+brew install xcodegen   # ⚠️ non vérifiée
+```
 
 `iosApp/` est un projet Xcode natif (pas un module Gradle), décrit par
 `iosApp/project.yml`. Procédure complète dans
@@ -119,15 +152,33 @@ Ouvrez l'app : vous arrivez sur l'écran de connexion.
    l'autorisation caméra au premier usage). Le QR n'est qu'un transport du
    lien d'import : il ne contient **jamais** de credential
    ([docs/ARCHITECTURE.md](ARCHITECTURE.md#server-profile-import-deep-link--qr)).
+   Sur simulateur iOS (pas de caméra), injectez le contenu du QR via
+   l'argument de lancement réservé au débogage `-OPEQRPayload <valeur>`
+   (voir [iosApp/README.md](../iosApp/README.md)).
 2. **Relisez l'écran de révision « Import server profile »** : il affiche
    l'hôte, le port et l'empreinte complets. Validez d'un tap explicite
    (« Add server »). Un lien d'import n'écrit **jamais** un profil tout seul,
    et ne remplace jamais silencieusement un profil existant.
 3. **Premier contact — TOFU.** L'app affiche l'empreinte du serveur
-   (SHA-256 du SPKI, en hexadécimal séparé par des deux-points, comme une clé
-   SSH). Vérifiez-la (comparez avec ce que le serveur annonce localement) et
-   confirmez : l'empreinte est épinglée pour ce profil. Le credential n'est
-   **envoyé qu'après** cette confirmation.
+   (SHA-256 du SPKI, en hexadécimal minuscule séparé par des deux-points,
+   comme une clé SSH) dès que le transport est chiffré (`https://`). Affichez la même empreinte **côté serveur** et comparez les deux
+   avant de confirmer : l'empreinte est épinglée pour ce profil. Le credential
+   n'est **envoyé qu'après** cette confirmation. Commande côté serveur
+   (✅ **vérifiée** : syntaxe testée le 2026-10-09 sur un certificat
+   local ; le format hexadécimal obtenu correspond à celui affiché par
+   l'app) :
+
+   ```bash
+   echo | openssl s_client -connect <hôte>:<port> -servername <hôte> 2>/dev/null \
+     | openssl x509 -pubkey -noout \
+     | openssl pkey -pubin -outform DER \
+     | openssl dgst -sha256   # ✅ vérifiée (syntaxe)
+   ```
+
+   En `http://` local ou Tailscale, il n'y a **pas de certificat donc pas
+   d'empreinte** : l'écran de révision affiche « Plaintext HTTP (no TLS) »
+   avec un avertissement persistant — relisez alors l'hôte et le port
+   avant de valider.
 4. **Reconnexions.** L'empreinte présentée est comparée à l'épingle à chaque
    connexion. En cas de changement : écran bloquant plein écran
    « server identity changed », aucune requête (et aucun credential) ne part
@@ -228,7 +279,7 @@ confirmée ; jamais depuis une notification) :
 | Symptôme | Piste |
 | --- | --- |
 | L'app ne joint pas le serveur | Vérifiez que téléphone et serveur sont sur le même LAN/Tailscale ; `opencode serve` écoute bien sur une adresse joignable (pas `127.0.0.1` seul) et le port est ouvert. ✅ **vérifié** : sans serveur, la connexion échoue proprement (refusé). |
-| Écran « serveur incompatible » | Comparez `opencode --version` (✅ vérifiée) à la gamme supportée (`>= 1.18.0`, [docs/API.md](API.md)). Sur serveur v2.0.18, voir l'écart documenté au §2. |
+| Écran « serveur incompatible » | Comparez `opencode --version` (✅ vérifiée) à la gamme supportée (**1.x `>= 1.18.0`**, [docs/API.md](API.md)). Une 2.x (p. ex. `v2.0.18`) est **toujours refusée** : réinstallez une 1.18.x (`npm install -g opencode-ai@1.18.35`, ⚠️ non vérifiée), voir §2. |
 | `http://` refusé | Normal si l'hôte est classé public : passez en `https://` ou restez sur le LAN/Tailscale. |
 | Alerte « server identity changed » | Le certificat a changé (réinstall serveur, usurpation possible sur LAN partagé). Ne ré-acceptez qu'après vérification hors bande de la nouvelle empreinte. |
 | Dictée indisponible | Comportement voulu : la dictée est 100 % sur l'appareil ou désactivée (aucun repli cloud). Clavier utilisable en remplacement ([docs/PRIVACY.md](PRIVACY.md), §6 Dictée). |
