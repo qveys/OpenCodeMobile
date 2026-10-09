@@ -36,15 +36,18 @@ adb devices                      # the emulator must be listed as `device`
 adb install -r opencodemobile-debug-<commit-sha>.apk
 ```
 
-`adb install` prints `Success` on success. To reinstall a newer commit
-over the old one, keep the `-r` (reinstall) flag — debug builds share
-the same debug signature, so reinstall preserves app data. To start
-from scratch:
+`adb install` prints `Success` on success. Each workflow run generates a
+fresh debug keystore, so **APKs from different commits have different
+signatures**. To install a newer commit's APK over an older one:
 
 ```bash
 adb uninstall org.opencodemobile.android
 adb install opencodemobile-debug-<commit-sha>.apk
 ```
+
+The `-r` (reinstall) flag only works when reinstalling the **same**
+APK (same commit); it does not allow cross-commit updates because the
+signing keys differ.
 
 Launch the app (or tap its icon on the emulator):
 
@@ -55,7 +58,8 @@ adb shell am start -n org.opencodemobile.android/.MainActivity
 ## Install on a physical device
 
 Enable USB debugging on the device, connect it (`adb devices` shows it),
-then run the same `adb install -r` command. No Play account needed.
+then run the same `adb install` command (no `-r` across commits). No Play
+account needed.
 
 ## Notes
 
