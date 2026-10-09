@@ -21,20 +21,20 @@ name: CD
 # self-hosted pool, never on GitHub-hosted runners —
 #   - Linux / Gradle / curl jobs -> `[self-hosted, hostinger]`
 #   - Apple-capable jobs         -> `[self-hosted, mac]`
-# Each step that needs the JDK / Android SDK sources
-# `scripts/ci/runner-toolchain-env.sh` (OPE-98), which resolves JAVA_HOME /
-# ANDROID_HOME on the runner.
+# Android deployment uses the digest-pinned CI image. The iOS deploy leg still
+# uses the macOS-provisioned toolchain through `runner-toolchain-env.sh`.
 #
 # Toolchain policy (repo Actions allowlist): the repository allows only
 # `actions/checkout@*` to run; every other action (`actions/setup-java`,
 # `actions/upload-artifact`, `google-github-actions/auth`, ...) is rejected with
 # `startup_failure` before the job starts. This workflow therefore uses ONLY
-# `actions/checkout` plus shell steps, and relies on the JDK / Android SDK /
-# curl / python3 that the self-hosted runner image provides.
+# `actions/checkout` plus shell steps. Android's JDK and SDK come from the
+# digest-pinned container; utility tools come from the container or runner.
 #
 # A consequence of that allowlist: build outputs cannot be shared between jobs
 # (no `upload-artifact`/`download-artifact`), so each platform job builds and
-# deploys its own artifact in a single job.
+# deploys its own artifact in a single job. Android uses the digest-pinned
+# repository CI image; the macOS image supplies the iOS toolchain.
 #
 # Bootstrap behaviour: no Google Play / App Store Connect credentials exist yet
 # and no `SMOKE_BASE_URL` deployment target is configured. When no credential is
@@ -76,6 +76,10 @@ concurrency:
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   prepare:
@@ -140,6 +144,11 @@ jobs:
     name: Deploy Android (${{ needs.prepare.outputs.target_env }})
     runs-on: [self-hosted, hostinger]
     timeout-minutes: 60
+    # OPE-314: provide JDK 21 + Android SDK from the digest-pinned CI image,
+    # not from the runner host. Build and deployment commands run as uid 10001.
+    container:
+      image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
+      options: --user 0:0
     needs: prepare
     environment:
       name: ${{ needs.prepare.outputs.target_env }}
@@ -192,10 +201,12 @@ jobs:
             exit 0
           fi
 
-          . scripts/ci/runner-toolchain-env.sh
-          chmod +x ./gradlew
-          java -version
-          ./gradlew :androidApp:assembleRelease :androidApp:bundleRelease --no-daemon --stacktrace
+          bash scripts/ci/run-as-nonroot.sh bash -c '
+            set -euo pipefail
+            chmod +x ./gradlew
+            java -version
+            ./gradlew :androidApp:assembleRelease :androidApp:bundleRelease --no-daemon --stacktrace
+          '
 
           # The allowlist forbids upload-artifact, so hand the bundle to the
           # deploy script in-place.
@@ -218,7 +229,8 @@ jobs:
           # The self-hosted pool predates OIDC/WIF; the service-account fallback
           # is used until the allowlist permits `google-github-actions/auth`.
           PLAY_CONSOLE_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_CONSOLE_SERVICE_ACCOUNT_JSON }}
-        run: bash scripts/deploy/deploy-play-store.sh
+          PRESERVE_ENV: TARGET_ENV,PLAY_TRACK,DRY_RUN,GRADLE_PROJECT_EXISTS,ANDROID_KEYSTORE_BASE64,ANDROID_KEYSTORE_PASSWORD,ANDROID_KEY_ALIAS,ANDROID_KEY_PASSWORD,PLAY_CONSOLE_SERVICE_ACCOUNT_JSON
+        run: bash scripts/ci/run-as-nonroot.sh bash scripts/deploy/deploy-play-store.sh
 
       - name: Clean up signing credentials
         if: always()

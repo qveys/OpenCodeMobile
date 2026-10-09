@@ -15,16 +15,15 @@ name: Build
 #   action (`actions/setup-java`, `gradle/actions/setup-gradle`,
 #   `android-actions/setup-android`, `actions/upload-artifact`) is rejected with
 #   `startup_failure` before the job starts. This workflow therefore uses ONLY
-#   `actions/checkout` and relies on the JDK / Gradle / Android SDK / Xcode that
-#   the runner image already provides: the build jobs run on GitHub-hosted
-#   runners, while the OPE-17 test jobs run on the company self-hosted pool
-#   (see the test-job comment below and docs/CI-RUNNER-STRATEGY.md).
+#   `actions/checkout` plus shell steps. Android jobs use the repository-built,
+#   digest-pinned JDK + Android SDK image; trusted runs use hostinger and PRs use
+#   isolated GitHub-hosted runners. The iOS framework build uses `macos-latest`,
+#   while the OPE-17 iOS test job uses the company macOS pool.
 #   Reproducibility across environments
 #   comes from the checked-in pinning instead:
 #     - Gradle 8.10.2, pinned by gradle/wrapper/gradle-wrapper.properties
 #     - Kotlin / AGP / Compose Multiplatform, pinned in gradle/libs.versions.toml
-#     - JDK: JAVA_HOME_21_X64 (ubuntu) / JAVA_HOME_21_* (macOS) supplied by the
-#       runner image, so both jobs build with the same major JDK.
+#     - JDK: Android image digest / JAVA_HOME_21_* (macOS) supplied by runner.
 #   If the allowlist is later widened to include `actions/upload-artifact`, add
 #   an upload step for the paths listed under each job.
 #
@@ -84,29 +83,43 @@ concurrency:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build-android:
     name: Build Android (APK/AAB)
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 40
+    container:
+      image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
+      options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Assemble Android debug + release artifacts
         run: |
           set -euo pipefail
-          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
-          chmod +x gradlew
-          java -version
-          ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease :androidApp:bundleRelease --no-daemon --stacktrace
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            chmod +x gradlew
+            java -version
+            ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease :androidApp:bundleRelease --no-daemon --stacktrace
+          else
+            bash scripts/ci/run-as-nonroot.sh bash -c 'chmod +x gradlew && java -version && ./gradlew :androidApp:assembleDebug :androidApp:assembleRelease :androidApp:bundleRelease --no-daemon --stacktrace'
+          fi
       - name: Verify Android artifacts
         run: |
           set -euo pipefail
-          echo "APK outputs:"
-          find androidApp/build/outputs/apk -name '*.apk' -print -exec sha256sum {} \;
-          echo "AAB outputs:"
-          find androidApp/build/outputs/bundle -name '*.aab' -print -exec sha256sum {} \;
-          test -n "$(find androidApp/build/outputs/apk -name '*.apk' -print -quit)"
-          test -n "$(find androidApp/build/outputs/bundle -name '*.aab' -print -quit)"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            echo "APK outputs:"
+            find androidApp/build/outputs/apk -name '*.apk' -print -exec sha256sum {} \;
+            echo "AAB outputs:"
+            find androidApp/build/outputs/bundle -name '*.aab' -print -exec sha256sum {} \;
+            test -n "$(find androidApp/build/outputs/apk -name '*.apk' -print -quit)"
+            test -n "$(find androidApp/build/outputs/bundle -name '*.aab' -print -quit)"
+          else
+            bash scripts/ci/run-as-nonroot.sh bash -c 'find androidApp/build/outputs/apk -name "*.apk" -print -exec sha256sum {} \; && find androidApp/build/outputs/bundle -name "*.aab" -print -exec sha256sum {} \; && test -n "$(find androidApp/build/outputs/apk -name "*.apk" -print -quit)" && test -n "$(find androidApp/build/outputs/bundle -name "*.aab" -print -quit)"'
+          fi
 
   build-ios:
     name: Build iOS/macOS frameworks
@@ -161,36 +174,33 @@ jobs:
   # pool, which is not shared with other repositories.
   #   - test-android -> ubuntu-latest (PR) / [self-hosted, hostinger] (push)
   #   - test-ios     -> [self-hosted, mac] (Xcode + JDK 21)
-  # Each test step sources scripts/ci/runner-toolchain-env.sh (OPE-98) to
-  # resolve JAVA_HOME / ANDROID_HOME; the allowlist permits only `actions/checkout`.
+  # Android test jobs use the digest-pinned CI image; the iOS test job still
+  # resolves its macOS toolchain from runner-toolchain-env.sh.
   test-android:
     name: Test Android (JVM unit tests)
-    # OPE-265 — untrusted `pull_request` code must not reach the shared
-    # hostinger pool: repo-controlled Gradle there executes as uid 0 on a host
-    # that also owns a read-write Docker socket. The same non-container job
-    # (JDK 21 + Android SDK only) runs on an ephemeral GitHub-hosted runner for
-    # PRs; trusted push/workflow_dispatch keep the company pool.
+    # OPE-314: run the build in the same digest-pinned JDK + Android SDK image.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 40
+    container:
+      image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
+      options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run Android/JVM unit tests
         run: |
-          set -euo pipefail
-          # OPE-265 — on the GitHub-hosted runner the JDK 21 toolchain is
-          # preinstalled as $JAVA_HOME_21_X64; on the self-hosted pool
-          # runner-toolchain-env.sh resolves it from the OPE-98 provision.
-          if [ -n "${JAVA_HOME_21_X64:-}" ]; then
-            export JAVA_HOME="$JAVA_HOME_21_X64"
-            export PATH="$JAVA_HOME/bin:$PATH"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            env CI=1 bash -c 'chmod +x gradlew && java -version && bash scripts/test.sh android -- --continue'
+          else
+            bash scripts/ci/run-as-nonroot.sh env CI=1 bash -c 'chmod +x gradlew && java -version && bash scripts/test.sh android -- --continue'
           fi
-          . scripts/ci/runner-toolchain-env.sh
-          chmod +x gradlew
-          java -version
-          CI=1 bash scripts/test.sh android -- --continue
       - name: Report test results
         if: always()
-        run: bash scripts/ci/report-test-results.sh
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            bash scripts/ci/report-test-results.sh
+          else
+            bash scripts/ci/run-as-nonroot.sh bash scripts/ci/report-test-results.sh
+          fi
 
   test-ios:
     name: Test iOS simulator (Kotlin/Native)

@@ -124,6 +124,21 @@ implement against, so verification isn't duplicated inside T10/OPE-23 itself.
 - [ ] No credential value is printed to logs (`::add-mask::` used for any dynamically generated secret)
 - [ ] Static long-lived store credentials are used only where OIDC/short-lived auth isn't supported by the target platform
 
+### Container image pinning
+
+- Job container images are supply-chain inputs and must use immutable SHA-256
+  digests, never floating tags.
+- Linux Android/Kotlin jobs use the repository-built image from
+  `ci/android/Dockerfile`, published by `.github/workflows/ci-image.yml` to
+  `ghcr.io/qveys/opencodemobile/ci-android`. Consumers pin the reviewed digest
+  `sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab`.
+- Only trusted pushes to `main` or manual dispatch on `main` can publish. Pull
+  requests and dispatches from other refs build on GitHub-hosted runners and do
+  not publish. Review Dockerfile changes and digest updates with CI consumers.
+- Hostinger build and deploy commands run as uid 10001 through
+  `scripts/ci/run-as-nonroot.sh`. CD secrets are passed only by explicit names
+  from the protected deployment environment.
+
 ## 8. Regenerating `gradle/verification-metadata.xml`
 
 Dependency verification is strict: every resolved artifact must have a SHA-256 in

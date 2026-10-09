@@ -23,8 +23,8 @@ name: Architecture tests
 # (`actions/setup-java`, `gradle/actions/setup-gradle`, `actions/upload-artifact`,
 # ...) is rejected by the org policy with `startup_failure` before the job starts
 # (same constraint as build.yml / security-logging.yml). This workflow therefore
-# uses ONLY `actions/checkout` and relies on the self-hosted runner toolchain,
-# resolved through `scripts/ci/runner-toolchain-env.sh` (provisioned by OPE-98).
+# uses ONLY `actions/checkout`; Gradle runs in the digest-pinned JDK + Android
+# SDK CI image on both hosted PRs and trusted hostinger runs.
 #
 # Runner: `[self-hosted, hostinger]` per docs/CI-RUNNER-STRATEGY.md §2 — this is
 # JDK/Android/Gradle work with no Xcode or simulator requirement.
@@ -42,6 +42,10 @@ concurrency:
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    shell: bash
 
 # OPE-258 — runner policy: untrusted `pull_request` code runs on an ephemeral
 # GitHub-hosted runner; only trusted `push`/`workflow_dispatch` use the
@@ -107,22 +111,28 @@ jobs:
     if: needs.detect.outputs.run == 'true'
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","hostinger"]') }}
     timeout-minutes: 30
+    # JDK 21 and Android SDK 35 are supplied by the digest-pinned CI image,
+    # rather than the hostinger runner's provisioned toolchain.
+    container:
+      image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
+      options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run §5.2 module-boundary tests
         run: |
           set -euo pipefail
-          # OPE-258 — on the GitHub-hosted runner the JDK 21 toolchain is
-          # preinstalled as $JAVA_HOME_21_X64; on the self-hosted pool
-          # runner-toolchain-env.sh resolves it from the OPE-98 provision.
-          if [ -n "${JAVA_HOME_21_X64:-}" ]; then
-            export JAVA_HOME="$JAVA_HOME_21_X64"
-            export PATH="$JAVA_HOME/bin:$PATH"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            chmod +x gradlew
+            java -version
+            ./gradlew :architecture-tests:test --no-daemon --stacktrace
+          else
+            bash scripts/ci/run-as-nonroot.sh bash -c '
+              set -euo pipefail
+              chmod +x gradlew
+              java -version
+              ./gradlew :architecture-tests:test --no-daemon --stacktrace
+            '
           fi
-          . scripts/ci/runner-toolchain-env.sh
-          chmod +x gradlew
-          java -version
-          ./gradlew :architecture-tests:test --no-daemon --stacktrace
 
   # Required status-check context (OPE-142). Always runs so the check is never
   # left "Expected" when no boundary-relevant path changed.

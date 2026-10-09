@@ -9,14 +9,9 @@ name: Logging Redaction (T4)
 # before the job starts (same constraint documented in build.yml). This workflow
 # therefore uses ONLY `actions/checkout`.
 #
-# Runner policy: jobs run on the company self-hosted runner pool, not on
-# GitHub-hosted runners. Both jobs now run on the Linux hostinger VPS
-# (`[self-hosted, hostinger]` -> vps-dokploy / vps-openclaw). The redaction
-# tests are a plain JVM/Android unit test and no longer need the single-lane
-# `mac` runner (OPE-250, Phase 0.1); the hostinger pool is provisioned with
-# JDK 21 + the Android SDK by `.github/workflows/provision-runner-toolchain.yml`
-# (OPE-98) and resolved at job time through
-# `scripts/ci/runner-toolchain-env.sh`. See `docs/CI-RUNNER-STRATEGY.md`.
+# Runner policy: trusted jobs use the company self-hosted runner pool; pull
+# requests use GitHub-hosted runners. The redaction tests use the digest-pinned
+# JDK + Android SDK image and do not read host toolchains.
 #
 # The `pull_request` trigger is intentionally NOT path-filtered. A path-filtered
 # workflow produces no status when a PR touches none of its paths, which would
@@ -125,22 +120,15 @@ jobs:
     # required check, so guard it off until the digest-pinned GHCR image from
     # PR #77 / OPE-255 can run it on an ephemeral runner.
     if: github.event_name != 'pull_request'
-    # OPE-250 (Phase 0.1) moved this off the single-lane `mac` runner to
-    # `hostinger`: the job is a plain `:shared:networking:testDebugUnitTest`
-    # that only needs JDK 21 + the Android SDK, both provisioned on hostinger
-    # (OPE-98/OPE-100). On `mac` a 44-second test queued ~43 minutes behind the
-    # long iOS jobs. The job only *sources* the preinstalled toolchain via
-    # scripts/ci/runner-toolchain-env.sh; it never downloads a JDK/Android SDK
-    # itself, so the T4 supply-chain policy documented above is preserved.
+    # OPE-314 — the job uses the repository-built, digest-pinned JDK 21 +
+    # Android SDK 35 image and no longer reads the host toolchain.
     runs-on: [self-hosted, hostinger]
     needs: static-scan
     timeout-minutes: 40
+    container:
+      image: ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab
+      options: --user 0:0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Run networking redaction tests
-        run: |
-          set -euo pipefail
-          . scripts/ci/runner-toolchain-env.sh
-          chmod +x gradlew
-          java -version
-          ./gradlew :shared:networking:testDebugUnitTest --no-daemon --stacktrace
+        run: bash scripts/ci/run-as-nonroot.sh bash -c 'chmod +x gradlew && java -version && ./gradlew :shared:networking:testDebugUnitTest --no-daemon --stacktrace'

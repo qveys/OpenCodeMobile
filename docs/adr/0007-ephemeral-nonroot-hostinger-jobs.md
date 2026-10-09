@@ -67,26 +67,15 @@ Both were validated end-to-end on **both** hosts before wiring:
 (run `36853180860`); the full detekt command ran as `uid 10001` and printed
 the detekt result (run `36853841018`).
 
-### Amendment — type-resolved lint needs the Android SDK (OPE-254)
+### Amendment — Android toolchain image and Linux provisioning retirement (OPE-255/OPE-314)
 
-OPE-213 turned on detekt's type resolution. The type-resolved tasks compile the
-Android/KMP modules, so the `lint` job now needs the Android SDK, which the
-`eclipse-temurin` image does not carry. Decision item 3 above ("No host volume
-is mounted") therefore no longer holds for `lint`:
-
-- `lint.yml` bind-mounts the OPE-98 host toolchain **read-only** at
-  `/opt/android-sdk` (`volumes: - /opt/android-sdk:/opt/android-sdk:ro`), and
-  `scripts/ci/runner-toolchain-env.sh` exports `ANDROID_HOME` from it.
-- The container remains digest-pinned, ephemeral and non-root; only a read-only
-  toolchain path is exposed. Nothing is written back to the host.
-- Verified on `hostinger` (run `37369536318`): the type-resolved tasks
-  (`:androidApp:detektDebug`, `:design-system:detektAndroidDebug`, …) ran and
-  reported 0 findings.
-- This narrowing is routed to Security/DevOps for sign-off on OPE-254. The
-  staged replacement stays the repository-built digest-pinned Android image in
-  GHCR noted in *Migration* below; until then the read-only mount is the
-  smallest change that keeps both the OPE-212 container and OPE-213 type
-  resolution.
+OPE-213 enabled detekt type resolution, which means lint needs the Android SDK.
+OPE-254 mounted the host SDK read-only as a temporary exception. OPE-255 built
+and published a repository Android image with JDK 21 and Android SDK 35, pinned
+by digest. OPE-314 moved `lint`, Android build/test, T1 compile, redaction tests,
+and Android deployment to this image. No Linux job mounts or resolves the host
+SDK. Trusted hostinger jobs run their build/deploy commands as uid 10001; PR
+jobs remain on isolated GitHub-hosted runners where required.
 
 ### Alternatives considered
 
@@ -118,31 +107,40 @@ is mounted") therefore no longer holds for `lint`:
   re-registering it), which requires host access and briefly takes the runner
   offline on a machine shared with other projects. Tracked as a follow-up; it
   needs an explicit owner decision because of the availability risk.
-- **Android SDK jobs** (`build.yml` Android, `t1-device-validation.yml` Android)
-  now run on GitHub-hosted `ubuntu-latest` on `main`; they are not affected.
-  If they are moved back to `hostinger`, they need an image that carries the
-  Android SDK. `eclipse-temurin` does not, so a repository-built image published
-  to GHCR is the next step.
-- **Digest pinning of the image** must be refreshed deliberately. The pinned
-  digest in the two workflows is recorded here and captured again by
+- **Android emulator** remains on `ubuntu-latest`: it needs an emulator runtime
+  and `/dev/kvm` where available. The script falls back to software acceleration
+  if KVM is absent; it does not use the hostinger pool or its provisioned SDK.
+- **macOS toolchain** remains provisioned by the `provision-mac` job for Xcode,
+  Kotlin/Native, and iOS deployment. This change does not alter macOS
+  provisioning.
+- **Android image digest pinning** must be refreshed deliberately. The current
+  digest is recorded here and captured again by
   `docker image inspect --format '{{index .RepoDigests 0}}'` on a runner when
   it changes.
 - **No Gradle cache between jobs.** The `lint` job re-downloads the Gradle
   distribution and dependencies on every run. This is the price of "no shared
   state" and is acceptable for a fast detekt pass; a cache would have to be
   keyed and trusted, which reopens the exact problem this ADR closes.
-- The public base image is third-party. It is pinned by digest and pulled on
-  each run; the repository's supply-chain policy (`docs/CI-CD-SECURITY.md`)
-  should be extended with an explicit "container images are pinned by digest"
-  row.
+- The public Temurin base image is third-party and pinned by digest. The
+  repository-built Android image is published by `.github/workflows/ci-image.yml`
+  and consumed by its digest:
+  `ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab`.
 
 ## Migration
 
-1. **This change** — `lint.yml` and `security-logging.yml` `T4 static scan`.
-2. **Next** — a repository-built, digest-pinned image with JDK 21 + Android SDK
-   published to GHCR, so the Android jobs can leave GitHub-hosted runners and
-   run isolated on `hostinger`.
+1. **Done (OPE-255)** — build and publish the digest-pinned JDK 21 + Android
+   SDK 35 image to GHCR.
+2. **Done (OPE-314)** — move Linux toolchain consumers to the image and remove
+   the `provision-linux` job. No Linux hostinger workflow requires host JDK or
+   Android SDK provisioning. Keep `provision-mac` for Apple toolchain consumers.
 3. **Later** — re-install the runner service under a dedicated non-root user
    (or move the pool to a dedicated host and adopt ephemeral runners
-   properly), and retire the host-toolchain `provision-runner-toolchain.yml`
-   Linux job once no workflow depends on it.
+   properly). This is host-level scheduler hardening, not part of toolchain
+   retirement.
+
+OPE-314 verification: searched `.github/workflows` for
+`runner-toolchain-env.sh` and `/opt/android-sdk`; remaining references are
+macOS jobs/provisioning and comments, plus the emulator script on
+`ubuntu-latest`. `bash -n`, SEC-04 action pinning, the 279-assertion supply-chain
+test suite, and the mocked non-root environment handoff passed. GitHub Actions
+must confirm image pulls and the affected jobs.

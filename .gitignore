@@ -6,6 +6,7 @@ build/
 
 # Local configuration
 local.properties
+.worktrees/
 .idea/*
 !.idea/runConfigurations/
 *.iml

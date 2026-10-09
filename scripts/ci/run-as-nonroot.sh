@@ -12,6 +12,8 @@
 # Environment:
 #   KEEP_PATH   override the PATH exported to the unprivileged command
 #               (defaults to the caller's PATH).
+#   PRESERVE_ENV comma-separated variable names to forward to the child. Use
+#               only for trusted jobs that need deployment credentials.
 set -euo pipefail
 
 if [ -z "${GITHUB_WORKSPACE:-}" ]; then
@@ -49,6 +51,20 @@ script="$(mktemp)"
   printf 'export PATH=%q\n' "${KEEP_PATH:-$PATH}"
   [ -n "${JAVA_HOME:-}" ] && printf 'export JAVA_HOME=%q\n' "$JAVA_HOME"
   [ -n "${ANDROID_HOME:-}" ] && printf 'export ANDROID_HOME=%q\n' "$ANDROID_HOME"
+  [ -n "${ANDROID_SDK_ROOT:-}" ] && printf 'export ANDROID_SDK_ROOT=%q\n' "$ANDROID_SDK_ROOT"
+  if [ -n "${PRESERVE_ENV:-}" ]; then
+    IFS=',' read -r -a preserve_names <<< "$PRESERVE_ENV"
+    for name in "${preserve_names[@]}"; do
+      if [[ ! "$name" =~ ^[A-Z_][A-Z0-9_]*$ ]]; then
+        echo "run-as-nonroot: invalid PRESERVE_ENV name '$name'" >&2
+        exit 2
+      fi
+      if [[ -v "$name" ]]; then
+        printf -v value '%s' "${!name}"
+        printf 'export %s=%q\n' "$name" "$value"
+      fi
+    done
+  fi
   printf 'cd %q\n' "$GITHUB_WORKSPACE"
   printf '%q ' "$@"
   printf '\n'
