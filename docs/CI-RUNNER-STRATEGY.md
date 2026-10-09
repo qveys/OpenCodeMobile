@@ -246,16 +246,17 @@ What the workflow *adds* on top of that:
 
 | Job | Extra mount | Why |
 |---|---|---|
-| `lint.yml` / `lint` | `/opt/android-sdk:/opt/android-sdk:ro` | OPE-254: detekt type resolution compiles the Android/KMP modules, which the `eclipse-temurin` image does not carry. |
+| `lint.yml` / `lint` | *(none)* | OPE-314: the digest-pinned `ci-android` image carries the Android SDK; the former `/opt/android-sdk:ro` host mount is removed. |
 | `security-logging.yml` / `T4 static scan` | *(none)* | JDK-free bash gate; only the runner mounts above apply. |
 
-Among the `container:` jobs, only `lint` mounts a host toolchain, and it is
-read-only. `build.yml`, `cd.yml` `deploy-android`, `t1-device-validation.yml`
-and `security-logging.yml`'s `Redaction unit tests` job also read
-`/opt/android-sdk`, but they are **not** container jobs — they run on the host
-and use the toolchain in place, which is the "not yet done" item above.
+No `container:` job mounts a host toolchain any more (OPE-314). `lint` and
+`architecture-tests` use the `ci-android` image like `build.yml`; `cd.yml`
+`deploy-android` and `t1-device-validation.yml`'s emulator job still use the
+host toolchain in place (not yet done).
 
-### 7.2 Fail fast when the host SDK is missing (OPE-259)
+### 7.2 Fail fast when the host SDK is missing (OPE-259, superseded by OPE-314)
+
+> `lint.yml` no longer mounts or asserts the host SDK; this section is historical.
 
 `docker -v /opt/android-sdk:/opt/android-sdk:ro` **creates** an empty
 root-owned directory on the host when the path does not exist. An
