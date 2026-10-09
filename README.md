@@ -134,6 +134,7 @@ The boundary task runs in CI on every pull request and push to `main`
 
 ## Documentation
 
+- [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) — user guide (FR): install the app, start your OpenCode Server, connect (QR, TOFU), first session, permission approval, erase everything. Start here if you are a tester, not a developer.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system context, module map, dependency rules, data flow, security design.
 - [docs/API.md](docs/API.md) — OpenCode Server v2 API surface used by the app, authentication, and client generation.
 - [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) — contribution guide: workflow, commits, review tiers, testing, architecture rules.
