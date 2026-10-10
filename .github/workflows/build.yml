@@ -131,6 +131,22 @@ jobs:
             test -n "$(find androidApp/build/outputs/apk -name "*.apk" -print -quit)"
             test -n "$(find androidApp/build/outputs/bundle -name "*.aab" -print -quit)"
           '
+      # Container jobs run as root/uid 10001 on the bind-mounted _work dir; hand
+      # the checkout and this job's Gradle temp back to the host runner user so
+      # the next non-container job's checkout can clean it (OPE-312). Owner comes
+      # from $RUNNER_TEMP (runner-created), as the workspace parent may be polluted.
+      - name: Restore workspace ownership for host runner
+        if: always()
+        run: |
+          set -euo pipefail
+          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
+          owner="$(stat -c '%u:%g' "$RUNNER_TEMP")"
+          if [[ "${owner%%:*}" == "0" ]]; then
+            echo '::error::Runner temp dir is root-owned; refusing to preserve root-owned checkout files.'
+            exit 1
+          fi
+          chown -R "$owner" "$GITHUB_WORKSPACE"
+          [[ ! -d "$RUNNER_TEMP/gradle" ]] || chown -R "$owner" "$RUNNER_TEMP/gradle"
 
   build-ios:
     name: Build iOS/macOS frameworks
@@ -244,6 +260,22 @@ jobs:
           path: dist-android-debug/
           retention-days: 14
           if-no-files-found: error
+      # Container jobs run as root/uid 10001 on the bind-mounted _work dir; hand
+      # the checkout and this job's Gradle temp back to the host runner user so
+      # the next non-container job's checkout can clean it (OPE-312). Owner comes
+      # from $RUNNER_TEMP (runner-created), as the workspace parent may be polluted.
+      - name: Restore workspace ownership for host runner
+        if: always()
+        run: |
+          set -euo pipefail
+          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
+          owner="$(stat -c '%u:%g' "$RUNNER_TEMP")"
+          if [[ "${owner%%:*}" == "0" ]]; then
+            echo '::error::Runner temp dir is root-owned; refusing to preserve root-owned checkout files.'
+            exit 1
+          fi
+          chown -R "$owner" "$GITHUB_WORKSPACE"
+          [[ ! -d "$RUNNER_TEMP/gradle" ]] || chown -R "$owner" "$RUNNER_TEMP/gradle"
 
   # OPE-17 — Test step. Runs the full KMP test suite from the SAME revision as
   # the build jobs above (one workflow run => one github.sha):
@@ -295,6 +327,22 @@ jobs:
       - name: Report test results
         if: always()
         run: bash scripts/ci/run-as-nonroot.sh bash scripts/ci/report-test-results.sh
+      # Container jobs run as root/uid 10001 on the bind-mounted _work dir; hand
+      # the checkout and this job's Gradle temp back to the host runner user so
+      # the next non-container job's checkout can clean it (OPE-312). Owner comes
+      # from $RUNNER_TEMP (runner-created), as the workspace parent may be polluted.
+      - name: Restore workspace ownership for host runner
+        if: always()
+        run: |
+          set -euo pipefail
+          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
+          owner="$(stat -c '%u:%g' "$RUNNER_TEMP")"
+          if [[ "${owner%%:*}" == "0" ]]; then
+            echo '::error::Runner temp dir is root-owned; refusing to preserve root-owned checkout files.'
+            exit 1
+          fi
+          chown -R "$owner" "$GITHUB_WORKSPACE"
+          [[ ! -d "$RUNNER_TEMP/gradle" ]] || chown -R "$owner" "$RUNNER_TEMP/gradle"
 
   test-ios:
     name: Test iOS simulator (Kotlin/Native)
