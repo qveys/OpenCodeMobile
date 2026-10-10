@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.ExperimentalComposeApi
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.interop.LocalUIViewController
@@ -174,8 +176,9 @@ public fun connectionSetupViewController(
             Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
                 // §7.3: the settings entry point is the same shared Compose code as
                 // on Android; this shell only supplies the connection content.
-                LocalAccessSettingsHost {
-                    val controller: ConnectionSetupController = koinInject()
+                val controller: ConnectionSetupController = koinInject()
+                val setupState by controller.state.collectAsState()
+                LocalAccessSettingsHost(showHeader = !setupState.isReviewing) {
                     // The controller hosting this Compose hierarchy is the presenter
                     // the scanner presents its full-screen capture from. It is read
                     // here (composition time) and captured for the later scan gesture.

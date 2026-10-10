@@ -70,6 +70,8 @@ public fun LocalAccessSettingsRoute(
  * [onScreenCaptureBlockingChanged] fires after the preference is saved so the
  * platform shell can apply it at once instead of on its next resume.
  *
+ * [showHeader] hides the title and settings action (e.g. while the content is a review step).
+ *
  * [connectionContent] is supplied by the app shell because only the shell may
  * see both features.
  */
@@ -78,6 +80,7 @@ public fun LocalAccessSettingsHost(
     modifier: Modifier = Modifier,
     onScreenCaptureBlockingChanged: () -> Unit = {},
     strings: LocalAccessStrings = localAccessStrings(),
+    showHeader: Boolean = true,
     connectionContent: @Composable () -> Unit,
 ) {
     var showSettings by remember { mutableStateOf(false) }
@@ -99,12 +102,12 @@ public fun LocalAccessSettingsHost(
                 ) { Text(strings.open, style = OpenCodeType.control) }
             }
             Column(modifier = Modifier.fillMaxSize()) {
-                if (LocalDensity.current.fontScale >= 1.3f) {
+                if (showHeader && LocalDensity.current.fontScale >= 1.3f) {
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = OpenCodeSpace.space4), verticalArrangement = Arrangement.spacedBy(OpenCodeSpace.space2)) {
                         Text(title, style = titleStyle, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         settingsAction()
                     }
-                } else {
+                } else if (showHeader) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = OpenCodeSpace.space4),
                         horizontalArrangement = Arrangement.spacedBy(OpenCodeSpace.space3),

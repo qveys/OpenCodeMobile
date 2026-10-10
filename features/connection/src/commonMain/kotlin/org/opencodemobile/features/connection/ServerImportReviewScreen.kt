@@ -123,6 +123,6 @@ private fun ReviewRow(label: String, value: String) {
         horizontalArrangement = Arrangement.spacedBy(OpenCodeSpace.space3),
     ) {
         Text(label, modifier = Modifier.weight(1f), style = OpenCodeType.bodyStrong)
-        Text(value, modifier = Modifier.weight(2f), style = OpenCodeType.tech)
+        Text(value, modifier = Modifier.weight(1f), style = OpenCodeType.tech)
     }
 }
