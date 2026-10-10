@@ -103,12 +103,7 @@ public fun ServerImportReviewScreen(
             ReviewRow(stringResource(Res.string.connection_presented_fingerprint), presented.colonSeparated)
         }
         state.failure?.let { failure ->
-            Text(
-                failure,
-                color = colors.danger,
-                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
-                style = OpenCodeType.body,
-            )
+            ConnectionFailureView(failure, colors.danger)
         }
         Button(onClick = if (state.identityPrompt != null) onConfirmIdentity else onConfirm,
             modifier = Modifier.fillMaxWidth().heightIn(min = OpenCodeSpace.hitAndroid), enabled = !state.busy) {

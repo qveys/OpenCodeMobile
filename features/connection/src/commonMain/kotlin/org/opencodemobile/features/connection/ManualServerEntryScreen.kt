@@ -25,7 +25,6 @@ import org.opencodemobile.design.system.OpenCodeSpace
 import org.opencodemobile.design.system.OpenCodeType
 import org.jetbrains.compose.resources.stringResource
 import org.opencodemobile.design.system.resources.Res
-import org.opencodemobile.design.system.resources.connection_manual_error
 import org.opencodemobile.design.system.resources.connection_manual_address_label
 import org.opencodemobile.design.system.resources.connection_manual_address_placeholder
 import org.opencodemobile.design.system.resources.connection_manual_connect
@@ -79,7 +78,7 @@ public fun ManualServerEntryScreen(
         )
 
         state.manualError?.let {
-            Text(text = stringResource(Res.string.connection_manual_error), color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, style = OpenCodeType.body)
+            Text(text = manualErrorText(it.problem), color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, style = OpenCodeType.body)
         }
         if (state.scanFailed) {
             Text(
@@ -90,7 +89,7 @@ public fun ManualServerEntryScreen(
             )
         }
         state.failure?.let { failure ->
-            Text(text = failure, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, style = OpenCodeType.body)
+            ConnectionFailureView(failure, MaterialTheme.colorScheme.error)
         }
 
         Button(

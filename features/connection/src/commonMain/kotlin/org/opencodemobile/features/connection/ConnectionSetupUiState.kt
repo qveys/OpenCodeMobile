@@ -3,7 +3,6 @@ package org.opencodemobile.features.connection
 import org.opencodemobile.shared.application.connection.ServerSetupPlan
 import org.opencodemobile.shared.domain.connection.ConnectionHandshake
 import org.opencodemobile.shared.domain.connection.DomainError
-import org.opencodemobile.shared.domain.connection.DomainErrorMessages
 import org.opencodemobile.shared.domain.connection.ServerFingerprint
 import org.opencodemobile.shared.domain.connection.ServerProfile
 
@@ -25,7 +24,7 @@ public data class ConnectionSetupUiState(
     public val busy: Boolean = false,
     public val identityPrompt: ServerFingerprint? = null,
     public val connected: ConnectionHandshake? = null,
-    public val failure: String? = null,
+    public val failure: ConnectionFailure? = null,
 ) {
     /** True while the import review screen should be shown. */
     public val isReviewing: Boolean
@@ -38,16 +37,4 @@ public data class ConnectionSetupUiState(
      */
     public val updatesExistingProfile: Boolean
         get() = review != null && existingProfile != null && existingProfile.id == review.profile.id
-}
-
-/** User-facing message for a rejected manual address, from the DomainError hierarchy. */
-public fun DomainError.InvalidServerAddress.message(): String = DomainErrorMessages.present(this).message
-
-/**
- * User-facing message for a refused connection. The typed [DomainError] is
- * rendered through [DomainErrorMessages] so the wording stays in one place.
- */
-public fun DomainError.failureMessage(): String {
-    val presentation = DomainErrorMessages.present(this)
-    return presentation.actionHint?.let { hint -> "${presentation.message}\n$hint" } ?: presentation.message
 }
