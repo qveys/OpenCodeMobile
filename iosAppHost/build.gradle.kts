@@ -25,8 +25,12 @@ kotlin {
             // see every module and assemble the real OpenCodeGateway graph
             // (docs/adr/0008-ios-composition-root-module.md).
             implementation(project(":design-system"))
+            implementation(project(":features:catalog"))
             implementation(project(":features:connection"))
+            implementation(project(":features:permissions"))
+            implementation(project(":features:questions"))
             implementation(project(":features:settings"))
+            implementation(project(":features:transcript"))
             implementation(project(":shared:domain"))
             implementation(project(":shared:application"))
             implementation(project(":shared:networking"))
