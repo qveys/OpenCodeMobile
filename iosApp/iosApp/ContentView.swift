@@ -16,7 +16,16 @@ struct ComposeConnectionView: UIViewControllerRepresentable {
         // accessibility sync. Debug builds only.
         var accessibilitySyncAlways = false
         #if DEBUG
-        accessibilitySyncAlways = ProcessInfo.processInfo.arguments.contains("-OPEUIAccessibility")
+        let arguments = ProcessInfo.processInfo.arguments
+        accessibilitySyncAlways = arguments.contains("-OPEUIAccessibility")
+        // OPE-356: "-OPEScreen <name>" hosts one V1 screen with fixed fixtures
+        // for simctl screenshots (docs/screenshots/ios/README.md).
+        if let flag = arguments.firstIndex(of: "-OPEScreen"), flag + 1 < arguments.count,
+           let screen = IosDebugScreensKt.debugScreenViewController(
+               name: arguments[flag + 1], accessibilitySyncAlways: accessibilitySyncAlways
+           ) {
+            return screen
+        }
         #endif
         return IosConnectionCompositionRootKt.connectionSetupViewController(
             accessibilitySyncAlways: accessibilitySyncAlways

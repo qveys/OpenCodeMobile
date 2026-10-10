@@ -6,3 +6,17 @@
 Variantes : FR/EN, clair/sombre, EN Dynamic Type AXXL (`connexion_*.png`).
 
 Non capturés : Réglages, import QR, erreur de lien (XCUITest bloqué, OPE-315).
+
+## Capturer un écran (OPE-356)
+
+Build Debug uniquement. Lancer un écran V1 avec ses fixtures fixes :
+
+```sh
+xcrun simctl launch <udid> org.opencodemobile.ios -OPEScreen <nom>
+xcrun simctl io <udid> screenshot <nom>.png
+```
+
+Noms : `manual-entry`, `invalid-address`, `sessions`, `transcript`, `permission`,
+`question`, `local-access`, `erase-idle`, `erase-confirming`, `catalog-loading`,
+`catalog-failed`. Nom inconnu : l'app démarre normalement. Fixtures :
+`iosAppHost/.../IosDebugScreens.kt` (miroir de `V1ScreenshotTest`).
