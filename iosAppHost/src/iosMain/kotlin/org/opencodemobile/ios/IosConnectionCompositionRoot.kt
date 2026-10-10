@@ -2,8 +2,10 @@
 
 package org.opencodemobile.ios
 
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.ExperimentalComposeApi
 import androidx.compose.runtime.remember
@@ -18,6 +20,8 @@ import org.koin.compose.koinInject
 import org.koin.core.context.startKoin
 import org.koin.core.module.Module
 import org.koin.mp.KoinPlatform
+import org.opencodemobile.design.system.OpenCodeContext
+import org.opencodemobile.design.system.OpenCodeTheme
 import org.koin.dsl.module
 import org.opencodemobile.features.connection.ConnectionModule
 import org.opencodemobile.features.connection.ConnectionSetupController
@@ -161,20 +165,26 @@ public fun connectionSetupViewController(
         }
     },
 ) {
-    MaterialTheme {
+    OpenCodeTheme(
+        context = if (isSystemInDarkTheme()) OpenCodeContext.ChromeDark else OpenCodeContext.Chrome,
+    ) {
+        // The Swift shell draws edge to edge (`.ignoresSafeArea()`), so the
+        // system-bar/notch insets are applied here, inside the opaque Surface.
         Surface(modifier = Modifier.fillMaxSize()) {
-            // §7.3: the settings entry point is the same shared Compose code as
-            // on Android; this shell only supplies the connection content.
-            LocalAccessSettingsHost {
-                val controller: ConnectionSetupController = koinInject()
-                // The controller hosting this Compose hierarchy is the presenter
-                // the scanner presents its full-screen capture from. It is read
-                // here (composition time) and captured for the later scan gesture.
-                val hostViewController = LocalUIViewController.current
-                val scanner = remember(hostViewController) {
-                    IosQrCodeScanner(presenter = { hostViewController })
+            Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
+                // §7.3: the settings entry point is the same shared Compose code as
+                // on Android; this shell only supplies the connection content.
+                LocalAccessSettingsHost {
+                    val controller: ConnectionSetupController = koinInject()
+                    // The controller hosting this Compose hierarchy is the presenter
+                    // the scanner presents its full-screen capture from. It is read
+                    // here (composition time) and captured for the later scan gesture.
+                    val hostViewController = LocalUIViewController.current
+                    val scanner = remember(hostViewController) {
+                        IosQrCodeScanner(presenter = { hostViewController })
+                    }
+                    ConnectionSetupScreen(controller = controller, scanner = scanner)
                 }
-                ConnectionSetupScreen(controller = controller, scanner = scanner)
             }
         }
     }

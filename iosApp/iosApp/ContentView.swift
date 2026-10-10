@@ -38,7 +38,8 @@ struct ContentView: View {
     var body: some View {
         ComposeConnectionView()
             // The Compose UI draws behind the home indicator and status bar;
-            // top/bottom insets are applied by the CMP screen itself.
+            // the CMP host (IosConnectionCompositionRoot) applies the insets
+            // with safeDrawingPadding().
             .ignoresSafeArea()
             .overlay {
                 if privacyCoverShown {
