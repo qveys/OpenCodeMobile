@@ -88,6 +88,7 @@ internal fun ServerInputProblem?.messageRes(): StringResource? = when (this) {
 internal fun manualErrorText(problem: ServerInputProblem): String =
     stringResource(problem.messageRes() ?: Res.string.connection_manual_error)
 
+@Suppress("CyclomaticComplexMethod")
 private fun FailureKind.resources(): Triple<StringResource, StringResource, StringResource> = when (this) {
     FailureKind.UNREACHABLE -> Triple(Res.string.connection_failure_unreachable_title, Res.string.connection_failure_unreachable_message, Res.string.connection_failure_unreachable_hint)
     FailureKind.UNHEALTHY -> Triple(Res.string.connection_failure_unhealthy_title, Res.string.connection_failure_unhealthy_message, Res.string.connection_failure_unhealthy_hint)

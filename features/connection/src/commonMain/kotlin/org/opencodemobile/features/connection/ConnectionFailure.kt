@@ -38,6 +38,7 @@ private val BIDI_AND_INVISIBLE: Set<Char> = buildSet {
 private fun ServerFingerprint.display(): String = colonSeparated.sanitizeForDisplay()
 
 /** Maps a [DomainError] to its display-safe model; server-derived text is never copied. */
+@Suppress("CyclomaticComplexMethod")
 public fun DomainError.toConnectionFailure(): ConnectionFailure = when (this) {
     is DomainError.Unreachable -> ConnectionFailure(FailureKind.UNREACHABLE)
     is DomainError.ServerUnhealthy -> ConnectionFailure(FailureKind.UNHEALTHY)
