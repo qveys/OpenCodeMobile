@@ -82,6 +82,19 @@ jobs:
           persist-credentials: false
       - name: Run T1 handshake unit tests
         run: bash scripts/ci/run-as-nonroot.sh bash -c 'set -euo pipefail; chmod +x gradlew; java -version; ./gradlew :shared:security:testDebugUnitTest --no-daemon --stacktrace'
+      # The container runs checkout as root. Return the bind-mounted checkout
+      # to the host runner user so the next job can clean the persistent worktree.
+      - name: Restore workspace ownership for host runner
+        if: always()
+        run: |
+          set -euo pipefail
+          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
+          owner="$(stat -c '%u:%g' "$(dirname "$GITHUB_WORKSPACE")")"
+          if [[ "${owner%%:*}" == "0" ]]; then
+            echo '::error::Runner workspace parent is root-owned; refusing to preserve root-owned checkout files.'
+            exit 1
+          fi
+          chown -R "$owner" "$GITHUB_WORKSPACE"
 
   android-instrumented-compile:
     name: T1 Android instrumented test compiles
@@ -97,6 +110,19 @@ jobs:
           persist-credentials: false
       - name: Assemble Android instrumented test APK
         run: bash scripts/ci/run-as-nonroot.sh bash -c 'set -euo pipefail; chmod +x gradlew; ./gradlew :shared:security:assembleDebugAndroidTest --no-daemon --stacktrace'
+      # Keep root-created files in the bind mount from blocking checkout on the
+      # host runner's next job.
+      - name: Restore workspace ownership for host runner
+        if: always()
+        run: |
+          set -euo pipefail
+          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
+          owner="$(stat -c '%u:%g' "$(dirname "$GITHUB_WORKSPACE")")"
+          if [[ "${owner%%:*}" == "0" ]]; then
+            echo '::error::Runner workspace parent is root-owned; refusing to preserve root-owned checkout files.'
+            exit 1
+          fi
+          chown -R "$owner" "$GITHUB_WORKSPACE"
 
   android-emulator:
     name: T1 handshake (Android emulator)
