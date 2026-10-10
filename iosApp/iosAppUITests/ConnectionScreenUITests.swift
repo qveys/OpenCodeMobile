@@ -92,10 +92,10 @@ final class ConnectionScreenUITests: XCTestCase {
         ])
 
         XCTAssertTrue(
-            element(app, "Add server").waitForExistence(timeout: 60),
+            element(app, ["Add server", "Ajouter le serveur"]).waitForExistence(timeout: 60),
             "A valid import link did not open the review screen."
         )
-        XCTAssertTrue(element(app, ["QR code", "QR code"]).exists)
+        XCTAssertTrue(element(app, ["QR code", "Code QR"]).exists)
         XCTAssertTrue(element(app, "192.168.1.10").exists)
         XCTAssertTrue(element(app, ["Host", "Hôte"]).exists)
     }
