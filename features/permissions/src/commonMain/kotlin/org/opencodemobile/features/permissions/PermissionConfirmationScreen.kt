@@ -18,6 +18,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import org.jetbrains.compose.resources.stringResource
+import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.ui_permission_required
+import org.opencodemobile.design.system.resources.ui_permission_waiting
 import org.opencodemobile.shared.domain.permission.PermissionDecision
 
 /**
@@ -54,13 +58,12 @@ public fun PermissionConfirmationScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                text = "Permission required · ${model.tool}",
+                text = stringResource(Res.string.ui_permission_required, model.tool),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = "The server is waiting for your decision. This authorizes the tool to run " +
-                    "on your development machine.",
+                text = stringResource(Res.string.ui_permission_waiting),
                 style = MaterialTheme.typography.bodyMedium,
             )
             if (model.targets.isNotEmpty()) {

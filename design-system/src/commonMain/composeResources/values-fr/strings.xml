@@ -33,4 +33,6 @@
     <string name="ui_session_status_attention">attention requise</string>
     <string name="ui_session_status_completed">terminée</string>
     <string name="ui_session_status_failed">en échec</string>
+    <string name="ui_permission_required">Autorisation requise · %1$s</string>
+    <string name="ui_permission_waiting">Le serveur attend votre décision. Cela autorise l\'outil à s\'exécuter sur votre machine de développement.</string>
 </resources>
