@@ -131,10 +131,6 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: [self-hosted, linux, hostinger]
     timeout-minutes: 75
-    # The host PATH must not probe qveys' private git. `/usr/bin/git` is
-    # available to the runner service account and is the supported binary.
-    env:
-      PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
