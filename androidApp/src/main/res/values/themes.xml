@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window background = OpenCodeColors.Chrome.bg, avoids the white flash before Compose draws. -->
+    <style name="Theme.OpenCodeMobile" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FFFDFCFC</item>
+    </style>
+</resources>

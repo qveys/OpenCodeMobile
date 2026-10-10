@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -14,8 +15,10 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -39,6 +42,11 @@ import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import org.jetbrains.compose.resources.stringResource
+import org.opencodemobile.design.system.OpenCodeContext
+import org.opencodemobile.design.system.OpenCodeTheme
+import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.connection_cancel
 
 /**
  * Full-screen QR capture surface behind [QrCodeScanner] on Android
@@ -75,13 +83,18 @@ public class QrScannerActivity : ComponentActivity() {
             cameraPermission.launch(Manifest.permission.CAMERA)
         }
 
+        enableEdgeToEdge()
         setContent {
-            if (showPreview.value) {
-                QrScannerContent(
-                    lifecycleOwner = this,
-                    onPayload = ::finishWithPayload,
-                    onCancel = ::finishCancelled,
-                )
+            OpenCodeTheme(
+                context = if (isSystemInDarkTheme()) OpenCodeContext.ChromeDark else OpenCodeContext.Chrome,
+            ) {
+                if (showPreview.value) {
+                    QrScannerContent(
+                        lifecycleOwner = this,
+                        onPayload = ::finishWithPayload,
+                        onCancel = ::finishCancelled,
+                    )
+                }
             }
         }
     }
@@ -177,9 +190,9 @@ private fun QrScannerContent(
         AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
         OutlinedButton(
             onClick = onCancel,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(24.dp),
         ) {
-            Text("Cancel")
+            Text(stringResource(Res.string.connection_cancel))
         }
     }
 }

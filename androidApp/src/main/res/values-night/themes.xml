@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window background = OpenCodeColors.ChromeDark.bg. -->
+    <style name="Theme.OpenCodeMobile" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF131010</item>
+    </style>
+</resources>

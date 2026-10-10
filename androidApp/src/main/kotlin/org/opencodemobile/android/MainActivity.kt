@@ -6,15 +6,17 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -127,9 +129,12 @@ class MainActivity : FragmentActivity() {
         val catalogPresenter = catalogPresenterOrNull()
         val connectionController = connectionSetupControllerOrNull()
         val connectionBinder = connectionBinderOrNull()
+        enableEdgeToEdge()
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            OpenCodeTheme(
+                context = if (isSystemInDarkTheme()) OpenCodeContext.ChromeDark else OpenCodeContext.Chrome,
+            ) {
+                Surface(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
                     // §7.3: the settings entry point is shared Compose code; the
                     // shell only supplies the connection/permission content.
                     LocalAccessSettingsHost(onScreenCaptureBlockingChanged = privacyShield::applyCapturePolicy) {
