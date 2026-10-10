@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -23,6 +24,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import org.jetbrains.compose.resources.stringResource
+import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.ui_session_accessibility
+import org.opencodemobile.design.system.resources.ui_session_status_attention
+import org.opencodemobile.design.system.resources.ui_session_status_completed
+import org.opencodemobile.design.system.resources.ui_session_status_failed
+import org.opencodemobile.design.system.resources.ui_session_status_idle
+import org.opencodemobile.design.system.resources.ui_session_status_running
 
 /**
  * The session status shown by a [SessionRow] glyph
@@ -74,13 +83,13 @@ public fun SessionRow(
     enabled: Boolean = true,
 ) {
     val colors = LocalOpenCodeColors.current
-    val glyphColor: Color = when (status) {
-        SessionRowStatus.Idle -> colors.textMuted
-        SessionRowStatus.Running -> colors.agent
-        SessionRowStatus.Attention -> colors.warning
-        SessionRowStatus.Completed -> colors.success
-        SessionRowStatus.Failed -> colors.danger
-    }
+    val glyphColor = status.glyphColor(colors)
+    val localizedStatus = status.localizedLabel()
+    val accessibilityDescription = stringResource(
+        Res.string.ui_session_accessibility,
+        title,
+        localizedStatus,
+    )
 
     Row(
         modifier = modifier
@@ -89,43 +98,79 @@ public fun SessionRow(
             .clickable(enabled = enabled && !busy, onClick = onClick)
             .background(if (busy) colors.bgRaised else colors.bg)
             .padding(horizontal = OpenCodeSpacing.x4, vertical = OpenCodeSpacing.x3)
-            .semantics { contentDescription = "Session $title, ${status.name.lowercase()}" },
+            .semantics { contentDescription = accessibilityDescription },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(modifier = Modifier.widthIn(min = GLYPH_COLUMN), contentAlignment = Alignment.Center) {
-            Text(
-                text = status.glyph(),
-                style = OpenCodeType.tech,
-                color = glyphColor,
-            )
-        }
-        Column(
-            modifier = Modifier.padding(start = OpenCodeSpacing.x3).weight(1f),
-            verticalArrangement = Arrangement.spacedBy(OpenCodeSpacing.x1),
-        ) {
-            Text(
-                text = title,
-                style = OpenCodeType.bodyStrong,
-                color = if (enabled) colors.text else colors.textWeak,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = meta,
-                style = OpenCodeType.meta,
-                color = colors.textMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (trailing != null) {
-            Text(
-                text = trailing,
-                style = OpenCodeType.meta,
-                color = colors.textMuted,
-                modifier = Modifier.padding(start = OpenCodeSpacing.x2),
-            )
-        }
+        SessionRowContent(
+            title = title,
+            meta = meta,
+            status = status,
+            glyphColor = glyphColor,
+            enabled = enabled,
+            trailing = trailing,
+            colors = colors,
+        )
+    }
+}
+
+private fun SessionRowStatus.glyphColor(colors: OpenCodeColors): Color = when (this) {
+    SessionRowStatus.Idle -> colors.textMuted
+    SessionRowStatus.Running -> colors.agent
+    SessionRowStatus.Attention -> colors.warning
+    SessionRowStatus.Completed -> colors.success
+    SessionRowStatus.Failed -> colors.danger
+}
+
+@Composable
+private fun SessionRowStatus.localizedLabel(): String = stringResource(
+    when (this) {
+        SessionRowStatus.Idle -> Res.string.ui_session_status_idle
+        SessionRowStatus.Running -> Res.string.ui_session_status_running
+        SessionRowStatus.Attention -> Res.string.ui_session_status_attention
+        SessionRowStatus.Completed -> Res.string.ui_session_status_completed
+        SessionRowStatus.Failed -> Res.string.ui_session_status_failed
+    },
+)
+
+@Composable
+private fun RowScope.SessionRowContent(
+    title: String,
+    meta: String,
+    status: SessionRowStatus,
+    glyphColor: Color,
+    enabled: Boolean,
+    trailing: String?,
+    colors: OpenCodeColors,
+) {
+    Box(modifier = Modifier.widthIn(min = GLYPH_COLUMN), contentAlignment = Alignment.Center) {
+        Text(text = status.glyph(), style = OpenCodeType.tech, color = glyphColor)
+    }
+    Column(
+        modifier = Modifier.padding(start = OpenCodeSpacing.x3).weight(1f),
+        verticalArrangement = Arrangement.spacedBy(OpenCodeSpacing.x1),
+    ) {
+        Text(
+            text = title,
+            style = OpenCodeType.bodyStrong,
+            color = if (enabled) colors.text else colors.textWeak,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = meta,
+            style = OpenCodeType.meta,
+            color = colors.textMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    trailing?.let {
+        Text(
+            text = it,
+            style = OpenCodeType.meta,
+            color = colors.textMuted,
+            modifier = Modifier.padding(start = OpenCodeSpacing.x2),
+        )
     }
 }
 

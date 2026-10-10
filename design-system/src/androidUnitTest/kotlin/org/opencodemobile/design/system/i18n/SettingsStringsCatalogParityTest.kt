@@ -41,6 +41,12 @@ class SettingsStringsCatalogParityTest {
         "settings_optional_",
         "settings_multitask_",
         "settings_screen_capture_",
+        "ui_",
+    )
+    private val intentionallySharedUiLabels = setOf(
+        "ui_agents",
+        "ui_transcript_role_assistant",
+        "ui_transcript_role_unknown",
     )
 
     @Test
@@ -69,7 +75,7 @@ class SettingsStringsCatalogParityTest {
             assertTrue(frenchStrings.values.none { it.isBlank() }, "blank FR value in ${file.name}")
 
             englishStrings.forEach { (key, english) ->
-                if (mustBeTranslated.any { key.startsWith(it) }) {
+                if (key !in intentionallySharedUiLabels && mustBeTranslated.any { key.startsWith(it) }) {
                     assertNotEquals(
                         english,
                         frenchStrings.getValue(key),

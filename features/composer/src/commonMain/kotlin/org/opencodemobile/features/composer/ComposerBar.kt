@@ -14,9 +14,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import org.jetbrains.compose.resources.stringResource
 import org.opencodemobile.design.system.LocalOpenCodeColors
 import org.opencodemobile.design.system.OpenCodeSpacing
 import org.opencodemobile.design.system.OpenCodeType
+import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.ui_send
+import org.opencodemobile.design.system.resources.ui_send_prompt
 import org.opencodemobile.shared.application.chat.ComposerState
 
 /**
@@ -54,7 +58,7 @@ public fun ComposerBar(
                 enabled = enabled && !state.sending,
                 textStyle = OpenCodeType.body,
                 placeholder = {
-                    Text("Send a prompt", style = OpenCodeType.body, color = colors.textMuted)
+                    Text(stringResource(Res.string.ui_send_prompt), style = OpenCodeType.body, color = colors.textMuted)
                 },
                 maxLines = 6,
             )
@@ -82,7 +86,7 @@ public fun ComposerBar(
                         contentColor = colors.onPrimary,
                     ),
                 ) {
-                    Text("Send", style = OpenCodeType.control)
+                    Text(stringResource(Res.string.ui_send), style = OpenCodeType.control)
                 }
             }
         }

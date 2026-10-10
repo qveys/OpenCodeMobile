@@ -34,6 +34,7 @@ import org.opencodemobile.design.system.OpenCodeMetrics
 import org.opencodemobile.design.system.OpenCodeSpacing
 import org.opencodemobile.design.system.OpenCodeType
 import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.ui_answer
 import org.opencodemobile.design.system.resources.question_reject
 import org.opencodemobile.design.system.resources.question_reply
 
@@ -127,7 +128,7 @@ private fun PendingQuestionCard(
                     onValueChange = { answer.customText = it },
                     modifier = Modifier.fillMaxWidth(),
                     textStyle = OpenCodeType.body,
-                    label = { Text("Answer", style = OpenCodeType.body) },
+                    label = { Text(stringResource(Res.string.ui_answer), style = OpenCodeType.body) },
                     maxLines = 4,
                 )
             }

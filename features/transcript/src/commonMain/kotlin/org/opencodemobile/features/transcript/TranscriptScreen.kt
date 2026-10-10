@@ -17,11 +17,23 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import org.opencodemobile.design.system.LocalOpenCodeColors
 import org.opencodemobile.design.system.OpenCodeMetrics
 import org.opencodemobile.design.system.OpenCodeSpacing
 import org.opencodemobile.design.system.OpenCodeType
+import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.ui_abort
+import org.opencodemobile.design.system.resources.ui_aborted_waiting_snapshot
+import org.opencodemobile.design.system.resources.ui_aborting
+import org.opencodemobile.design.system.resources.ui_transcript_empty
+import org.opencodemobile.design.system.resources.ui_transcript_loading
+import org.opencodemobile.design.system.resources.ui_transcript_role_assistant
+import org.opencodemobile.design.system.resources.ui_transcript_role_system
+import org.opencodemobile.design.system.resources.ui_transcript_role_tool
+import org.opencodemobile.design.system.resources.ui_transcript_role_unknown
+import org.opencodemobile.design.system.resources.ui_transcript_role_user
 import org.opencodemobile.shared.application.chat.TranscriptState
 import org.opencodemobile.shared.application.interaction.TurnAbortState
 import org.opencodemobile.shared.domain.chat.TranscriptMessage
@@ -66,10 +78,10 @@ private fun TranscriptBody(
     modifier: Modifier = Modifier,
 ) {
     when {
-        state.isEmpty && state.loading -> TranscriptNotice("Loading transcript…", modifier)
+        state.isEmpty && state.loading -> TranscriptNotice(stringResource(Res.string.ui_transcript_loading), modifier)
 
         state.isEmpty -> TranscriptNotice(
-            text = state.error ?: "No transcript yet. Send a prompt to start the turn.",
+            text = state.error ?: stringResource(Res.string.ui_transcript_empty),
             modifier = modifier,
         )
 
@@ -105,8 +117,8 @@ private fun TurnAbortBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val status = when {
-            aborting -> "Aborting…"
-            awaitingResync -> "Aborted — waiting for the server snapshot…"
+            aborting -> stringResource(Res.string.ui_aborting)
+            awaitingResync -> stringResource(Res.string.ui_aborted_waiting_snapshot)
             abortState.error != null -> abortState.error
             else -> null
         }
@@ -128,7 +140,7 @@ private fun TurnAbortBar(
                 contentColor = colors.onPrimary,
             ),
         ) {
-            Text("Abort", style = OpenCodeType.control)
+            Text(stringResource(Res.string.ui_abort), style = OpenCodeType.control)
         }
     }
 }
@@ -173,10 +185,13 @@ private fun TranscriptMessageItem(message: TranscriptMessage) {
     }
 }
 
-private fun roleLabel(role: TranscriptRole): String = when (role) {
-    TranscriptRole.User -> "YOU"
-    TranscriptRole.Assistant -> "AGENT"
-    TranscriptRole.System -> "SYSTEM"
-    TranscriptRole.Tool -> "TOOL"
-    TranscriptRole.Unknown -> "MESSAGE"
-}
+@Composable
+private fun roleLabel(role: TranscriptRole): String = stringResource(
+    when (role) {
+        TranscriptRole.User -> Res.string.ui_transcript_role_user
+        TranscriptRole.Assistant -> Res.string.ui_transcript_role_assistant
+        TranscriptRole.System -> Res.string.ui_transcript_role_system
+        TranscriptRole.Tool -> Res.string.ui_transcript_role_tool
+        TranscriptRole.Unknown -> Res.string.ui_transcript_role_unknown
+    },
+)
