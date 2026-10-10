@@ -4,6 +4,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+/** Spacing and minimum interaction-size tokens from docs/DESIGN-SYSTEM.md §7/§9. */
+public object OpenCodeSpace {
+    public val space1 = 4.dp
+    public val space2 = 8.dp
+    public val space3 = 12.dp
+    public val space4 = 16.dp
+    public val space5 = 20.dp
+    public val space6 = 24.dp
+    public val hitIos = 44.dp
+    public val hitAndroid = 48.dp
+}
+
 /**
  * The V1 design-system tokens (`docs/DESIGN-SYSTEM.md` §3–§9).
  *

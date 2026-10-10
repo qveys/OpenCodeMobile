@@ -2,33 +2,53 @@ package org.opencodemobile.features.connection
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import org.jetbrains.compose.resources.stringResource
+import org.opencodemobile.design.system.LocalOpenCodeColors
+import org.opencodemobile.design.system.OpenCodeSpace
+import org.opencodemobile.design.system.OpenCodeType
+import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.connection_add_server
+import org.opencodemobile.design.system.resources.connection_cancel
+import org.opencodemobile.design.system.resources.connection_current_address
+import org.opencodemobile.design.system.resources.connection_current_fingerprint
+import org.opencodemobile.design.system.resources.connection_current_label
+import org.opencodemobile.design.system.resources.connection_duplicate_server
+import org.opencodemobile.design.system.resources.connection_fingerprint
+import org.opencodemobile.design.system.resources.connection_first_contact
+import org.opencodemobile.design.system.resources.connection_host
+import org.opencodemobile.design.system.resources.connection_http_warning
+import org.opencodemobile.design.system.resources.connection_no_label
+import org.opencodemobile.design.system.resources.connection_operation_error
+import org.opencodemobile.design.system.resources.connection_port
+import org.opencodemobile.design.system.resources.connection_presented_fingerprint
+import org.opencodemobile.design.system.resources.connection_review_add_title
+import org.opencodemobile.design.system.resources.connection_review_update_title
+import org.opencodemobile.design.system.resources.connection_source
+import org.opencodemobile.design.system.resources.connection_source_manual
+import org.opencodemobile.design.system.resources.connection_source_qr
+import org.opencodemobile.design.system.resources.connection_source_deep_link
+import org.opencodemobile.design.system.resources.connection_transport
+import org.opencodemobile.design.system.resources.connection_transport_http
+import org.opencodemobile.design.system.resources.connection_transport_https
+import org.opencodemobile.design.system.resources.connection_trust_server
+import org.opencodemobile.design.system.resources.connection_update_server
 
-/**
- * The single review screen every import source (manual entry, QR, deep link)
- * funnels through (`docs/ARCHITECTURE.md` §"Mandatory review before persisting").
- *
- * It enforces the T8 rules in the UI:
- * - full target disclosure — host and port are shown in full, never truncated;
- * - explicit, distinct confirmation — persisting requires the "Add server" tap;
- * - no silent overwrite — a matching stored profile switches to the
- *   "Update existing server?" comparison;
- * - the plaintext-HTTP warning is persistent while such a profile is reviewed.
- *
- * First contact is handled here too: when [ConnectionSetupUiState.identityPrompt]
- * is set, the fingerprint the server presented is shown and must be confirmed
- * before the credential is released.
- */
 @Suppress("LongMethod", "CyclomaticComplexMethod")
 @Composable
 public fun ServerImportReviewScreen(
@@ -41,94 +61,74 @@ public fun ServerImportReviewScreen(
     val plan = state.review ?: return
     val profile = plan.profile
     val updating = state.updatesExistingProfile
-
+    val colors = LocalOpenCodeColors.current
     Column(
-        modifier = modifier.fillMaxWidth().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier.fillMaxWidth().padding(OpenCodeSpace.space4),
+        verticalArrangement = Arrangement.spacedBy(OpenCodeSpace.space3),
     ) {
         Text(
-            text = if (updating) "Update existing server?" else "Add server",
-            style = MaterialTheme.typography.headlineSmall,
+            text = stringResource(if (updating) Res.string.connection_review_update_title else Res.string.connection_review_add_title),
+            style = OpenCodeType.title,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
         )
-
-        // Full target disclosure: nothing elided.
-        ReviewRow("Host", profile.host)
-        ReviewRow("Port", profile.port.toString())
-        ReviewRow("Transport", if (profile.isPlaintextHttp) "Plaintext HTTP (no TLS)" else "HTTPS")
-        plan.fingerprint?.let { fingerprint ->
-            ReviewRow("Fingerprint", fingerprint.colonSeparated)
-        }
-        ReviewRow("Source", plan.source.displayName())
-
-        if (plan.isPlaintext) {
-            Text(
-                text = "Warning: this server uses plaintext HTTP. Traffic and credentials are readable on the network.",
-                color = MaterialTheme.colorScheme.error,
+        Column(verticalArrangement = Arrangement.spacedBy(OpenCodeSpace.space2)) {
+            ReviewRow(stringResource(Res.string.connection_host), profile.host)
+            ReviewRow(stringResource(Res.string.connection_port), profile.port.toString())
+            ReviewRow(
+                stringResource(Res.string.connection_transport),
+                stringResource(if (profile.isPlaintextHttp) Res.string.connection_transport_http else Res.string.connection_transport_https),
             )
+            plan.fingerprint?.let { ReviewRow(stringResource(Res.string.connection_fingerprint), it.colonSeparated) }
+            ReviewRow(stringResource(Res.string.connection_source), stringResource(when (plan.source) {
+                org.opencodemobile.shared.application.connection.ServerSetupSource.ManualEntry -> Res.string.connection_source_manual
+                org.opencodemobile.shared.application.connection.ServerSetupSource.QrCode -> Res.string.connection_source_qr
+                org.opencodemobile.shared.application.connection.ServerSetupSource.DeepLink -> Res.string.connection_source_deep_link
+            }))
         }
-
+        if (plan.isPlaintext) {
+            Text(stringResource(Res.string.connection_http_warning), color = colors.warning, style = OpenCodeType.body)
+        }
         if (updating) {
             HorizontalDivider()
-            Text(text = "A server with this address is already stored.", style = MaterialTheme.typography.bodyMedium)
-            val existing = state.existingProfile
-            if (existing != null) {
-                ReviewRow("Current label", existing.label ?: "(none)")
-                ReviewRow("Current address", existing.authority)
-                state.existingFingerprint?.let { pinned ->
-                    ReviewRow("Current fingerprint", pinned.colonSeparated)
-                }
+            Text(stringResource(Res.string.connection_duplicate_server), style = OpenCodeType.body)
+            state.existingProfile?.let { existing ->
+                ReviewRow(stringResource(Res.string.connection_current_label), existing.label ?: stringResource(Res.string.connection_no_label))
+                ReviewRow(stringResource(Res.string.connection_current_address), existing.authority)
+                state.existingFingerprint?.let { ReviewRow(stringResource(Res.string.connection_current_fingerprint), it.colonSeparated) }
             }
         }
-
         state.identityPrompt?.let { presented ->
             HorizontalDivider()
+            Text(stringResource(Res.string.connection_first_contact), style = OpenCodeType.body)
+            ReviewRow(stringResource(Res.string.connection_presented_fingerprint), presented.colonSeparated)
+        }
+        if (state.failure != null) {
             Text(
-                text = "First contact with this server. Confirm its identity before connecting:",
-                style = MaterialTheme.typography.bodyMedium,
+                stringResource(Res.string.connection_operation_error),
+                color = colors.danger,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
+                style = OpenCodeType.body,
             )
-            ReviewRow("Presented fingerprint", presented.colonSeparated)
         }
-
-        state.failure?.let { failure ->
-            Text(text = failure, color = MaterialTheme.colorScheme.error)
+        Button(onClick = if (state.identityPrompt != null) onConfirmIdentity else onConfirm,
+            modifier = Modifier.fillMaxWidth().heightIn(min = OpenCodeSpace.hitAndroid), enabled = !state.busy) {
+            Text(stringResource(if (state.identityPrompt != null) Res.string.connection_trust_server else if (updating) Res.string.connection_update_server else Res.string.connection_add_server), style = OpenCodeType.control)
         }
-
-        if (state.identityPrompt != null) {
-            Button(
-                onClick = onConfirmIdentity,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.busy,
-            ) {
-                Text("Trust this server")
-            }
-        } else {
-            Button(
-                onClick = onConfirm,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.busy,
-            ) {
-                Text(if (updating) "Update server" else "Add server")
-            }
+        TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth().heightIn(min = OpenCodeSpace.hitAndroid), enabled = !state.busy) {
+            Text(stringResource(Res.string.connection_cancel), style = OpenCodeType.control)
         }
-
-        TextButton(
-            onClick = onCancel,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !state.busy,
-        ) {
-            Text("Cancel")
-        }
-
-        if (state.busy) {
-            CircularProgressIndicator()
-        }
+        if (state.busy) CircularProgressIndicator()
     }
 }
 
 @Composable
 private fun ReviewRow(label: String, value: String) {
-    Text(
-        text = "$label: $value",
-        style = MaterialTheme.typography.bodyMedium,
-    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(OpenCodeSpace.space3),
+    ) {
+        Text(label, modifier = Modifier.weight(1f), style = OpenCodeType.bodyStrong)
+        Text(value, modifier = Modifier.weight(2f), style = OpenCodeType.tech)
+    }
 }

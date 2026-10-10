@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -17,16 +18,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import org.opencodemobile.design.system.OpenCodeSpace
+import org.opencodemobile.design.system.OpenCodeType
 import org.jetbrains.compose.resources.stringResource
 import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.connection_manual_error
+import org.opencodemobile.design.system.resources.connection_operation_error
 import org.opencodemobile.design.system.resources.connection_manual_address_label
 import org.opencodemobile.design.system.resources.connection_manual_address_placeholder
 import org.opencodemobile.design.system.resources.connection_manual_connect
 import org.opencodemobile.design.system.resources.connection_manual_label
 import org.opencodemobile.design.system.resources.connection_manual_scan_failed
 import org.opencodemobile.design.system.resources.connection_manual_scan_qr
-import org.opencodemobile.design.system.resources.connection_manual_title
 
 /**
  * Manual server address entry (`docs/ARCHITECTURE.md` §"Server profile import"
@@ -48,17 +54,15 @@ public fun ManualServerEntryScreen(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxWidth().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier.fillMaxWidth().padding(OpenCodeSpace.space4),
+        verticalArrangement = Arrangement.spacedBy(OpenCodeSpace.space3),
     ) {
-        Text(text = stringResource(Res.string.connection_manual_title), style = MaterialTheme.typography.headlineSmall)
-
         OutlinedTextField(
             value = state.address,
             onValueChange = onAddressChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text(stringResource(Res.string.connection_manual_address_label)) },
-            placeholder = { Text(stringResource(Res.string.connection_manual_address_placeholder)) },
+            label = { Text(stringResource(Res.string.connection_manual_address_label), style = OpenCodeType.meta) },
+            placeholder = { Text(stringResource(Res.string.connection_manual_address_placeholder), style = OpenCodeType.tech) },
             singleLine = true,
             isError = state.manualError != null,
             enabled = !state.busy,
@@ -69,45 +73,47 @@ public fun ManualServerEntryScreen(
             value = state.label,
             onValueChange = onLabelChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text(stringResource(Res.string.connection_manual_label)) },
+            label = { Text(stringResource(Res.string.connection_manual_label), style = OpenCodeType.meta) },
             singleLine = true,
             enabled = !state.busy,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         )
 
-        state.manualError?.let { error ->
-            Text(text = error.message(), color = MaterialTheme.colorScheme.error)
+        state.manualError?.let {
+            Text(text = stringResource(Res.string.connection_manual_error), color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, style = OpenCodeType.body)
         }
         if (state.scanFailed) {
             Text(
                 text = stringResource(Res.string.connection_manual_scan_failed),
                 color = MaterialTheme.colorScheme.error,
+                style = OpenCodeType.body,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
             )
         }
-        state.failure?.let { failure ->
-            Text(text = failure, color = MaterialTheme.colorScheme.error)
+        state.failure?.let {
+            Text(text = stringResource(Res.string.connection_operation_error), color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive }, style = OpenCodeType.body)
         }
 
         Button(
             onClick = onSubmit,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().heightIn(min = OpenCodeSpace.hitAndroid),
             enabled = !state.busy,
         ) {
-            Text(stringResource(Res.string.connection_manual_connect))
+            Text(stringResource(Res.string.connection_manual_connect), style = OpenCodeType.control)
         }
 
         if (onScanRequest != null) {
             OutlinedButton(
                 onClick = onScanRequest,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().heightIn(min = OpenCodeSpace.hitAndroid),
                 enabled = !state.busy,
             ) {
-                Text(stringResource(Res.string.connection_manual_scan_qr))
+                Text(stringResource(Res.string.connection_manual_scan_qr), style = OpenCodeType.control)
             }
         }
 
         if (state.busy) {
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(OpenCodeSpace.space1))
             CircularProgressIndicator()
         }
     }

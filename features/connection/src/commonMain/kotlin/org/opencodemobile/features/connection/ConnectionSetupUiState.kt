@@ -1,7 +1,6 @@
 package org.opencodemobile.features.connection
 
 import org.opencodemobile.shared.application.connection.ServerSetupPlan
-import org.opencodemobile.shared.application.connection.ServerSetupSource
 import org.opencodemobile.shared.domain.connection.ConnectionHandshake
 import org.opencodemobile.shared.domain.connection.DomainError
 import org.opencodemobile.shared.domain.connection.DomainErrorMessages
@@ -51,11 +50,4 @@ public fun DomainError.InvalidServerAddress.message(): String = DomainErrorMessa
 public fun DomainError.failureMessage(): String {
     val presentation = DomainErrorMessages.present(this)
     return presentation.actionHint?.let { hint -> "${presentation.message}\n$hint" } ?: presentation.message
-}
-
-/** Human-readable label for a [ServerSetupSource], as shown on the review screen. */
-public fun ServerSetupSource.displayName(): String = when (this) {
-    ServerSetupSource.ManualEntry -> "Manual entry"
-    ServerSetupSource.QrCode -> "QR code"
-    ServerSetupSource.DeepLink -> "Deep link"
 }
