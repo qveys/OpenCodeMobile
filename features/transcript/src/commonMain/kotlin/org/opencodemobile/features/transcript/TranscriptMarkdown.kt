@@ -7,6 +7,7 @@ import com.mikepenz.markdown.compose.components.MarkdownComponents
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.highlightedCodeFence
 import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.model.rememberMarkdownState
 
 /**
  * Renders one assistant message as Markdown (V1-05).
@@ -35,8 +36,10 @@ public fun AssistantMarkdown(
     modifier: Modifier = Modifier,
 ) {
     SelectionContainer(modifier = modifier) {
+        // immediate: first frame parses synchronously, so the body is never blank (and
+        // screenshots capture it); later updates re-parse off-thread.
         Markdown(
-            content = content,
+            markdownState = rememberMarkdownState(content, immediate = true),
             components = transcriptMarkdownComponents(),
         )
     }
