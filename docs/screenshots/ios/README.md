@@ -20,3 +20,5 @@ Noms : `manual-entry`, `invalid-address`, `sessions`, `transcript`, `permission`
 `question`, `local-access`, `erase-idle`, `erase-confirming`, `catalog-loading`,
 `catalog-failed`. Nom inconnu : l'app démarre normalement. Fixtures :
 `iosAppHost/.../IosDebugScreens.kt` (miroir de `V1ScreenshotTest`).
+
+V1 (OPE-356) : [ope356/](ope356/README.md), 11 écrans FR/EN clair/sombre.
