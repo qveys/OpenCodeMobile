@@ -113,7 +113,7 @@ public fun LocalAccessSettingsHost(
                             text = title,
                             modifier = Modifier.weight(1f).padding(vertical = OpenCodeSpace.space2),
                             style = titleStyle,
-                            maxLines = 1,
+                            maxLines = 2,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         )
                         settingsAction()

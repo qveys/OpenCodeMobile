@@ -9,11 +9,11 @@
     <string name="connection_review_add_title">Vérifier le serveur</string>
     <string name="connection_review_update_title">Vérifier la mise à jour du serveur</string>
     <string name="connection_host">Hôte</string>
-    <string name="connection_port">Port</string>
-    <string name="connection_transport">Transport</string>
-    <string name="connection_source">Source</string>
+    <string name="connection_port">Port réseau</string>
+    <string name="connection_transport">Mode de transport</string>
+    <string name="connection_source">Origine</string>
     <string name="connection_fingerprint">Empreinte</string>
-    <string name="connection_transport_https">HTTPS</string>
+    <string name="connection_transport_https">HTTPS (chiffré)</string>
     <string name="connection_transport_http">HTTP en clair (sans TLS)</string>
     <string name="connection_http_warning">[!] Ce serveur utilise HTTP en clair. Le trafic et les identifiants sont lisibles sur le réseau.</string>
     <string name="connection_duplicate_server">Un serveur avec cette adresse est déjà enregistré.</string>
@@ -30,6 +30,6 @@
     <string name="connection_manual_error">[x] Vérifiez l’adresse du serveur et réessayez.</string>
     <string name="connection_operation_error">[x] La connexion a échoué. Vérifiez le serveur et réessayez.</string>
     <string name="connection_source_manual">Saisie manuelle</string>
-    <string name="connection_source_qr">QR code</string>
+    <string name="connection_source_qr">Code QR</string>
     <string name="connection_source_deep_link">Lien profond</string>
 </resources>

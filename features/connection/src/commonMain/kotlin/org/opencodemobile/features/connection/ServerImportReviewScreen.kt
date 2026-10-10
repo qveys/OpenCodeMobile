@@ -34,7 +34,6 @@ import org.opencodemobile.design.system.resources.connection_first_contact
 import org.opencodemobile.design.system.resources.connection_host
 import org.opencodemobile.design.system.resources.connection_http_warning
 import org.opencodemobile.design.system.resources.connection_no_label
-import org.opencodemobile.design.system.resources.connection_operation_error
 import org.opencodemobile.design.system.resources.connection_port
 import org.opencodemobile.design.system.resources.connection_presented_fingerprint
 import org.opencodemobile.design.system.resources.connection_review_add_title
@@ -103,9 +102,9 @@ public fun ServerImportReviewScreen(
             Text(stringResource(Res.string.connection_first_contact), style = OpenCodeType.body)
             ReviewRow(stringResource(Res.string.connection_presented_fingerprint), presented.colonSeparated)
         }
-        if (state.failure != null) {
+        state.failure?.let { failure ->
             Text(
-                stringResource(Res.string.connection_operation_error),
+                failure,
                 color = colors.danger,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
                 style = OpenCodeType.body,
