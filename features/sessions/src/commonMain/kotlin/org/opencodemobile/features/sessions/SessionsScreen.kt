@@ -33,7 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
@@ -47,7 +46,6 @@ import org.opencodemobile.design.system.resources.Res
 import org.opencodemobile.design.system.resources.ui_more_actions
 import org.opencodemobile.design.system.SessionRow
 import org.opencodemobile.design.system.SessionRowStatus
-import org.opencodemobile.design.system.resources.Res
 import org.opencodemobile.design.system.resources.session_action_delete
 import org.opencodemobile.design.system.resources.session_action_fork
 import org.opencodemobile.design.system.resources.session_action_open
