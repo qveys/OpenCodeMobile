@@ -34,6 +34,7 @@ import org.opencodemobile.design.system.OpenCodeMetrics
 import org.opencodemobile.design.system.OpenCodeSpacing
 import org.opencodemobile.design.system.OpenCodeType
 import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.ui_answer
 import org.opencodemobile.design.system.resources.question_reject
 import org.opencodemobile.design.system.resources.question_reply
 
