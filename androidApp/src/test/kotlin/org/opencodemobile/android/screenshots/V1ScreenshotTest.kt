@@ -214,7 +214,9 @@ class V1ScreenshotTest(private val locale: String, private val dark: Boolean) {
             override suspend fun syncMetadata(serverId: String, projectId: String, sessionId: String) = null
         }
         val controller = SessionListController(gateway, cache, object : MutationGate { override fun mutationsAllowed() = true }, { SessionsScope("srv", "p1") })
-        SessionsScreen(SessionsPresenter(controller, CoroutineScope(Dispatchers.Unconfined)), onOpenSession = {})
+        @Suppress("InjectDispatcher") // test-only eager scope, no DI
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        SessionsScreen(SessionsPresenter(controller, scope), onOpenSession = {})
     }
 
     @Test
