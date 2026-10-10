@@ -24,6 +24,7 @@ kotlin {
             // Composition root: like androidApp, it is the only place allowed to
             // see every module and assemble the real OpenCodeGateway graph
             // (docs/adr/0008-ios-composition-root-module.md).
+            implementation(project(":design-system"))
             implementation(project(":features:connection"))
             implementation(project(":features:settings"))
             implementation(project(":shared:domain"))
