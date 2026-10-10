@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.flow
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.runners.Parameterized
 import org.opencodemobile.design.system.LocalOpenCodeColors
 import org.opencodemobile.design.system.OpenCodeContext
 import org.opencodemobile.design.system.OpenCodeTheme
@@ -66,11 +68,21 @@ import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
  * OPE-352: one PNG per V1 screen state, rendered on the JVM (no emulator).
  *
  * Record: `./gradlew :androidApp:recordPaparazziDebug`; verify: `verifyPaparazziDebug`.
- * Fixtures are fixed French copy so the images are deterministic.
+ * Each screen is rendered for fr/en x light/dark; fixture copy goes through [tr] so the
+ * images are deterministic and the language matches the locale.
  */
-class V1ScreenshotTest {
+@RunWith(Parameterized::class)
+class V1ScreenshotTest(private val locale: String, private val dark: Boolean) {
     @get:Rule
-    val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(locale = "fr"))
+    val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(locale = locale))
+
+    private fun tr(fr: String, en: String) = if (locale == "fr") fr else en
+
+    companion object {
+        @JvmStatic
+        @Parameterized.Parameters(name = "{0}-{1}")
+        fun params() = listOf("fr", "en").flatMap { l -> listOf(false, true).map { arrayOf<Any>(l, it) } }
+    }
 
     // CMP resources read assets through a context that its ContentProvider sets
     // at app start; Paparazzi never starts providers, so set the static by hand.
@@ -84,7 +96,9 @@ class V1ScreenshotTest {
 
     private fun shot(context: OpenCodeContext = OpenCodeContext.Chrome, content: @Composable () -> Unit) =
         paparazzi.snapshot {
-            OpenCodeTheme(context = context) {
+            // Session is already the dark context; only Chrome has a dark twin.
+            val themed = if (dark && context == OpenCodeContext.Chrome) OpenCodeContext.ChromeDark else context
+            OpenCodeTheme(context = themed) {
                 // Some screens draw no background of their own (the app shell does).
                 Surface(Modifier.fillMaxSize(), color = LocalOpenCodeColors.current.bg) { content() }
             }
@@ -122,7 +136,7 @@ class V1ScreenshotTest {
                 ProviderUi("anthropic", "Anthropic", listOf(ModelUi("sonnet", "Claude Sonnet", "anthropic"))),
                 ProviderUi("openai", "OpenAI", listOf(ModelUi("gpt", "GPT", "openai"))),
             ),
-            agents = listOf(AgentUi("build", "Agent de développement par défaut", "primary")),
+            agents = listOf(AgentUi("build", tr("Agent de développement par défaut", "Default development agent"), "primary")),
         )
         ServerCatalogScreen(state, onRetry = {})
     }
@@ -131,7 +145,7 @@ class V1ScreenshotTest {
 
     @Test
     fun sessions_list() = shot {
-        SessionRow("Refonte du module réseau", "il y a 2 min · mobile", SessionRowStatus.Running, {})
+        SessionRow(tr("Refonte du module réseau", "Networking module rewrite"), tr("il y a 2 min · mobile", "2 min ago · mobile"), SessionRowStatus.Running, {})
     }
 
     // 3. Chat
@@ -143,8 +157,8 @@ class V1ScreenshotTest {
             TranscriptState(
                 sessionId = "s1",
                 messages = listOf(
-                    message("m1", TranscriptRole.User, "Corrige le test qui échoue sur la synchronisation."),
-                    message("m2", TranscriptRole.Assistant, "J'ai trouvé la cause : un délai de reconnexion trop court."),
+                    message("m1", TranscriptRole.User, tr("Corrige le test qui échoue sur la synchronisation.", "Fix the test that fails on sync.")),
+                    message("m2", TranscriptRole.Assistant, tr("J'ai trouvé la cause : un délai de reconnexion trop court.", "Found the cause: the reconnect delay is too short.")),
                 ),
             ),
         )
@@ -152,7 +166,7 @@ class V1ScreenshotTest {
 
     @Test
     fun chat_error() = shot(OpenCodeContext.Session) {
-        TranscriptScreen(TranscriptState(sessionId = "s1", error = "Connexion perdue"))
+        TranscriptScreen(TranscriptState(sessionId = "s1", error = tr("Connexion perdue", "Connection lost")))
     }
 
     @Test
@@ -164,8 +178,8 @@ class V1ScreenshotTest {
                 targets = listOf("./gradlew test"),
                 argumentsText = "{\"command\":\"./gradlew test\"}",
                 decisions = listOf(
-                    PermissionDecisionUi(org.opencodemobile.shared.domain.permission.PermissionDecision.Once, "Autoriser une fois", PermissionEmphasis.Primary, false),
-                    PermissionDecisionUi(org.opencodemobile.shared.domain.permission.PermissionDecision.Deny, "Refuser", PermissionEmphasis.Danger, false),
+                    PermissionDecisionUi(org.opencodemobile.shared.domain.permission.PermissionDecision.Once, tr("Autoriser une fois", "Allow once"), PermissionEmphasis.Primary, false),
+                    PermissionDecisionUi(org.opencodemobile.shared.domain.permission.PermissionDecision.Deny, tr("Refuser", "Deny"), PermissionEmphasis.Danger, false),
                 ),
                 contentFingerprint = "a1b2c3",
             ),
@@ -183,9 +197,9 @@ class V1ScreenshotTest {
                         "s1",
                         listOf(
                             QuestionItemUi(
-                                header = "Branche",
-                                question = "Sur quelle branche appliquer le correctif ?",
-                                options = listOf(QuestionOptionUi("main"), QuestionOptionUi("release", "Branche de publication")),
+                                header = tr("Branche", "Branch"),
+                                question = tr("Sur quelle branche appliquer le correctif ?", "Which branch should the fix go on?"),
+                                options = listOf(QuestionOptionUi("main"), QuestionOptionUi("release", tr("Branche de publication", "Release branch"))),
                             ),
                         ),
                     ),
@@ -200,18 +214,18 @@ class V1ScreenshotTest {
 
     @Test
     fun dictation_available() = shot(OpenCodeContext.Session) {
-        ComposerScreen(composer(DictationAvailability.Available("fr-FR"), draft = "Ajoute un test de reconnexion"), "fr-FR")
+        ComposerScreen(composer(DictationAvailability.Available(tag), draft = tr("Ajoute un test de reconnexion", "Add a reconnect test")), tag)
     }
 
     @Test
     fun dictation_unavailable() = shot(OpenCodeContext.Session) {
-        ComposerScreen(composer(DictationAvailability.Unavailable(DictationUnavailableReason.OnDeviceModelMissing)), "fr-FR")
+        ComposerScreen(composer(DictationAvailability.Unavailable(DictationUnavailableReason.OnDeviceModelMissing)), tag)
     }
 
     @Test
     fun dictation_listening() = shot(OpenCodeContext.Session) {
-        val presenter = composer(DictationAvailability.Available("fr-FR"), partial = "ajoute un test")
-        ComposerScreen(presenter, "fr-FR")
+        val presenter = composer(DictationAvailability.Available(tag), partial = tr("ajoute un test", "add a test"))
+        ComposerScreen(presenter, tag)
         // After the screen's own locale check, which stops any session.
         LaunchedEffect(Unit) { presenter.toggleDictation() }
     }
@@ -242,7 +256,7 @@ class V1ScreenshotTest {
 
     @Test
     fun error_catalog_failed() = shot {
-        ServerCatalogScreen(CatalogUiState(error = "Impossible de lire le catalogue du serveur."), onRetry = {})
+        ServerCatalogScreen(CatalogUiState(error = tr("Impossible de lire le catalogue du serveur.", "Could not read the server catalog.")), onRetry = {})
     }
 
     @Test
@@ -254,6 +268,8 @@ class V1ScreenshotTest {
     fun error_erase_reauth_failed() = shot {
         EraseEverythingScreen(EraseEverythingUiState.ReauthenticationFailed, noEraseActions)
     }
+
+    private val tag get() = if (locale == "fr") "fr-FR" else "en-US"
 
     private val noEraseActions = EraseEverythingActions({}, {}, {}, {})
 
@@ -282,8 +298,8 @@ class V1ScreenshotTest {
 
             override suspend fun sendPrompt(sessionId: String, prompt: ChatPrompt) = Unit
         }
-        val controller = ComposerController(chat, provider, null, "s1", CoroutineScope(Dispatchers.Unconfined), "fr-FR")
-        controller.start("fr-FR")
+        val controller = ComposerController(chat, provider, null, "s1", CoroutineScope(Dispatchers.Unconfined), tag)
+        controller.start(tag)
         controller.onDraftChange(draft)
         return DictationComposerPresenter(controller)
     }
