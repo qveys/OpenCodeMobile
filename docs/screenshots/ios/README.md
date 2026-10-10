@@ -6,3 +6,5 @@
 Variantes : FR/EN, clair/sombre, EN Dynamic Type AXXL (`connexion_*.png`).
 
 Non capturés : Réglages, import QR, erreur de lien (XCUITest bloqué, OPE-315).
+
+V1 (OPE-356) : [ope356/](ope356/README.md), 11 écrans FR/EN clair/sombre.
