@@ -90,7 +90,7 @@ jobs:
           set -euo pipefail
           [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
           owner="$(stat -c '%u:%g' "$(dirname "$GITHUB_WORKSPACE")")"
-          if [[ "$owner" == "0:0" ]]; then
+          if [[ "${owner%%:*}" == "0" ]]; then
             echo '::error::Runner workspace parent is root-owned; refusing to preserve root-owned checkout files.'
             exit 1
           fi
@@ -118,7 +118,7 @@ jobs:
           set -euo pipefail
           [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
           owner="$(stat -c '%u:%g' "$(dirname "$GITHUB_WORKSPACE")")"
-          if [[ "$owner" == "0:0" ]]; then
+          if [[ "${owner%%:*}" == "0" ]]; then
             echo '::error::Runner workspace parent is root-owned; refusing to preserve root-owned checkout files.'
             exit 1
           fi
