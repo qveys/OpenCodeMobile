@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ExperimentalComposeApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.AccessibilitySyncOptions
@@ -20,6 +21,7 @@ import org.opencodemobile.features.catalog.CatalogUiState
 import org.opencodemobile.features.catalog.ServerCatalogScreen
 import org.opencodemobile.features.connection.ConnectionSetupContent
 import org.opencodemobile.features.connection.ConnectionSetupUiState
+import org.opencodemobile.features.connection.ServerImportReviewScreen
 import org.opencodemobile.features.permissions.PermissionBannerModel
 import org.opencodemobile.features.permissions.PermissionConfirmationScreen
 import org.opencodemobile.features.permissions.PermissionDecisionUi
@@ -35,13 +37,17 @@ import org.opencodemobile.features.settings.EraseEverythingUiState
 import org.opencodemobile.features.settings.LocalAccessSettingsActions
 import org.opencodemobile.features.settings.LocalAccessSettingsScreen
 import org.opencodemobile.features.settings.localAccessStrings
+import org.opencodemobile.features.transcript.LocalMarkdownImmediate
 import org.opencodemobile.features.transcript.TranscriptScreen
 import org.opencodemobile.shared.application.chat.TranscriptState
+import org.opencodemobile.shared.application.connection.ServerSetupPlan
+import org.opencodemobile.shared.application.connection.ServerSetupSource
 import org.opencodemobile.shared.domain.chat.TranscriptMessage
 import org.opencodemobile.shared.domain.chat.TranscriptPart
 import org.opencodemobile.shared.domain.chat.TranscriptRole
 import org.opencodemobile.shared.domain.connection.DomainError
 import org.opencodemobile.shared.domain.connection.ServerInputProblem
+import org.opencodemobile.shared.domain.connection.ServerProfile
 import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
 import org.opencodemobile.shared.domain.permission.PermissionDecision
 import platform.UIKit.UIViewController
@@ -70,7 +76,7 @@ public fun debugScreenViewController(name: String, accessibilitySyncAlways: Bool
             },
         ) {
             Surface(Modifier.fillMaxSize(), color = LocalOpenCodeColors.current.bg) {
-                Box(Modifier.fillMaxSize().safeDrawingPadding()) { screen.content() }
+                Box(Modifier.fillMaxSize().safeDrawingPadding()) { CompositionLocalProvider(LocalMarkdownImmediate provides true) { screen.content() } }
             }
         }
     }
@@ -96,6 +102,10 @@ private val debugScreens: Map<String, DebugScreen> = mapOf(
             manualError = DomainError.InvalidServerAddress(ServerInputProblem.MISSING_HOST, "http://"),
         )
         ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {})
+    },
+    "review" to DebugScreen {
+        val profile = ServerProfile("s1", "192.168.1.20", 4096, "MacBook", ServerProfile.TlsMode.PlaintextHttp)
+        ServerImportReviewScreen(ConnectionSetupUiState(review = ServerSetupPlan(profile, ServerSetupSource.QrCode)), {}, {}, {})
     },
     "sessions" to DebugScreen {
         SessionRow(loc("Networking module rework", "Refonte du module réseau"), loc("2 min ago · mobile", "il y a 2 min · mobile"), SessionRowStatus.Running, {})
