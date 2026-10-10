@@ -261,6 +261,7 @@ class V1ScreenshotTest {
         TranscriptMessage(id, "s1", role, listOf(TranscriptPart("$id-p", "text", text)))
 
     /** Eager scope: every controller coroutine settles during composition. */
+    @Suppress("InjectDispatcher") // test-only controller scope, no DI
     private fun composer(
         availability: DictationAvailability,
         draft: String = "",

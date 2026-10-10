@@ -33,4 +33,6 @@
     <string name="ui_session_status_attention">attention needed</string>
     <string name="ui_session_status_completed">completed</string>
     <string name="ui_session_status_failed">failed</string>
+    <string name="ui_permission_required">Permission required · %1$s</string>
+    <string name="ui_permission_waiting">The server is waiting for your decision. This authorizes the tool to run on your development machine.</string>
 </resources>
