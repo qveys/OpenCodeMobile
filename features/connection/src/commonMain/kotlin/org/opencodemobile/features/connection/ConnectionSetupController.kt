@@ -123,7 +123,7 @@ public class ConnectionSetupController(
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Throwable) {
-                mutableState.update { it.copy(busy = false, failure = failure.toDomainError().failureMessage()) }
+                mutableState.update { it.copy(busy = false, failure = failure.toDomainError().toConnectionFailure()) }
                 return@launch
             }
             proceed(plan)
@@ -138,7 +138,7 @@ public class ConnectionSetupController(
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Throwable) {
-                mutableState.update { it.copy(busy = false, failure = failure.toDomainError().failureMessage()) }
+                mutableState.update { it.copy(busy = false, failure = failure.toDomainError().toConnectionFailure()) }
                 return@launch
             }
             val pinned = try {
@@ -146,7 +146,7 @@ public class ConnectionSetupController(
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Throwable) {
-                mutableState.update { it.copy(busy = false, failure = failure.toDomainError().failureMessage()) }
+                mutableState.update { it.copy(busy = false, failure = failure.toDomainError().toConnectionFailure()) }
                 return@launch
             }
             mutableState.update {
@@ -175,7 +175,7 @@ public class ConnectionSetupController(
         } catch (failure: CancellationException) {
             throw failure
         } catch (failure: Throwable) {
-            mutableState.update { it.copy(busy = false, failure = failure.toDomainError().failureMessage()) }
+            mutableState.update { it.copy(busy = false, failure = failure.toDomainError().toConnectionFailure()) }
             return
         }
 
@@ -189,7 +189,7 @@ public class ConnectionSetupController(
                 is DomainError.IdentityUnconfirmed ->
                     mutableState.update { it.copy(busy = false, identityPrompt = error.presented, failure = null) }
 
-                else -> mutableState.update { it.copy(busy = false, failure = error.failureMessage()) }
+                else -> mutableState.update { it.copy(busy = false, failure = error.toConnectionFailure()) }
             }
         }
     }

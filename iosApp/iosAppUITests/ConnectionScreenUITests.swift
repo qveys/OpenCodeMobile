@@ -92,11 +92,12 @@ final class ConnectionScreenUITests: XCTestCase {
         ])
 
         XCTAssertTrue(
-            element(app, "Add server").waitForExistence(timeout: 60),
+            element(app, ["Add server", "Ajouter le serveur"]).waitForExistence(timeout: 60),
             "A valid import link did not open the review screen."
         )
-        XCTAssertTrue(element(app, "Source: QR code").exists)
-        XCTAssertTrue(element(app, "Host: 192.168.1.10").exists)
+        XCTAssertTrue(element(app, ["QR code", "Code QR"]).exists)
+        XCTAssertTrue(element(app, "192.168.1.10").exists)
+        XCTAssertTrue(element(app, ["Host", "Hôte"]).exists)
     }
 
     /// OPE-153 criterion 3b: a non-import code shows the "not an import link"
@@ -126,6 +127,7 @@ final class ConnectionScreenUITests: XCTestCase {
 
         let settings = element(app, ["Settings", "Réglages"])
         XCTAssertTrue(settings.waitForExistence(timeout: 60), "The Settings action is missing.")
+        XCTAssertGreaterThanOrEqual(settings.frame.height, 44, "The Settings hit target must be at least 44 pt high.")
         settings.tap()
 
         XCTAssertTrue(
