@@ -15,6 +15,7 @@ import org.opencodemobile.design.system.OpenCodeContext
 import org.opencodemobile.design.system.OpenCodeTheme
 import org.opencodemobile.design.system.SessionRow
 import org.opencodemobile.design.system.SessionRowStatus
+import org.opencodemobile.design.system.i18n.AppLanguage
 import org.opencodemobile.features.catalog.CatalogUiState
 import org.opencodemobile.features.catalog.ServerCatalogScreen
 import org.opencodemobile.features.connection.ConnectionSetupContent
@@ -75,6 +76,9 @@ public fun debugScreenViewController(name: String, accessibilitySyncAlways: Bool
     }
 }
 
+/** Fixture text in the device language (FR/EN only, docs/I18N.md). */
+private fun loc(en: String, fr: String) = if (AppLanguage.current() == AppLanguage.French) fr else en
+
 private class DebugScreen(val session: Boolean = false, val content: @Composable () -> Unit)
 
 private val noEraseActions = EraseEverythingActions({}, {}, {}, {})
@@ -94,15 +98,15 @@ private val debugScreens: Map<String, DebugScreen> = mapOf(
         ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {})
     },
     "sessions" to DebugScreen {
-        SessionRow("Refonte du module réseau", "il y a 2 min · mobile", SessionRowStatus.Running, {})
+        SessionRow(loc("Networking module rework", "Refonte du module réseau"), loc("2 min ago · mobile", "il y a 2 min · mobile"), SessionRowStatus.Running, {})
     },
     "transcript" to DebugScreen(session = true) {
         TranscriptScreen(
             TranscriptState(
                 sessionId = "s1",
                 messages = listOf(
-                    message("m1", TranscriptRole.User, "Corrige le test qui échoue sur la synchronisation."),
-                    message("m2", TranscriptRole.Assistant, "J'ai trouvé la cause : un délai de reconnexion trop court."),
+                    message("m1", TranscriptRole.User, loc("Fix the test that fails on sync.", "Corrige le test qui échoue sur la synchronisation.")),
+                    message("m2", TranscriptRole.Assistant, loc("Found the cause: the reconnect delay is too short.", "J'ai trouvé la cause : un délai de reconnexion trop court.")),
                 ),
             ),
         )
@@ -115,8 +119,8 @@ private val debugScreens: Map<String, DebugScreen> = mapOf(
                 targets = listOf("./gradlew test"),
                 argumentsText = "{\"command\":\"./gradlew test\"}",
                 decisions = listOf(
-                    PermissionDecisionUi(PermissionDecision.Once, "Autoriser une fois", PermissionEmphasis.Primary, false),
-                    PermissionDecisionUi(PermissionDecision.Deny, "Refuser", PermissionEmphasis.Danger, false),
+                    PermissionDecisionUi(PermissionDecision.Once, loc("Allow once", "Autoriser une fois"), PermissionEmphasis.Primary, false),
+                    PermissionDecisionUi(PermissionDecision.Deny, loc("Deny", "Refuser"), PermissionEmphasis.Danger, false),
                 ),
                 contentFingerprint = "a1b2c3",
             ),
@@ -132,9 +136,9 @@ private val debugScreens: Map<String, DebugScreen> = mapOf(
                         "s1",
                         listOf(
                             QuestionItemUi(
-                                header = "Branche",
-                                question = "Sur quelle branche appliquer le correctif ?",
-                                options = listOf(QuestionOptionUi("main"), QuestionOptionUi("release", "Branche de publication")),
+                                header = loc("Branch", "Branche"),
+                                question = loc("Which branch should the fix target?", "Sur quelle branche appliquer le correctif ?"),
+                                options = listOf(QuestionOptionUi("main"), QuestionOptionUi("release", loc("Release branch", "Branche de publication"))),
                             ),
                         ),
                     ),
@@ -156,6 +160,6 @@ private val debugScreens: Map<String, DebugScreen> = mapOf(
     "erase-confirming" to DebugScreen { EraseEverythingScreen(EraseEverythingUiState.Confirming, noEraseActions) },
     "catalog-loading" to DebugScreen { ServerCatalogScreen(CatalogUiState(loading = true), onRetry = {}) },
     "catalog-failed" to DebugScreen {
-        ServerCatalogScreen(CatalogUiState(error = "Impossible de lire le catalogue du serveur."), onRetry = {})
+        ServerCatalogScreen(CatalogUiState(error = loc("Could not read the server catalog.", "Impossible de lire le catalogue du serveur.")), onRetry = {})
     },
 )

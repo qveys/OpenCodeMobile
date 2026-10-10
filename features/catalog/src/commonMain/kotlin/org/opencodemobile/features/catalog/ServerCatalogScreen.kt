@@ -1,5 +1,6 @@
 package org.opencodemobile.features.catalog
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,7 +54,7 @@ public fun ServerCatalogScreen(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    OpenCodeTheme(context = OpenCodeContext.Chrome) {
+    OpenCodeTheme(context = if (isSystemInDarkTheme()) OpenCodeContext.ChromeDark else OpenCodeContext.Chrome) {
         val colors = LocalOpenCodeColors.current
         Surface(
             modifier = modifier.fillMaxSize(),

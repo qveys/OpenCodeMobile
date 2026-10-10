@@ -86,6 +86,7 @@ public fun OpenCodeTheme(
             outline = colors.line,
             outlineVariant = colors.lineStrong,
             surfaceContainerHighest = colors.bgRaised, // neutral Switch track, not the Material lavender
+            surfaceContainerHigh = colors.bgRaised, // AlertDialog container, not the Material lavender
         )
 
         OpenCodeContext.ChromeDark, OpenCodeContext.Session -> darkColorScheme(
@@ -102,6 +103,7 @@ public fun OpenCodeTheme(
             outline = colors.line,
             outlineVariant = colors.lineStrong,
             surfaceContainerHighest = colors.bgRaised, // neutral Switch track, not the Material lavender
+            surfaceContainerHigh = colors.bgRaised, // AlertDialog container, not the Material lavender
         )
     }
 
