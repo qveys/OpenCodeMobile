@@ -107,6 +107,22 @@ jobs:
       # the supply-chain control and the container is OPE-212's isolation.
       - name: Require dependency pins to cover the declared build inputs (SEC-05b)
         run: bash scripts/ci/run-as-nonroot.sh bash scripts/check-verification-metadata-coverage.sh
+      # Container jobs run as root/uid 10001 on the bind-mounted _work dir; hand
+      # the checkout and this job's Gradle temp back to the host runner user so
+      # the next non-container job's checkout can clean it (OPE-312). Owner comes
+      # from $RUNNER_TEMP (runner-created), as the workspace parent may be polluted.
+      - name: Restore workspace ownership for host runner
+        if: always()
+        run: |
+          set -euo pipefail
+          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
+          owner="$(stat -c '%u:%g' "$RUNNER_TEMP")"
+          if [[ "${owner%%:*}" == "0" ]]; then
+            echo '::error::Runner temp dir is root-owned; refusing to preserve root-owned checkout files.'
+            exit 1
+          fi
+          chown -R "$owner" "$GITHUB_WORKSPACE"
+          [[ ! -d "$RUNNER_TEMP/gradle" ]] || chown -R "$owner" "$RUNNER_TEMP/gradle"
 
   redaction-tests:
     name: Redaction unit tests
@@ -136,3 +152,19 @@ jobs:
           persist-credentials: false
       - name: Run networking redaction tests
         run: bash scripts/ci/run-as-nonroot.sh bash -c 'set -euo pipefail; chmod +x gradlew; java -version; ./gradlew :shared:networking:testDebugUnitTest --no-daemon --stacktrace'
+      # Container jobs run as root/uid 10001 on the bind-mounted _work dir; hand
+      # the checkout and this job's Gradle temp back to the host runner user so
+      # the next non-container job's checkout can clean it (OPE-312). Owner comes
+      # from $RUNNER_TEMP (runner-created), as the workspace parent may be polluted.
+      - name: Restore workspace ownership for host runner
+        if: always()
+        run: |
+          set -euo pipefail
+          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
+          owner="$(stat -c '%u:%g' "$RUNNER_TEMP")"
+          if [[ "${owner%%:*}" == "0" ]]; then
+            echo '::error::Runner temp dir is root-owned; refusing to preserve root-owned checkout files.'
+            exit 1
+          fi
+          chown -R "$owner" "$GITHUB_WORKSPACE"
+          [[ ! -d "$RUNNER_TEMP/gradle" ]] || chown -R "$owner" "$RUNNER_TEMP/gradle"

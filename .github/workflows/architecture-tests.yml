@@ -128,6 +128,22 @@ jobs:
           else
             bash scripts/ci/run-as-nonroot.sh bash -c 'chmod +x gradlew && java -version && ./gradlew :architecture-tests:test --no-daemon --stacktrace'
           fi
+      # Container jobs run as root/uid 10001 on the bind-mounted _work dir; hand
+      # the checkout and this job's Gradle temp back to the host runner user so
+      # the next non-container job's checkout can clean it (OPE-312). Owner comes
+      # from $RUNNER_TEMP (runner-created), as the workspace parent may be polluted.
+      - name: Restore workspace ownership for host runner
+        if: always()
+        run: |
+          set -euo pipefail
+          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
+          owner="$(stat -c '%u:%g' "$RUNNER_TEMP")"
+          if [[ "${owner%%:*}" == "0" ]]; then
+            echo '::error::Runner temp dir is root-owned; refusing to preserve root-owned checkout files.'
+            exit 1
+          fi
+          chown -R "$owner" "$GITHUB_WORKSPACE"
+          [[ ! -d "$RUNNER_TEMP/gradle" ]] || chown -R "$owner" "$RUNNER_TEMP/gradle"
 
   # Required status-check context (OPE-142). Always runs so the check is never
   # left "Expected" when no boundary-relevant path changed.
