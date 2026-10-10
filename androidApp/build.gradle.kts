@@ -3,6 +3,8 @@ plugins {
     alias(libs.plugins.kotlinAndroid)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    // OPE-352: JVM screenshot tests of the V1 screens (no emulator needed)
+    alias(libs.plugins.paparazzi)
 }
 
 android {

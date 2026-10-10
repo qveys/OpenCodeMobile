@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.composeMultiplatform) apply false
     alias(libs.plugins.composeCompiler) apply false
     alias(libs.plugins.sqldelight) apply false
+    alias(libs.plugins.paparazzi) apply false
     // OPE-14 / OPE-213 — bug-focused static analysis. Applied at the root and to
     // every subproject (see below): the root task is the portable scan and the
     // subproject tasks add type resolution. The config lives in
