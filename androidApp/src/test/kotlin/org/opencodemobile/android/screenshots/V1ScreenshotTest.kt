@@ -7,6 +7,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
+import com.android.resources.NightMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -33,6 +34,9 @@ import org.opencodemobile.features.connection.ConnectionFailure
 import org.opencodemobile.features.connection.ConnectionSetupContent
 import org.opencodemobile.features.connection.ConnectionSetupUiState
 import org.opencodemobile.features.connection.FailureKind
+import org.opencodemobile.features.connection.ServerImportReviewScreen
+import org.opencodemobile.features.sessions.SessionsPresenter
+import org.opencodemobile.features.sessions.SessionsScreen
 import org.opencodemobile.features.permissions.PermissionBannerModel
 import org.opencodemobile.features.permissions.PermissionConfirmationScreen
 import org.opencodemobile.features.permissions.PermissionDecisionUi
@@ -51,18 +55,29 @@ import org.opencodemobile.features.settings.localAccessStrings
 import org.opencodemobile.features.transcript.TranscriptScreen
 import org.opencodemobile.shared.application.chat.TranscriptState
 import org.opencodemobile.shared.application.composer.ComposerController
+import org.opencodemobile.shared.application.connection.ServerSetupPlan
+import org.opencodemobile.shared.application.connection.ServerSetupSource
+import org.opencodemobile.shared.application.session.SessionListController
+import org.opencodemobile.shared.application.session.SessionsScope
+import org.opencodemobile.shared.domain.cache.MutationGate
+import org.opencodemobile.shared.domain.cache.SessionCache
 import org.opencodemobile.shared.domain.chat.ChatPrompt
 import org.opencodemobile.shared.domain.chat.OpenCodeChatGateway
 import org.opencodemobile.shared.domain.chat.TranscriptMessage
 import org.opencodemobile.shared.domain.chat.TranscriptPart
 import org.opencodemobile.shared.domain.chat.TranscriptRole
 import org.opencodemobile.shared.domain.connection.DomainError
+import org.opencodemobile.shared.domain.connection.ServerFingerprint
 import org.opencodemobile.shared.domain.connection.ServerInputProblem
+import org.opencodemobile.shared.domain.connection.ServerProfile
 import org.opencodemobile.shared.domain.dictation.DictationAvailability
 import org.opencodemobile.shared.domain.dictation.DictationEvent
 import org.opencodemobile.shared.domain.dictation.DictationProvider
 import org.opencodemobile.shared.domain.dictation.DictationUnavailableReason
 import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
+import org.opencodemobile.shared.domain.session.SessionCapabilities
+import org.opencodemobile.shared.domain.session.SessionGateway
+import org.opencodemobile.shared.domain.session.SessionSummary
 
 /**
  * OPE-352: one PNG per V1 screen state, rendered on the JVM (no emulator).
@@ -74,7 +89,12 @@ import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
 @RunWith(Parameterized::class)
 class V1ScreenshotTest(private val locale: String, private val dark: Boolean) {
     @get:Rule
-    val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_5.copy(locale = locale))
+    val paparazzi = Paparazzi(
+        deviceConfig = DeviceConfig.PIXEL_5.copy(
+            locale = locale,
+            nightMode = if (dark) NightMode.NIGHT else NightMode.NOTNIGHT,
+        ),
+    )
 
     private fun tr(fr: String, en: String) = if (locale == "fr") fr else en
 
@@ -141,7 +161,63 @@ class V1ScreenshotTest(private val locale: String, private val dark: Boolean) {
         ServerCatalogScreen(state, onRetry = {})
     }
 
+    @Test
+    fun connection_review() = shot {
+        val plan = ServerSetupPlan(
+            profile = ServerProfile("srv", "192.168.1.20", 4096, "Mac mini"),
+            source = ServerSetupSource.QrCode,
+            fingerprint = ServerFingerprint.of(ByteArray(32) { it.toByte() }),
+        )
+        ServerImportReviewScreen(ConnectionSetupUiState(review = plan), {}, {}, {})
+    }
+
     // 2. Sessions
+
+    // Home after connecting: the real SessionsScreen over a fake gateway.
+    @Test
+    fun home_sessions() = shot {
+        val sessions = listOf(
+            SessionSummary("s1", tr("Refonte du module réseau", "Networking module rewrite"), updatedAt = 2_000),
+            SessionSummary("s2", tr("Correctif de synchronisation", "Sync fix"), updatedAt = 1_000),
+        )
+        val gateway = object : SessionGateway {
+            override suspend fun listSessions(directory: String?) = sessions
+
+            override suspend fun getSession(sessionId: String) = sessions.first()
+
+            override suspend fun createSession(directory: String?, title: String?) = sessions.first()
+
+            override suspend fun renameSession(sessionId: String, title: String) = sessions.first()
+
+            override suspend fun deleteSession(sessionId: String) = Unit
+
+            override suspend fun forkSession(sessionId: String) = sessions.first()
+
+            override suspend fun sessionCapabilities(directory: String?) = SessionCapabilities(forkAvailable = true)
+        }
+        val cache = object : SessionCache { // unused: the gate is open and the gateway never fails
+            override suspend fun serverConfig(serverId: String) = null
+
+            override suspend fun projects(serverId: String) = emptyList<org.opencodemobile.shared.domain.cache.CachedProject>()
+
+            override suspend fun sessions(serverId: String, projectId: String) = emptyList<org.opencodemobile.shared.domain.cache.CachedSession>()
+
+            override suspend fun session(serverId: String, projectId: String, sessionId: String) = null
+
+            override suspend fun recentTranscript(serverId: String, projectId: String, sessionId: String, limit: Int) =
+                emptyList<org.opencodemobile.shared.domain.cache.CachedTranscriptMessage>()
+
+            override suspend fun draft(serverId: String, projectId: String, sessionId: String) = null
+
+            override suspend fun preference(serverId: String, key: String) = null
+
+            override suspend fun syncMetadata(serverId: String, projectId: String, sessionId: String) = null
+        }
+        val controller = SessionListController(gateway, cache, object : MutationGate { override fun mutationsAllowed() = true }, { SessionsScope("srv", "p1") })
+        @Suppress("InjectDispatcher") // test-only eager scope, no DI
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        SessionsScreen(SessionsPresenter(controller, scope), onOpenSession = {})
+    }
 
     @Test
     fun sessions_list() = shot {
@@ -150,7 +226,6 @@ class V1ScreenshotTest(private val locale: String, private val dark: Boolean) {
 
     // 3. Chat
 
-    // The assistant body is Markdown parsed off-thread: one frame shows the role label only.
     @Test
     fun chat_transcript() = shot(OpenCodeContext.Session) {
         TranscriptScreen(
