@@ -16,12 +16,23 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import org.jetbrains.compose.resources.stringResource
 import org.opencodemobile.design.system.LocalOpenCodeColors
 import org.opencodemobile.design.system.OpenCodeContext
 import org.opencodemobile.design.system.OpenCodeMetrics
 import org.opencodemobile.design.system.OpenCodeSpacing
 import org.opencodemobile.design.system.OpenCodeTheme
 import org.opencodemobile.design.system.OpenCodeType
+import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.ui_agents
+import org.opencodemobile.design.system.resources.ui_catalog_description
+import org.opencodemobile.design.system.resources.ui_catalog_empty
+import org.opencodemobile.design.system.resources.ui_catalog_unavailable
+import org.opencodemobile.design.system.resources.ui_catalog_unsupported
+import org.opencodemobile.design.system.resources.ui_loading_models_agents
+import org.opencodemobile.design.system.resources.ui_models_agents
+import org.opencodemobile.design.system.resources.ui_no_models_for_provider
+import org.opencodemobile.design.system.resources.ui_retry
 import org.opencodemobile.shared.application.interaction.ServerCatalogState
 
 /**
@@ -56,9 +67,9 @@ public fun ServerCatalogScreen(
                     .padding(OpenCodeSpacing.x4),
                 verticalArrangement = Arrangement.spacedBy(OpenCodeSpacing.x3),
             ) {
-                Text("Models & agents", style = OpenCodeType.title)
+                Text(stringResource(Res.string.ui_models_agents), style = OpenCodeType.title)
                 Text(
-                    "What this server exposes. Nothing is bundled with the app.",
+                    stringResource(Res.string.ui_catalog_description),
                     style = OpenCodeType.meta,
                     color = colors.textMuted,
                 )
@@ -67,13 +78,17 @@ public fun ServerCatalogScreen(
                 when {
                     state.error != null -> ErrorState(message = state.error!!, onRetry = onRetry)
                     state.loading && !state.hasContent -> Text(
-                        "Loading models and agents…",
+                        stringResource(Res.string.ui_loading_models_agents),
                         style = OpenCodeType.tech,
                         color = colors.textMuted,
                     )
 
                     state.emptyReason != null -> Text(
-                        text = state.emptyReason!!,
+                        text = when (state.emptyReason) {
+                            ServerCatalogState.EMPTY_MESSAGE -> stringResource(Res.string.ui_catalog_empty)
+                            ServerCatalogState.UNSUPPORTED_MESSAGE -> stringResource(Res.string.ui_catalog_unsupported)
+                            else -> state.emptyReason!!
+                        },
                         style = OpenCodeType.body,
                         color = colors.textMuted,
                     )
@@ -99,7 +114,7 @@ private fun ErrorState(message: String, onRetry: () -> Unit) {
             modifier = Modifier.weight(1f),
         )
         TextButton(onClick = onRetry) {
-            Text("Retry", style = OpenCodeType.control)
+            Text(stringResource(Res.string.ui_retry), style = OpenCodeType.control)
         }
     }
 }
@@ -110,7 +125,7 @@ private fun CatalogBody(state: CatalogUiState) {
     for (provider in state.providers) {
         Text(provider.name, style = OpenCodeType.section)
         if (provider.models.isEmpty()) {
-            Text("No models exposed by this provider.", style = OpenCodeType.meta, color = colors.textMuted)
+            Text(stringResource(Res.string.ui_no_models_for_provider), style = OpenCodeType.meta, color = colors.textMuted)
         } else {
             for (model in provider.models) {
                 Row(
@@ -126,7 +141,7 @@ private fun CatalogBody(state: CatalogUiState) {
     }
 
     if (state.agents.isNotEmpty()) {
-        Text("Agents", style = OpenCodeType.section)
+        Text(stringResource(Res.string.ui_agents), style = OpenCodeType.section)
         for (agent in state.agents) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
@@ -150,6 +165,6 @@ private fun CatalogBody(state: CatalogUiState) {
 @Composable
 public fun ServerCatalogPlaceholder(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Models & agents are unavailable until a server is connected.")
+        Text(stringResource(Res.string.ui_catalog_unavailable))
     }
 }

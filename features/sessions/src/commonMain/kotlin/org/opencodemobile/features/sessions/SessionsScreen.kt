@@ -31,6 +31,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
@@ -40,6 +43,8 @@ import org.opencodemobile.design.system.OpenCodeMetrics
 import org.opencodemobile.design.system.OpenCodeSpacing
 import org.opencodemobile.design.system.OpenCodeTheme
 import org.opencodemobile.design.system.OpenCodeType
+import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.ui_more_actions
 import org.opencodemobile.design.system.SessionRow
 import org.opencodemobile.design.system.SessionRowStatus
 import org.opencodemobile.design.system.resources.Res
@@ -326,6 +331,7 @@ private fun SessionItem(
     onDelete: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    val moreActionsDescription = stringResource(Res.string.ui_more_actions)
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -340,7 +346,13 @@ private fun SessionItem(
             modifier = Modifier.weight(1f),
         )
         Box {
-            TextButton(onClick = { menuOpen = true }, enabled = !busy) {
+            TextButton(
+                onClick = { menuOpen = true },
+                enabled = !busy,
+                modifier = Modifier.semantics {
+                    contentDescription = moreActionsDescription
+                },
+            ) {
                 Text("…")
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {

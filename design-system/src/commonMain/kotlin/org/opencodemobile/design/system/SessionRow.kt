@@ -23,6 +23,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import org.jetbrains.compose.resources.stringResource
+import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.ui_session_accessibility
+import org.opencodemobile.design.system.resources.ui_session_status_attention
+import org.opencodemobile.design.system.resources.ui_session_status_completed
+import org.opencodemobile.design.system.resources.ui_session_status_failed
+import org.opencodemobile.design.system.resources.ui_session_status_idle
+import org.opencodemobile.design.system.resources.ui_session_status_running
 
 /**
  * The session status shown by a [SessionRow] glyph
@@ -81,6 +89,20 @@ public fun SessionRow(
         SessionRowStatus.Completed -> colors.success
         SessionRowStatus.Failed -> colors.danger
     }
+    val localizedStatus = stringResource(
+        when (status) {
+            SessionRowStatus.Idle -> Res.string.ui_session_status_idle
+            SessionRowStatus.Running -> Res.string.ui_session_status_running
+            SessionRowStatus.Attention -> Res.string.ui_session_status_attention
+            SessionRowStatus.Completed -> Res.string.ui_session_status_completed
+            SessionRowStatus.Failed -> Res.string.ui_session_status_failed
+        },
+    )
+    val accessibilityDescription = stringResource(
+        Res.string.ui_session_accessibility,
+        title,
+        localizedStatus,
+    )
 
     Row(
         modifier = modifier
@@ -89,7 +111,7 @@ public fun SessionRow(
             .clickable(enabled = enabled && !busy, onClick = onClick)
             .background(if (busy) colors.bgRaised else colors.bg)
             .padding(horizontal = OpenCodeSpacing.x4, vertical = OpenCodeSpacing.x3)
-            .semantics { contentDescription = "Session $title, ${status.name.lowercase()}" },
+            .semantics { contentDescription = accessibilityDescription },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(modifier = Modifier.widthIn(min = GLYPH_COLUMN), contentAlignment = Alignment.Center) {

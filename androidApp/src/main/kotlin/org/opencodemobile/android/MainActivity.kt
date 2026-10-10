@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.stringResource
 import org.koin.core.context.GlobalContext
 import org.koin.mp.KoinPlatform
 import org.opencodemobile.android.privacy.PrivacyShield
@@ -46,6 +47,9 @@ import org.opencodemobile.design.system.OpenCodeMetrics
 import org.opencodemobile.design.system.OpenCodeSpacing
 import org.opencodemobile.design.system.OpenCodeTheme
 import org.opencodemobile.design.system.OpenCodeType
+import org.opencodemobile.design.system.resources.Res
+import org.opencodemobile.design.system.resources.app_name
+import org.opencodemobile.design.system.resources.ui_back
 import org.opencodemobile.features.catalog.CatalogPresenter
 import org.opencodemobile.features.catalog.ServerCatalogScreen
 import org.opencodemobile.features.composer.ComposerBar
@@ -401,7 +405,7 @@ private fun AppContent(
 
     if (sessionsPresenter == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("OpenCode Mobile")
+            Text(stringResource(Res.string.app_name))
         }
         return
     }
@@ -438,7 +442,7 @@ private fun CatalogContent(
     LaunchedEffect(Unit) { presenter.refresh() }
     Column(modifier = Modifier.fillMaxSize()) {
         TextButton(onClick = onBack) {
-            Text("Back", style = OpenCodeType.control)
+            Text(stringResource(Res.string.ui_back), style = OpenCodeType.control)
         }
         ServerCatalogScreen(
             state = state,
@@ -506,7 +510,7 @@ private fun SessionContent(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     TextButton(onClick = onBack) {
-                        Text("Back", style = OpenCodeType.control)
+                        Text(stringResource(Res.string.ui_back), style = OpenCodeType.control)
                     }
                     Text(
                         text = session.title,

@@ -127,7 +127,7 @@ private fun PendingQuestionCard(
                     onValueChange = { answer.customText = it },
                     modifier = Modifier.fillMaxWidth(),
                     textStyle = OpenCodeType.body,
-                    label = { Text("Answer", style = OpenCodeType.body) },
+                    label = { Text(stringResource(Res.string.ui_answer), style = OpenCodeType.body) },
                     maxLines = 4,
                 )
             }
