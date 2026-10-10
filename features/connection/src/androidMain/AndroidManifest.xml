@@ -13,7 +13,7 @@
             android:name=".QrScannerActivity"
             android:exported="false"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.OpenCodeMobile" />
+            android:theme="@style/Theme.OpenCodeMobile.Qr" />
     </application>
 
 </manifest>
