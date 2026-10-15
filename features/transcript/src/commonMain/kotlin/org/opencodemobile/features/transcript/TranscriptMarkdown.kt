@@ -2,11 +2,13 @@ package org.opencodemobile.features.transcript
 
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import com.mikepenz.markdown.compose.components.MarkdownComponents
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.highlightedCodeFence
 import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.model.rememberMarkdownState
 
 /**
  * Renders one assistant message as Markdown (V1-05).
@@ -36,7 +38,7 @@ public fun AssistantMarkdown(
 ) {
     SelectionContainer(modifier = modifier) {
         Markdown(
-            content = content,
+            markdownState = rememberMarkdownState(content, immediate = LocalMarkdownImmediate.current),
             components = transcriptMarkdownComponents(),
         )
     }
@@ -48,3 +50,6 @@ public fun transcriptMarkdownComponents(): MarkdownComponents =
     markdownComponents(
         codeFence = highlightedCodeFence,
     )
+
+/** Debug fixtures (iOS screenshots) set this so the first frame already holds the parsed Markdown. */
+public val LocalMarkdownImmediate = staticCompositionLocalOf { false }
