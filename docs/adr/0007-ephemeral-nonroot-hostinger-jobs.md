@@ -178,9 +178,11 @@ one read-only toolchain path:
   `ghcr.io/qveys/opencodemobile/ci-android@sha256:83077870201bbe6f8a4843da2c003b84db3e849236cb2cd71707ee639e6d18ab`
   (`ci/android/Dockerfile`, `.github/workflows/ci-image.yml`). They are pinned by
   that digest and run as uid 10001, so they no longer read the host toolchain.
-  `cd.yml`'s `deploy-android` still sources the host toolchain (left for a later
-  change: it carries deploy secrets); the Android emulator leg cannot run in a
-  container (it needs `/dev/kvm`) and stays on `ubuntu-latest`.
+  OPE-316 moves `cd.yml` `deploy-android` to that same image and uid 10001
+  wrapper, preserving step-scoped deployment secrets and cleanup. The Android
+  emulator remains on `[self-hosted, linux, hostinger]` as a host-toolchain
+  exception: the recorded probe found no KVM device on either runner. A
+  container can use an exposed KVM device, but that path is not yet verified.
 - **Digest pinning of the images** must be refreshed deliberately. The
   `eclipse-temurin` digest used by `lint.yml` / `security-logging.yml` and the
   repository CI image digest used by the Android jobs are both recorded here,
@@ -203,9 +205,15 @@ one read-only toolchain path:
    Android SDK 35 image to GHCR; `build.yml` `build-android`/`test-android`,
    `t1-device-validation.yml` `jvm-handshake`/`android-instrumented-compile` and
    `security-logging.yml` `Redaction unit tests` now run on it.
-3. **Later** — re-install the runner service under a dedicated non-root user
-   (or move the pool to a dedicated host and adopt ephemeral runners
-   properly). `cd.yml` `deploy-android` still sources the host toolchain, so the
-   `provision-runner-toolchain.yml` Linux job cannot be retired until that and
-   any other host-toolchain consumer move; the emulator leg needs `/dev/kvm`
-   and stays on `ubuntu-latest`.
+3. **Done (OPE-299)** — runner service accounts migrated; no service-account
+   changes are part of OPE-316.
+4. **OPE-316** — Android CD uses the existing pinned image, with build and
+   deploy commands running through the uid 10001 wrapper. No host SDK mount is
+   added. Checkout credentials are disabled; secrets are passed through the
+   step environment, never command arguments or generated wrapper source.
+5. **Retained exception** — `android-emulator` and its called script still
+   need host JDK/SDK provisioning, emulator packages, host libraries and a
+   verified KVM device. Keep `provision-linux` until DevOps verifies a capable
+   runner, a pinned emulator image and least-privilege device access, then runs
+   the actual instrumented tests. See CI-RUNNER-STRATEGY §7 for the scan and
+   retirement gate. The historic lack of KVM is not a new live-host measurement.

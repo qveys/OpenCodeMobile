@@ -33,7 +33,7 @@ job, and workflows may only use `actions/checkout` plus plain shell steps.
 | `t1-device-validation.yml` | `T1 handshake (Android emulator)` | `[self-hosted, hostinger]` | Needs an AVD **and** hardware acceleration (`/dev/kvm`). Provisioned by `scripts/t1/run-android-device-validation.sh`; depends on host capability, see §5. |
 | `t1-device-validation.yml` | `T1 handshake (iOS simulator)` | `[self-hosted, mac]` | Needs Xcode + a bootable simulator. macOS only. |
 | `cd.yml` | `prepare` | `[self-hosted, hostinger]` | Pure bash parameter resolution; no toolchain. |
-| `cd.yml` | `deploy-android` | `[self-hosted, hostinger]` | Builds the release bundle; still sources the **host** toolchain via `scripts/ci/runner-toolchain-env.sh` (handles deploy secrets; not yet moved to the CI image — see ADR 0007 *Migration*). |
+| `cd.yml` | `deploy-android` | `[self-hosted, hostinger]` | Builds and deploys with the digest-pinned CI image as uid 10001; environment-scoped secrets remain step-scoped (OPE-316). |
 | `cd.yml` | `deploy-ios` | `[self-hosted, mac]` | Apple deployment leg; runs on the Xcode-capable host. |
 | `cd.yml` | `smoke-test` | `[self-hosted, hostinger]` | Pure bash/curl pipeline check. |
 | `smoke-test.yml` | `self-test` | `[self-hosted, hostinger]` | Pure bash/curl self-test of the smoke script. |
@@ -213,11 +213,28 @@ OPE-255 (stage 2) extends the model to the Android-SDK jobs with a
   `security-logging.yml` (`Redaction unit tests`) now consume that digest and
   run as uid 10001.
 
-Not yet done: the runner **service** still runs as root as the scheduler;
-`cd.yml` `deploy-android` still sources the host toolchain (so
-`provision-runner-toolchain.yml` cannot be retired yet); and the Android
-emulator leg needs `/dev/kvm`, which a container cannot get, so it stays on
-`ubuntu-latest`. The staged plan is in the ADR's *Migration* section.
+OPE-316 moves `cd.yml` `deploy-android` to the same pinned Android image.
+Build and deploy commands use the existing uid 10001 wrapper; checkout credentials
+are not persisted, secret values stay in step environment variables, and the
+existing deploy-script EXIT trap and always-run cleanup remain in place.
+Runner service-account migration is complete under OPE-299 and is out of scope.
+
+The Android emulator remains a documented host-toolchain exception. The recorded
+probe (ADR 0007, run `36852214370`) found no `/dev/kvm` on either Linux host;
+this is historical evidence, not a fresh host probe. The job currently routes to
+`[self-hosted, linux, hostinger]`, not `ubuntu-latest`. Containers can use an
+explicitly exposed KVM device, but no verified capable runner/device-access path
+is recorded here. The script also installs emulator/system-image packages and
+host libraries using sudo. The build image alone is not a replacement.
+
+Retain `provision-linux`. Before retirement, DevOps must verify a KVM-capable
+runner, prepare a pinned image with emulator runtime dependencies, grant only
+the required device access, and prove the instrumented tests execute. Do not
+change service accounts or use a privileged container as a shortcut.
+
+The workflow scan also found `build.yml` `test-android` sources the resolver
+inside its pinned container (no host SDK mount); that reference is redundant,
+not a host provisioning dependency. macOS consumers remain out of scope.
 
 ### 7.1 The real mount set of a `container:` job (OPE-259)
 
