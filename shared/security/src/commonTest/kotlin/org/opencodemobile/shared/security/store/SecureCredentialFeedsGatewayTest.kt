@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlinx.coroutines.test.runTest
+import org.opencodemobile.shared.domain.connection.BasicAuthCredential
 import org.opencodemobile.shared.domain.connection.ConnectionHandshake
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerCredential
@@ -19,6 +20,7 @@ private class RecordingGateway : OpenCodeGateway {
     override suspend fun connect(
         profile: ServerProfile,
         credential: ServerCredential?,
+        basicAuth: BasicAuthCredential?,
     ): ConnectionHandshake {
         connectedProfile = profile
         releasedCredential = credential
@@ -45,7 +47,7 @@ class SecureCredentialFeedsGatewayTest {
 
         val gateway = RecordingGateway()
         assertFailsWith<GatewayProbe> {
-            gateway.connect(profile, credentials.credential(profile.id))
+            gateway.connect(profile, credentials.credential(profile.id), basicAuth = null)
         }
 
         assertEquals(profile, gateway.connectedProfile)

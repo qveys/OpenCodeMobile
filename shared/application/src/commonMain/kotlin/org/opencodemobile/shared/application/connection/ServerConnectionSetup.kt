@@ -1,6 +1,7 @@
 package org.opencodemobile.shared.application.connection
 
 import kotlin.coroutines.cancellation.CancellationException
+import org.opencodemobile.shared.domain.connection.BasicAuthCredential
 import org.opencodemobile.shared.domain.connection.ConnectionHandshake
 import org.opencodemobile.shared.domain.connection.DomainError
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
@@ -133,15 +134,17 @@ public class ServerConnectionSetup(
     /**
      * Validates [plan] against the live server, returning a typed outcome. The
      * credential is never attached after a failed identity check, because that
-     * enforcement lives in the adapter.
+     * enforcement lives in the adapter. [basicAuth] is the optional reverse-proxy
+     * credential; it follows the exact same release rule.
      */
     @Suppress("TooGenericExceptionCaught")
     public suspend fun validate(
         plan: ServerSetupPlan,
         credential: ServerCredential?,
+        basicAuth: BasicAuthCredential? = null,
     ): ConnectionValidation {
         return try {
-            ConnectionValidation.Connected(gateway.connect(plan.profile, credential))
+            ConnectionValidation.Connected(gateway.connect(plan.profile, credential, basicAuth))
         } catch (failure: CancellationException) {
             throw failure
         } catch (failure: Throwable) {

@@ -108,7 +108,7 @@ class V1ScreenshotTest(private val locale: String, private val dark: Boolean) {
 
     @Test
     fun connection_manual_entry() = shot {
-        ConnectionSetupContent(ConnectionSetupUiState(), {}, {}, {}, {}, {}, {}, {})
+        ConnectionSetupContent(ConnectionSetupUiState(), {}, {}, {}, {}, {}, {}, {}, {}, {})
     }
 
     @Test
@@ -117,7 +117,7 @@ class V1ScreenshotTest(private val locale: String, private val dark: Boolean) {
             address = "http://",
             manualError = DomainError.InvalidServerAddress(ServerInputProblem.MISSING_HOST, "http://"),
         )
-        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {})
+        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {}, {}, {})
     }
 
     @Test
@@ -126,7 +126,7 @@ class V1ScreenshotTest(private val locale: String, private val dark: Boolean) {
             address = "192.168.1.20:4096",
             failure = ConnectionFailure(FailureKind.UNREACHABLE),
         )
-        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {})
+        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {}, {}, {})
     }
 
     @Test

@@ -23,6 +23,7 @@ import org.opencodemobile.shared.security.identity.SpkiPinningTrustManager
  */
 public actual fun createOpenCodeHttpClient(
     identityPin: ServerIdentityPinController,
+    basicAuthController: BasicAuthCredentialController,
     configure: HttpClientConfig<*>.() -> Unit,
 ): HttpClient {
     val trustManager = SpkiPinningTrustManager(
@@ -42,6 +43,7 @@ public actual fun createOpenCodeHttpClient(
             preconfigured = okHttpClient
         }
         applyConnectionTransportPolicy()
+        installBasicAuthHeader(basicAuthController)
         configure()
     }
 }

@@ -12,6 +12,7 @@ import org.opencodemobile.shared.security.identity.ServerIdentityPinController
  */
 public actual fun createOpenCodeHttpClient(
     identityPin: ServerIdentityPinController,
+    basicAuthController: BasicAuthCredentialController,
     configure: HttpClientConfig<*>.() -> Unit,
 ): HttpClient {
     val delegate = IosSpkiPinningChallengeDelegate(
@@ -26,6 +27,7 @@ public actual fun createOpenCodeHttpClient(
             }
         }
         applyConnectionTransportPolicy()
+        installBasicAuthHeader(basicAuthController)
         configure()
     }
 }

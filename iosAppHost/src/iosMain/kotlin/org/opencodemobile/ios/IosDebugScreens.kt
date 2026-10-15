@@ -88,14 +88,14 @@ private fun message(id: String, role: TranscriptRole, text: String) =
 
 private val debugScreens: Map<String, DebugScreen> = mapOf(
     "manual-entry" to DebugScreen {
-        ConnectionSetupContent(ConnectionSetupUiState(), {}, {}, {}, {}, {}, {}, {})
+        ConnectionSetupContent(ConnectionSetupUiState(), {}, {}, {}, {}, {}, {}, {}, {}, {})
     },
     "invalid-address" to DebugScreen {
         val state = ConnectionSetupUiState(
             address = "http://",
             manualError = DomainError.InvalidServerAddress(ServerInputProblem.MISSING_HOST, "http://"),
         )
-        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {})
+        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {}, {}, {})
     },
     "sessions" to DebugScreen {
         SessionRow(loc("Networking module rework", "Refonte du module réseau"), loc("2 min ago · mobile", "il y a 2 min · mobile"), SessionRowStatus.Running, {})

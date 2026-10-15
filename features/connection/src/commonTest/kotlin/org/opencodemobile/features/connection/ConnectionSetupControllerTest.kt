@@ -11,6 +11,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.opencodemobile.shared.application.connection.ServerConnectionSetup
 import org.opencodemobile.shared.application.connection.ServerSetupSource
+import org.opencodemobile.shared.domain.connection.BasicAuthCredential
 import org.opencodemobile.shared.domain.connection.ConnectionHandshake
 import org.opencodemobile.shared.domain.connection.DomainError
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
@@ -26,8 +27,11 @@ import org.opencodemobile.shared.domain.connection.ServerVersion
 private class FakeGateway(
     private val onConnect: suspend (ServerProfile, ServerCredential?) -> ConnectionHandshake,
 ) : OpenCodeGateway {
-    override suspend fun connect(profile: ServerProfile, credential: ServerCredential?): ConnectionHandshake =
-        onConnect(profile, credential)
+    override suspend fun connect(
+        profile: ServerProfile,
+        credential: ServerCredential?,
+        basicAuth: BasicAuthCredential?,
+    ): ConnectionHandshake = onConnect(profile, credential)
 
     override fun disconnect() = Unit
 }
@@ -301,5 +305,65 @@ class ConnectionSetupControllerTest {
 
         assertTrue(controller.state.value.updatesExistingProfile)
         assertEquals(pinned, controller.state.value.existingFingerprint)
+    }
+
+    @Test
+    fun blankUsernameAndPasswordNeverPersistOrSendBasicAuth() = runTest {
+        var persisted = false
+        val controller = ConnectionSetupController(
+            setup = ServerConnectionSetup(FakeGateway { target, _ -> handshake(target) }),
+            scope = this,
+            basicAuthPersister = { _, _ -> persisted = true },
+        )
+
+        controller.onAddressChange("192.168.1.10")
+        controller.submitManualEntry()
+        advanceUntilIdle()
+        controller.confirmReview()
+        advanceUntilIdle()
+
+        assertFalse(persisted)
+        assertNotNull(controller.state.value.connected)
+    }
+
+    @Test
+    fun aFilledUsernameAndPasswordArePersistedOnConnect() = runTest {
+        val persisted = mutableListOf<Pair<ServerProfile, BasicAuthCredential>>()
+        val controller = ConnectionSetupController(
+            setup = ServerConnectionSetup(FakeGateway { target, _ -> handshake(target) }),
+            scope = this,
+            basicAuthPersister = { profile, credential -> persisted += profile to credential },
+        )
+
+        controller.onAddressChange("192.168.1.10")
+        controller.onUsernameChange("alice")
+        controller.onPasswordChange("s3cr3t")
+        controller.submitManualEntry()
+        advanceUntilIdle()
+        controller.confirmReview()
+        advanceUntilIdle()
+
+        val (profile, credential) = persisted.single()
+        assertEquals("192.168.1.10", profile.host)
+        assertEquals("alice", credential.username)
+        assertEquals("s3cr3t", credential.password)
+    }
+
+    @Test
+    fun aSavedBasicAuthCredentialRoundTripsIntoTheReviewScreen() = runTest {
+        val stored = ServerProfile(id = "192.168.1.10:4096", host = "192.168.1.10", port = 4096)
+        val controller = ConnectionSetupController(
+            setup = ServerConnectionSetup(FakeGateway { _, _ -> error("must not connect") }),
+            scope = this,
+            existingProfileProvider = { stored },
+            basicAuthProvider = { BasicAuthCredential("alice", "s3cr3t") },
+        )
+
+        controller.onAddressChange("192.168.1.10")
+        controller.submitManualEntry()
+        advanceUntilIdle()
+
+        assertEquals("alice", controller.state.value.username)
+        assertEquals("s3cr3t", controller.state.value.password)
     }
 }

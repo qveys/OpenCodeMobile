@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import org.opencodemobile.shared.domain.connection.BasicAuthCredential
 import org.opencodemobile.shared.domain.connection.ConnectionHandshake
 import org.opencodemobile.shared.domain.connection.DomainError
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
@@ -24,7 +25,11 @@ private class FakeGateway(
     var connectCount: Int = 0
         private set
 
-    override suspend fun connect(profile: ServerProfile, credential: ServerCredential?): ConnectionHandshake {
+    override suspend fun connect(
+        profile: ServerProfile,
+        credential: ServerCredential?,
+        basicAuth: BasicAuthCredential?,
+    ): ConnectionHandshake {
         connectCount++
         return onConnect(profile, credential)
     }

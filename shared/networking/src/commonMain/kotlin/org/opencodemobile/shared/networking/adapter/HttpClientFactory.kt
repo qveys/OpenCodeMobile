@@ -17,8 +17,12 @@ import org.opencodemobile.shared.security.identity.ServerIdentityPinController
  * @param identityPin the channel through which [configure]'s adapter publishes
  *   the expected pin for the profile being connected to and observes the
  *   fingerprint actually presented.
+ * @param basicAuthController the channel through which the adapter publishes
+ *   the reverse-proxy Basic Auth credential, read by [installBasicAuthHeader]
+ *   on every outgoing request.
  */
 public expect fun createOpenCodeHttpClient(
     identityPin: ServerIdentityPinController,
+    basicAuthController: BasicAuthCredentialController = BasicAuthCredentialController(),
     configure: HttpClientConfig<*>.() -> Unit = {},
 ): HttpClient

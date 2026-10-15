@@ -32,12 +32,15 @@ public object OpenCodeHttpClient {
     /**
      * @param identityPin shared with the platform TLS engine; see
      *   [createOpenCodeHttpClient].
+     * @param basicAuthController shared with [OpenCodeV2Adapter]; see
+     *   [createOpenCodeHttpClient].
      * @param configure extra engine/client configuration applied last.
      */
     public fun create(
         identityPin: ServerIdentityPinController,
+        basicAuthController: BasicAuthCredentialController = BasicAuthCredentialController(),
         configure: HttpClientConfig<*>.() -> Unit = {},
-    ): HttpClient = createOpenCodeHttpClient(identityPin) {
+    ): HttpClient = createOpenCodeHttpClient(identityPin, basicAuthController) {
         // Session operations distinguish "server refused" from "server
         // unreachable" by status; without this a 4xx/5xx body would fail
         // deserialization instead of surfacing a typed failure.

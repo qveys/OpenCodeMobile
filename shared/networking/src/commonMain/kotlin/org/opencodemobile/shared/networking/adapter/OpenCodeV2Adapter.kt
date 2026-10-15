@@ -6,7 +6,9 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.pluginOrNull
 import io.ktor.http.HttpStatusCode
 import kotlin.concurrent.Volatile
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -39,6 +41,7 @@ import org.opencodemobile.shared.domain.connection.ConnectionPolicyException
 import org.opencodemobile.shared.domain.connection.HandshakeException
 import org.opencodemobile.shared.domain.connection.HttpConnectionPolicy
 import org.opencodemobile.shared.domain.connection.HttpConnectionPolicyDecision
+import org.opencodemobile.shared.domain.connection.BasicAuthCredential
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerCredential
 import org.opencodemobile.shared.domain.connection.ServerHealth
@@ -100,6 +103,7 @@ public class OpenCodeV2Adapter(
     private val identityGate: ServerIdentityGate,
     private val identityPin: ServerIdentityPinController,
     private val compatibilityProfile: CompatibilityProfile = CompatibilityProfile.OpenCodeServerV2,
+    private val basicAuthController: BasicAuthCredentialController = BasicAuthCredentialController(),
 ) : OpenCodeGateway, OpenCodeInteractionGateway, SessionGateway, OpenCodeChatGateway, ChatEventDecoder {
 
     /** Payload decoding for the chat surface only; the domain stays JSON-free. */
@@ -122,10 +126,20 @@ public class OpenCodeV2Adapter(
     @Volatile
     private var activeClient: OpenCodeApiClient? = null
 
-    @Suppress("LongMethod", "CyclomaticComplexMethod", "TooGenericExceptionCaught")
+    /**
+     * Convenience overload for the common case of no reverse-proxy Basic Auth
+     * credential. Declared directly on this class (not an interface override,
+     * which cannot redeclare a default value) so every existing caller that
+     * names the concrete [OpenCodeV2Adapter] type keeps compiling unchanged.
+     */
+    public suspend fun connect(profile: ServerProfile, credential: ServerCredential?): ConnectionHandshake =
+        connect(profile, credential, basicAuth = null)
+
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "TooGenericExceptionCaught", "NestedBlockDepth")
     override suspend fun connect(
         profile: ServerProfile,
         credential: ServerCredential?,
+        basicAuth: BasicAuthCredential?,
     ): ConnectionHandshake {
         disconnect()
 
@@ -163,6 +177,10 @@ public class OpenCodeV2Adapter(
         // Identity is verified: only now may the credential be released.
         credentialPermit = credential
         authorizationsEnabled = true
+        // Same release point for the reverse-proxy credential: a connection that
+        // fails the identity check above never reaches this line, so the Basic
+        // Auth credential cannot leak over an unverified connection either.
+        basicAuthController.setCredential(basicAuth)
 
         val client = OpenCodeApiClient(
             baseUrl = profile.baseUrl,
@@ -172,13 +190,29 @@ public class OpenCodeV2Adapter(
         activeClient = client
 
         return try {
-            // 3. Health probe: the first request on the connection.
+            // 3. Health probe: the first request on the connection. Retried once on
+            //    a transport failure while still connecting, because the Darwin
+            //    engine reports both a job-driven cancellation (scope torn down
+            //    mid-request) and a one-off transport hiccup (e.g. a tailnet
+            //    tunnel still negotiating) the same way: a plain
+            //    DarwinHttpRequestException (NSURLErrorCancelled), not a
+            //    CancellationException.
             val health = try {
                 client.getHealth()
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (failure: Throwable) {
-                throw HandshakeException.HealthUnavailable(failure)
+            } catch (firstFailure: Throwable) {
+                if (!coroutineContext.isActive) throw CancellationException("Connect was cancelled", firstFailure)
+                try {
+                    client.getHealth()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (secondFailure: Throwable) {
+                    if (!coroutineContext.isActive) {
+                        throw CancellationException("Connect was cancelled", secondFailure)
+                    }
+                    throw HandshakeException.HealthUnavailable(secondFailure)
+                }
             }
 
             if (!health.healthy) throw HandshakeException.ServerUnhealthy()
@@ -219,6 +253,7 @@ public class OpenCodeV2Adapter(
         plaintextWarning = null
         activeClient = null
         identityPin.reset()
+        basicAuthController.reset()
     }
 
     /**

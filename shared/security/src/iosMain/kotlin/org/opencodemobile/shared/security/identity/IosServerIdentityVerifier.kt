@@ -8,10 +8,12 @@ import org.opencodemobile.shared.domain.connection.ServerIdentityVerifier
 import org.opencodemobile.shared.domain.connection.ServerProfile
 import platform.Foundation.NSMutableURLRequest
 import platform.Foundation.NSURLAuthenticationChallenge
+import platform.Foundation.NSURLAuthenticationMethodServerTrust
 import platform.Foundation.NSURLCredential
 import platform.Foundation.NSURLSession
 import platform.Foundation.NSURLSessionAuthChallengeDisposition
 import platform.Foundation.NSURLSessionAuthChallengeCancelAuthenticationChallenge
+import platform.Foundation.NSURLSessionAuthChallengePerformDefaultHandling
 import platform.Foundation.NSURLSessionAuthChallengeUseCredential
 import platform.Foundation.NSURLSessionConfiguration
 import platform.Foundation.NSURLSessionDelegateProtocol
@@ -46,6 +48,15 @@ public class IosSpkiPinningChallengeDelegate(
         didReceiveChallenge: NSURLAuthenticationChallenge,
         completionHandler: (NSURLSessionAuthChallengeDisposition, NSURLCredential?) -> Unit,
     ) {
+        if (didReceiveChallenge.protectionSpace.authenticationMethod != NSURLAuthenticationMethodServerTrust) {
+            // Not a TLS server-trust evaluation (e.g. HTTP proxy auth, NTLM, a
+            // client-certificate request): this delegate has no pin to enforce,
+            // so the system must handle it as it would for any other app's
+            // session, not be cancelled outright.
+            completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, null)
+            return
+        }
+
         val trust = didReceiveChallenge.protectionSpace.serverTrust
         val presented = trust?.let { IosCertificate.fingerprint(it) }
         if (presented == null) {
