@@ -152,6 +152,32 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Verify deployment environment survives privilege drop
+        # Synthetic values only: never print or serialize actual credentials.
+        env:
+          TARGET_ENV: sentinel
+          PLAY_TRACK: sentinel
+          DRY_RUN: sentinel
+          GRADLE_PROJECT_EXISTS: sentinel
+          ANDROID_KEYSTORE_BASE64: sentinel
+          ANDROID_KEYSTORE_PASSWORD: sentinel
+          ANDROID_KEY_ALIAS: sentinel
+          ANDROID_KEY_PASSWORD: sentinel
+          PLAY_CONSOLE_SERVICE_ACCOUNT_JSON: sentinel
+        run: |
+          bash scripts/ci/run-as-nonroot.sh bash -c '
+            set -euo pipefail
+            test "$(id -u)" = 10001
+            for name in TARGET_ENV PLAY_TRACK DRY_RUN GRADLE_PROJECT_EXISTS \
+              ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS \
+              ANDROID_KEY_PASSWORD PLAY_CONSOLE_SERVICE_ACCOUNT_JSON; do
+              if [[ "${!name:-}" != sentinel ]]; then
+                echo "::error::Deployment environment was not preserved: $name"
+                exit 1
+              fi
+            done
+          '
+
       - name: Build Android release bundle
         id: package
         env:
