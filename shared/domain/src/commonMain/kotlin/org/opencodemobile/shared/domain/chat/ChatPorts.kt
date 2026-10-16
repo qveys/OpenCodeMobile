@@ -15,7 +15,7 @@ package org.opencodemobile.shared.domain.chat
 public interface OpenCodeChatGateway {
     /**
      * Reads the authoritative transcript of [sessionId]
-     * (`GET /session/{sessionID}/message`).
+     * (`GET /api/session/{sessionID}/message`).
      *
      * This is the reconciliation surface (D2): after a reconnect or an app kill
      * the client replaces its local view with this list, so replayed live events
@@ -24,7 +24,7 @@ public interface OpenCodeChatGateway {
     public suspend fun transcript(sessionId: String): List<TranscriptMessage>
 
     /**
-     * Sends [prompt] to [sessionId] (`POST /session/{sessionID}/prompt_async`).
+     * Sends [prompt] to [sessionId] (`POST /api/session/{sessionID}/prompt`).
      *
      * The call is exactly-once: there is no queue, no retry, and no replay across a
      * reconnect (D9). Re-issuing it would be a second user action.

@@ -257,7 +257,7 @@ class ChatTranscriptMockServerTest {
             // The turn streamed its first chunk to the wire. (The transcript is
             // server-derived and may still be reconciling, so the proof the turn
             // started is the server's delivered-parts set.)
-            awaitUntil { server.deliveredParts.contains("prt_mock_0001") }
+            awaitUntil { server.deliveredParts.contains("msg_mock_0001:text:0") }
             assertTrue(turnAbort.acceptsEventDerivedState(sessionId))
 
             // The user aborts explicitly; from now on no event-derived state may
@@ -290,10 +290,11 @@ class ChatTranscriptMockServerTest {
             assertTrue(authoritative.any { it.text.contains("streamed chunk 1") })
             assertFalse(authoritative.any { it.text.contains("streamed chunk 2") })
 
-            // The abort carried the active directory (ADR-0002 §3.3).
+            // v2 interrupts by session ID; its contract has no directory parameter.
             val recorded = server.aborts.single()
             assertEquals(sessionId, recorded.sessionId)
-            assertEquals(OpenCodeFixtures.DIRECTORY, recorded.directory)
+            assertEquals(null, recorded.directory)
+            assertTrue(server.requests.contains("POST /api/session/$sessionId/interrupt"))
             // And the turn is never replayed on reconnect.
             assertTrue(server.abortedSessions.contains(sessionId))
         }
@@ -357,7 +358,7 @@ class ChatTranscriptMockServerTest {
         assertEquals("", composers.state.value.draft)
         assertEquals("", store.loadDraft(sessionId))
         assertEquals(listOf("hello world"), server.prompts.map { it.text })
-        assertTrue(server.requests.contains("POST /session/$sessionId/prompt_async"))
+        assertTrue(server.requests.contains("POST /api/session/$sessionId/prompt"))
     }
 
     @Test

@@ -7,6 +7,7 @@ import org.opencodemobile.shared.domain.chat.ChatPrompt
 import org.opencodemobile.shared.domain.chat.OpenCodeChatGateway
 import org.opencodemobile.shared.domain.chat.TranscriptMessage
 import org.opencodemobile.shared.domain.event.EventSource
+import org.opencodemobile.shared.domain.interaction.FormAnswer
 import org.opencodemobile.shared.domain.interaction.InteractionNotConnectedException
 import org.opencodemobile.shared.domain.interaction.OpenCodeInteractionGateway
 import org.opencodemobile.shared.domain.interaction.PendingQuestion
@@ -98,12 +99,13 @@ internal object UnavailableChatInteractionGateway : OpenCodeInteractionGateway {
         throw InteractionNotConnectedException()
 
     override suspend fun answerQuestion(
+        sessionId: String,
         requestId: String,
-        answers: List<List<String>>,
+        answer: FormAnswer,
         directory: String?,
     ): Unit = throw InteractionNotConnectedException()
 
-    override suspend fun rejectQuestion(requestId: String, directory: String?): Unit =
+    override suspend fun rejectQuestion(sessionId: String, requestId: String, directory: String?): Unit =
         throw InteractionNotConnectedException()
 
     override suspend fun abortTurn(sessionId: String, directory: String?): Unit =
@@ -124,13 +126,14 @@ internal class DeferredChatInteractionGateway(
         gateway().pendingQuestions(directory)
 
     override suspend fun answerQuestion(
+        sessionId: String,
         requestId: String,
-        answers: List<List<String>>,
+        answer: FormAnswer,
         directory: String?,
-    ): Unit = gateway().answerQuestion(requestId, answers, directory)
+    ): Unit = gateway().answerQuestion(sessionId, requestId, answer, directory)
 
-    override suspend fun rejectQuestion(requestId: String, directory: String?): Unit =
-        gateway().rejectQuestion(requestId, directory)
+    override suspend fun rejectQuestion(sessionId: String, requestId: String, directory: String?): Unit =
+        gateway().rejectQuestion(sessionId, requestId, directory)
 
     override suspend fun abortTurn(sessionId: String, directory: String?): Unit =
         gateway().abortTurn(sessionId, directory)

@@ -55,15 +55,13 @@ public sealed class SessionListError {
  * The session list state observed by the Compose layer.
  *
  * [sessions] is what the list renders. [source] and [offline] are explicit
- * technical states (design system §"etats techniques explicites"), and
- * [forkAvailable] comes from the server surface, never from a local constant.
+ * technical states (design system §"etats techniques explicites").
  */
 public data class SessionListState(
     public val loading: Boolean = false,
     public val sessions: List<SessionSummary> = emptyList(),
     public val source: SessionListSource = SessionListSource.Live,
     public val offline: Boolean = false,
-    public val forkAvailable: Boolean = false,
     public val error: SessionListError? = null,
     /** Session id with an in-flight mutation, so the row can show a busy state. */
     public val pendingSessionId: String? = null,
@@ -81,8 +79,7 @@ public data class SessionListState(
  * - **Reads** always render something: online from the server, offline (or on a
  *   server/network failure) from the encrypted cache, in read-only mode.
  * - **Mutations** are refused before touching the wire when
- *   [MutationGate.mutationsAllowed] is false, and the fork action is only
- *   offered when the server's published surface says it exists.
+ *   [MutationGate.mutationsAllowed] is false.
  *
  * It never optimistically writes the cache: after a successful mutation it
  * reloads the authoritative list from the server. The cache stays a
@@ -108,7 +105,7 @@ public class SessionListController(
     /**
      * Loads the list.
      *
-     * Online it reads the server and then the capability surface; on any failure
+     * Online it reads the server; on any failure
      * it falls back to the cache and surfaces an actionable [SessionListError].
      * Offline it reads the cache directly and marks the state read-only. It
      * never throws: an empty cache renders an empty list with the reason.
@@ -125,7 +122,6 @@ public class SessionListController(
                     source = SessionListSource.Cache,
                     offline = true,
                     online = false,
-                    forkAvailable = false,
                     error = null,
                 )
             }
@@ -134,7 +130,6 @@ public class SessionListController(
 
         try {
             val sessions = gateway.listSessions(directory)
-            val capabilities = gateway.sessionCapabilities(directory)
             mutableState.update {
                 it.copy(
                     loading = false,
@@ -142,7 +137,6 @@ public class SessionListController(
                     source = SessionListSource.Live,
                     offline = false,
                     online = true,
-                    forkAvailable = capabilities.forkAvailable,
                     error = null,
                 )
             }
@@ -157,7 +151,6 @@ public class SessionListController(
                     source = SessionListSource.Cache,
                     offline = false,
                     online = false,
-                    forkAvailable = false,
                     error = failure.toListError(),
                 )
             }
@@ -243,26 +236,8 @@ public class SessionListController(
         }
     }
 
-    /**
-     * Forks [sessionId] (`POST /session/{id}/fork`).
-     *
-     * The action is refused locally when the server surface does not expose
-     * fork, so no rejected call is ever sent and nothing crashes (V1-04
-     * acceptance).
-     */
+    /** Forks [sessionId] (`POST /api/session/{id}/fork`). */
     public suspend fun forkSession(sessionId: String) {
-        // Offline read-only (D8) comes first: it is the reason the action is
-        // unavailable, and the capability is downgraded to false offline too.
-        if (!gate.mutationsAllowed()) {
-            mutableState.update { it.copy(error = SessionListError.Offline) }
-            return
-        }
-        if (!mutableState.value.forkAvailable) {
-            mutableState.update {
-                it.copy(error = SessionListError.Rejected("This server does not expose session forking"))
-            }
-            return
-        }
         mutate(pendingSessionId = sessionId, notice = "Session forked") {
             gateway.forkSession(sessionId)
             Unit
@@ -292,11 +267,9 @@ public class SessionListController(
         try {
             block()
             val sessions = gateway.listSessions(directory)
-            val capabilities = gateway.sessionCapabilities(directory)
             mutableState.update {
                 it.copy(
                     pendingSessionId = null,
-                    forkAvailable = capabilities.forkAvailable,
                     sessions = sessions.sortedByDescending { session -> session.updatedAt },
                     source = SessionListSource.Live,
                     offline = false,

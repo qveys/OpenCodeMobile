@@ -78,6 +78,7 @@ class PermissionRealtimeBridgeTest {
             var serverPending: List<PermissionRequest> = emptyList()
             override suspend fun pendingPermissions(): List<PermissionRequest> = serverPending
             override suspend fun reply(
+                sessionId: String,
                 requestId: String,
                 decision: org.opencodemobile.shared.domain.permission.PermissionDecision,
             ): PermissionReplyOutcome = PermissionReplyOutcome.Accepted
@@ -115,6 +116,7 @@ class PermissionRealtimeBridgeTest {
             port = object : PermissionPort {
                 override suspend fun pendingPermissions(): List<PermissionRequest> = emptyList()
                 override suspend fun reply(
+                    sessionId: String,
                     requestId: String,
                     decision: org.opencodemobile.shared.domain.permission.PermissionDecision,
                 ): PermissionReplyOutcome = PermissionReplyOutcome.Accepted

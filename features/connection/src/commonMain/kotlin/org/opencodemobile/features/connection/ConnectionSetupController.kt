@@ -61,7 +61,14 @@ public class ConnectionSetupController(
 
     /** Called as the user types in the address field. */
     public fun onAddressChange(value: String) {
-        mutableState.update { it.copy(address = value, manualError = null, scanFailed = false) }
+        // A different address is a different server: never carry Basic Auth over.
+        mutableState.update {
+            if (it.address == value) {
+                it.copy(manualError = null, scanFailed = false)
+            } else {
+                it.copy(address = value, username = "", password = "", manualError = null, scanFailed = false)
+            }
+        }
     }
 
     /** Called as the user types in the optional label field. */
@@ -120,7 +127,14 @@ public class ConnectionSetupController(
     public fun cancelReview() {
         lastPlan = null
         mutableState.update {
-            it.copy(review = null, existingProfile = null, existingFingerprint = null, identityPrompt = null)
+            it.copy(
+                review = null,
+                existingProfile = null,
+                existingFingerprint = null,
+                identityPrompt = null,
+                username = "",
+                password = "",
+            )
         }
     }
 
@@ -152,14 +166,18 @@ public class ConnectionSetupController(
             val pinned = readOrFail { existing?.let { existingFingerprintProvider(it) } }.getOrElse { return@launch }
             // Round-trips a previously-saved reverse-proxy credential back into the
             // UI so reconnecting to the same profile does not require retyping it.
-            val savedBasicAuth = readOrFail { existing?.let { basicAuthProvider(it) } }.getOrElse { return@launch }
+            // Only the same profile (id): another server never inherits it.
+            // No existing profile: what the user typed for this address is kept.
+            val sameProfile = existing == null || existing.id == plan.profile.id
+            val savedBasicAuth = readOrFail { if (existing != null && sameProfile) basicAuthProvider(existing) else null }
+                .getOrElse { return@launch }
             mutableState.update {
                 it.copy(
                     review = plan,
                     existingProfile = existing,
                     existingFingerprint = pinned,
-                    username = savedBasicAuth?.username ?: it.username,
-                    password = savedBasicAuth?.password ?: it.password,
+                    username = savedBasicAuth?.username ?: if (sameProfile) it.username else "",
+                    password = savedBasicAuth?.password ?: if (sameProfile) it.password else "",
                     manualError = null,
                     scanFailed = false,
                     failure = null,
@@ -212,19 +230,24 @@ public class ConnectionSetupController(
         } else {
             null
         }
-        if (basicAuth != null) {
-            try {
-                basicAuthPersister(plan.profile, basicAuth)
-            } catch (failure: CancellationException) {
-                throw failure
-            } catch (failure: Throwable) {
-                mutableState.update { it.copy(busy = false, failure = failure.toDomainError().toConnectionFailure()) }
-                return
-            }
+        // Basic and Bearer share the Authorization header: one scheme per request.
+        if (basicAuth != null && credential != null) {
+            mutableState.update { it.copy(busy = false, failure = ConnectionFailure(FailureKind.CONFLICT)) }
+            return
         }
-
         when (val result = setup.validate(plan, credential, basicAuth)) {
             is ConnectionValidation.Connected -> {
+                // Persisted only once the handshake succeeded, never before.
+                if (basicAuth != null) {
+                    try {
+                        basicAuthPersister(plan.profile, basicAuth)
+                    } catch (failure: CancellationException) {
+                        throw failure
+                    } catch (failure: Throwable) {
+                        mutableState.update { it.copy(busy = false, failure = failure.toDomainError().toConnectionFailure()) }
+                        return
+                    }
+                }
                 mutableState.update { it.copy(busy = false, connected = result.handshake, review = null, failure = null) }
                 onConnected(plan.profile, result.handshake)
             }

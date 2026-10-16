@@ -24,9 +24,9 @@ public interface OpenCodeGateway {
      *    scope, which is surfaced with a warning). [basicAuth], if present, is
      *    released at the same point, never before: a connection that fails the
      *    identity check must not leak the reverse-proxy credential either.
-     * 4. `GET /global/health` is read and its version is gated by the
-     *    [CompatibilityProfile]; an unreachable, unhealthy, incomplete, or
-     *    incompatible server throws [HandshakeException].
+     * 4. `GET /api/info` is read and its version is gated by the
+     *    [CompatibilityProfile]; an unreachable, incomplete, or incompatible
+     *    server throws [HandshakeException].
      *
      * @param basicAuth the optional HTTP Basic Auth credential for a
      *   Traefik/Dokploy reverse-proxy gate in front of the server. It is
@@ -57,16 +57,9 @@ public class ServerCredential(
     override fun toString(): String = "ServerCredential(***)"
 }
 
-/** Result of `GET /global/health`. */
-public data class ServerHealth(
-    public val healthy: Boolean,
-    public val version: String?,
-)
-
 /** Result of a successful connection handshake. */
 public data class ConnectionHandshake(
     public val profileId: String,
-    public val health: ServerHealth,
     public val identity: ServerIdentityCheck,
     /** The parsed server version that passed the [CompatibilityProfile] gate. */
     public val version: ServerVersion,

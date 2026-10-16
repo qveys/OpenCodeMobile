@@ -9,9 +9,11 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.utils.io.readUTF8Line
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.opencode.mobile.networking.client.generated.apis.OpenCodeApiClient
 import org.opencode.mobile.networking.client.generated.models.ApiSession
-import org.opencode.mobile.networking.client.generated.models.ApiSessionStatus
 import org.opencodemobile.shared.domain.event.EventTransport
 import org.opencodemobile.shared.domain.event.RawServerEvent
 import org.opencodemobile.shared.domain.event.RealtimeSnapshot
@@ -27,12 +29,21 @@ public class RealtimeTransportException(
 /**
  * The Ktor implementation of [EventTransport] (`docs/ARCHITECTURE.md` §3.2).
  *
- * It is the only place that turns the OpenCode Server v2 HTTP surface into the
- * transport the realtime pipeline drives:
+ * It is the only place that turns the OpenCode Server v2 `/api` HTTP surface into
+ * the transport the realtime pipeline drives:
  *
- * - `GET /session` + `GET /session/status` for the (re)connect snapshot,
- * - `GET /session/status` for the polling fallback,
- * - `GET /event` for the SSE stream, read progressively with [readUTF8Line].
+ * - `GET /api/session` (cursor pages, read to the end) + `GET /api/session/active`
+ *   for the (re)connect snapshot,
+ * - `GET /api/session/active` for the polling fallback,
+ * - `GET /api/event` for the SSE stream, read progressively with [readUTF8Line].
+ *
+ * SSE framing: each event is a single `data: <json>` line followed by a blank line,
+ * with no `event:` or `id:` field; the type and the `evt_…` id are inside the JSON
+ * envelope. `: heartbeat` comments emit internal activity signals. `server.connected` only signals that
+ * the stream is open and is not forwarded as a business event. The server ignores
+ * `Last-Event-ID`: events sent while disconnected are lost, so a reconnect is a
+ * resync by the caller ([org.opencodemobile.shared.realtime.EventProcessor] refetches
+ * the snapshot on every attempt), never a replay.
  *
  * The SSE body is consumed as a raw byte channel rather than through the generated
  * client (which only models request/response routes), so events are delivered as they
@@ -52,74 +63,72 @@ public class NetworkingRealtimeTransport(
         authTokenProvider = authTokenProvider,
     )
 
-    override suspend fun fetchSnapshot(): RealtimeSnapshot {
-        val sessions = api.listSessions().map { it.toDomain() }
-        val statuses = api.getSessionStatus().mapValues { (_, status) -> status.toDomain() }
-        return RealtimeSnapshot(sessions = sessions, statuses = statuses)
+    override suspend fun fetchSnapshot(): RealtimeSnapshot =
+        RealtimeSnapshot(sessions = listAllSessions(), statuses = pollStatuses())
+
+    /** `/api/session/active` lists only running sessions; an absent session is idle. */
+    override suspend fun pollStatuses(): Map<String, SessionStatus> =
+        api.getActiveSessions().data.mapValues { SessionStatus(type = "busy") }
+
+    private suspend fun listAllSessions(): List<SessionSnapshot> {
+        val sessions = mutableListOf<SessionSnapshot>()
+        var cursor: String? = null
+        do {
+            val page = api.listSessions(cursor = cursor)
+            sessions += page.data.map { it.toDomain() }
+            val next = page.cursor.next
+            // A server repeating the same cursor would loop forever.
+            cursor = next?.takeIf { it != cursor && page.data.isNotEmpty() }
+        } while (cursor != null)
+        return sessions
     }
 
-    override suspend fun pollStatuses(): Map<String, SessionStatus> =
-        api.getSessionStatus().mapValues { (_, status) -> status.toDomain() }
-
-    // The SSE field parser is a flat `when` over the RFC event fields; splitting it
-    // would scatter the id/type/data accumulator state.
-    @Suppress("CyclomaticComplexMethod")
     override fun openEventStream(): Flow<RawServerEvent> = flow {
-        val response = httpClient.prepareGet("$baseUrl/event") {
+        httpClient.prepareGet("$baseUrl/api/event") {
             authTokenProvider()?.let { token ->
                 header(HttpHeaders.Authorization, "Bearer $token")
             }
             header(HttpHeaders.Accept, "text/event-stream")
-        }.execute()
+        }.execute { response ->
+            if (response.status != HttpStatusCode.OK) {
+                throw RealtimeTransportException(
+                    "GET /api/event failed with HTTP ${response.status.value}",
+                )
+            }
 
-        if (response.status != HttpStatusCode.OK) {
-            throw RealtimeTransportException(
-                "GET /event failed with HTTP ${response.status.value}",
-            )
-        }
-
-        val channel = response.bodyAsChannel()
-        var id: String? = null
-        var type: String? = null
-        val dataLines = mutableListOf<String>()
-
-        while (!channel.isClosedForRead) {
-            val line = channel.readUTF8Line() ?: break
-            when {
-                line.isEmpty() -> {
-                    if (id != null || type != null || dataLines.isNotEmpty()) {
-                        emit(
-                            RawServerEvent(
-                                id = id,
-                                type = type ?: "message",
-                                data = dataLines.joinToString("\n"),
-                            ),
-                        )
-                        id = null
-                        type = null
-                        dataLines.clear()
+            val channel = response.bodyAsChannel()
+            try {
+                while (!channel.isClosedForRead) {
+                    val line = channel.readUTF8Line() ?: break
+                    if (!line.startsWith("data:")) {
+                        if (line.isNotEmpty()) emit(RawServerEvent.activity())
+                        continue
                     }
+                    val data = line.removePrefix("data:").removePrefix(" ")
+                    val envelope = runCatching { Json.parseToJsonElement(data) }.getOrNull() as? JsonObject
+                        ?: continue
+                    val type = (envelope["type"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
+                    if (type == SERVER_CONNECTED) {
+                        emit(RawServerEvent.opened())
+                        continue
+                    }
+                    val id = (envelope["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                    emit(RawServerEvent(id = id, type = type, data = data))
                 }
-
-                line.startsWith(":") -> Unit // SSE comment / keep-alive
-                line.startsWith("id:") -> id = line.removePrefix("id:").trim().ifBlank { null }
-                line.startsWith("event:") -> type = line.removePrefix("event:").trim()
-                line.startsWith("data:") -> dataLines += line.removePrefix("data:").removePrefix(" ")
+            } finally {
+                channel.cancel(null)
             }
         }
+    }
+
+    private companion object {
+        const val SERVER_CONNECTED = "server.connected"
     }
 }
 
 private fun ApiSession.toDomain(): SessionSnapshot = SessionSnapshot(
     id = id,
     title = title,
-    directory = directory,
-    updatedAt = time?.updated,
-)
-
-private fun ApiSessionStatus.toDomain(): SessionStatus = SessionStatus(
-    type = type,
-    attempt = attempt,
-    message = message,
-    next = next,
+    directory = location.directory,
+    updatedAt = time.updated.toLong(),
 )

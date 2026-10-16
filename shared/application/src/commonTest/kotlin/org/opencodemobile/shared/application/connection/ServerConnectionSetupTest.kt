@@ -11,7 +11,6 @@ import org.opencodemobile.shared.domain.connection.DomainError
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerCredential
 import org.opencodemobile.shared.domain.connection.ServerFingerprint
-import org.opencodemobile.shared.domain.connection.ServerHealth
 import org.opencodemobile.shared.domain.connection.ServerIdentityCheck
 import org.opencodemobile.shared.domain.connection.ServerIdentityException
 import org.opencodemobile.shared.domain.connection.ServerInputProblem
@@ -42,7 +41,6 @@ private fun fingerprint(seed: Int): ServerFingerprint =
 
 private fun handshake(profile: ServerProfile): ConnectionHandshake = ConnectionHandshake(
     profileId = profile.id,
-    health = ServerHealth(healthy = true, version = "1.18.32"),
     identity = ServerIdentityCheck.Trusted(fingerprint(1)),
     version = ServerVersion(1, 18, 32),
     scope = ServerNetworkScope.Loopback,
@@ -121,7 +119,7 @@ class ServerConnectionSetupTest {
         val result = setup.validate(plan, credential = ServerCredential("token"))
 
         val connected = assertIs<ConnectionValidation.Connected>(result)
-        assertEquals(true, connected.handshake.health.healthy)
+        assertEquals(ServerVersion(1, 18, 32), connected.handshake.version)
         assertEquals(plan.profile.id, seen.single().id)
         assertEquals(1, gateway.connectCount)
     }

@@ -6,6 +6,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
@@ -15,6 +16,8 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import org.opencodemobile.shared.domain.connection.BasicAuthCredential
 import org.opencodemobile.shared.domain.connection.CompatibilityProfile
 import org.opencodemobile.shared.domain.connection.ConnectionPolicyException
 import org.opencodemobile.shared.domain.connection.HandshakeException
@@ -44,14 +47,22 @@ private class InMemoryStore(
     }
 }
 
-private class StaticVerifier(private val presented: ServerFingerprint) : ServerIdentityVerifier {
-    override suspend fun presentedFingerprint(profile: ServerProfile): ServerFingerprint = presented
+private class StaticVerifier(
+    private val presented: ServerFingerprint,
+    private val onVerify: () -> Unit = {},
+) : ServerIdentityVerifier {
+    override suspend fun presentedFingerprint(profile: ServerProfile): ServerFingerprint {
+        onVerify()
+        return presented
+    }
 }
 
 private class Harness(
     val adapter: OpenCodeV2Adapter,
     val pin: ServerIdentityPinController,
     val engine: MockEngine,
+    val basicAuth: BasicAuthCredentialController,
+    val events: MutableList<String>,
 )
 
 class OpenCodeV2AdapterTest {
@@ -59,6 +70,7 @@ class OpenCodeV2AdapterTest {
     private val profile = ServerProfile(id = "p1", host = "192.168.1.10", port = 4096)
     private val pinned = fingerprint(1)
     private val credential = ServerCredential("s3cr3t")
+    private val proxyCredential = BasicAuthCredential("proxy-user", "pr0xy-pass")
 
     @Test
     fun trustedIdentityConnectsReleasesCredentialAndArmsTheHandshakePin() = runTest {
@@ -70,8 +82,7 @@ class OpenCodeV2AdapterTest {
         val handshake = harness.adapter.connect(profile, credential)
 
         assertEquals(profile.id, handshake.profileId)
-        assertEquals("1.18.32", handshake.health.version)
-        assertEquals(ServerVersion(1, 18, 32), handshake.version)
+        assertEquals(ServerVersion(2, 0, 6), handshake.version)
         assertEquals(ServerNetworkScope.Lan, handshake.scope)
         assertEquals(1, harness.engine.requestHistory.size)
         assertEquals(
@@ -82,14 +93,49 @@ class OpenCodeV2AdapterTest {
     }
 
     @Test
+    fun handshakeProbesGetApiInfoOnly() = runTest {
+        val harness = harness(
+            store = InMemoryStore(mutableMapOf(profile.id to pinned)),
+            presented = pinned,
+        )
+
+        harness.adapter.connect(profile, credential)
+
+        val request = harness.engine.requestHistory.single()
+        assertEquals(HttpMethod.Get, request.method)
+        assertEquals("/api/info", request.url.encodedPath)
+    }
+
+    @Test
+    fun noCredentialIsEverCarriedInARequestUrl() = runTest {
+        val harness = harness(
+            store = InMemoryStore(mutableMapOf(profile.id to pinned)),
+            presented = pinned,
+        )
+
+        harness.adapter.connect(profile, credential, proxyCredential)
+
+        harness.engine.requestHistory.forEach { request ->
+            val url = request.url.toString()
+            assertEquals(null, request.url.user)
+            assertEquals(null, request.url.password)
+            assertFalse(url.contains("@"), "credentials must not be embedded in the URL")
+            listOf("s3cr3t", "proxy-user", "pr0xy-pass").forEach {
+                assertFalse(url.contains(it), "credential material found in the URL")
+            }
+        }
+    }
+
+    @Test
     fun firstContactFailsClosedBeforeAnyRequest() = runTest {
         val harness = harness(store = InMemoryStore(), presented = pinned)
 
         assertFailsWith<ServerIdentityException.ConfirmationRequired> {
-            harness.adapter.connect(profile, credential)
+            harness.adapter.connect(profile, credential, proxyCredential)
         }
         assertTrue(harness.engine.requestHistory.isEmpty(), "no request may be sent before confirmation")
         assertFalse(harness.adapter.isCredentialPermitActive())
+        assertEquals(null, harness.basicAuth.currentCredential(), "TOFU refusal must release no Basic credential")
     }
 
     @Test
@@ -100,10 +146,26 @@ class OpenCodeV2AdapterTest {
         )
 
         assertFailsWith<ServerIdentityException.IdentityChanged> {
-            harness.adapter.connect(profile, credential)
+            harness.adapter.connect(profile, credential, proxyCredential)
         }
         assertTrue(harness.engine.requestHistory.isEmpty(), "no request may be sent on an identity mismatch")
         assertFalse(harness.adapter.isCredentialPermitActive())
+        assertEquals(null, harness.basicAuth.currentCredential(), "identity mismatch must release no Basic credential")
+    }
+
+    @Test
+    fun credentialsAreReleasedOnlyAfterTheIdentityCheckAndBeforeTheFirstRequest() = runTest {
+        val harness = harness(
+            store = InMemoryStore(mutableMapOf(profile.id to pinned)),
+            presented = pinned,
+        )
+
+        harness.adapter.connect(profile, credential, proxyCredential)
+
+        assertEquals(
+            listOf("verify:permit=false,basic=false", "request:permit=true,basic=true"),
+            harness.events,
+        )
     }
 
     @Test
@@ -137,7 +199,7 @@ class OpenCodeV2AdapterTest {
         val handshake = harness.adapter.connect(tailscale, credential)
 
         assertEquals(ServerNetworkScope.Tailscale, handshake.scope)
-        assertEquals(ServerVersion(1, 18, 32), handshake.version)
+        assertEquals(ServerVersion(2, 0, 6), handshake.version)
     }
 
     @Test
@@ -151,28 +213,67 @@ class OpenCodeV2AdapterTest {
         )
 
         val failure = assertFailsWith<ConnectionPolicyException.Rejected> {
-            harness.adapter.connect(publicHttp, credential)
+            harness.adapter.connect(publicHttp, credential, proxyCredential)
         }
 
         assertEquals(HttpPolicyViolation.PublicPlaintextHttp, failure.decision.violation)
         assertEquals(ServerNetworkScope.Public, failure.decision.scope)
         assertTrue(harness.engine.requestHistory.isEmpty(), "no request may be sent for a rejected profile")
         assertFalse(harness.adapter.isCredentialPermitActive())
+        assertEquals(null, harness.basicAuth.currentCredential())
     }
 
     @Test
-    fun incompatibleServerVersionFailsTheHandshake() = runTest {
+    fun todayServerVersionIsCompatible() = runTest {
+        val handshake = connectWithVersion("2.0.6")
+
+        assertEquals(ServerVersion(2, 0, 6), handshake.version)
+    }
+
+    @Test
+    fun theMinimumSupportedVersionIsCompatible() = runTest {
+        val handshake = connectWithVersion("2.0.0")
+
+        assertEquals(ServerVersion(2, 0, 0), handshake.version)
+    }
+
+    @Test
+    fun aPrereleaseOfACompatibleVersionIsTolerated() = runTest {
+        val handshake = connectWithVersion("2.0.0-beta.1")
+
+        assertEquals(ServerVersion(2, 0, 0), handshake.version)
+    }
+
+    @Test
+    fun legacyMajorOneServerFailsTheHandshake() = runTest {
         val harness = harness(
             store = InMemoryStore(mutableMapOf(profile.id to pinned)),
             presented = pinned,
-            engine = healthEngine(body = """{"healthy":true,"version":"2.0.0"}"""),
+            engine = infoEngine(body = infoJson("1.18.32")),
+        )
+
+        val failure = assertFailsWith<HandshakeException.Incompatible> {
+            harness.adapter.connect(profile, credential, proxyCredential)
+        }
+
+        assertEquals(ServerVersion(1, 18, 32), failure.serverVersion)
+        assertFalse(harness.adapter.isCredentialPermitActive())
+        assertEquals(null, harness.basicAuth.currentCredential())
+    }
+
+    @Test
+    fun aFutureMajorServerFailsTheHandshake() = runTest {
+        val harness = harness(
+            store = InMemoryStore(mutableMapOf(profile.id to pinned)),
+            presented = pinned,
+            engine = infoEngine(body = infoJson("3.0.0")),
         )
 
         val failure = assertFailsWith<HandshakeException.Incompatible> {
             harness.adapter.connect(profile, credential)
         }
 
-        assertEquals(ServerVersion(2, 0, 0), failure.serverVersion)
+        assertEquals(ServerVersion(3, 0, 0), failure.serverVersion)
         assertFalse(harness.adapter.isCredentialPermitActive())
     }
 
@@ -181,7 +282,11 @@ class OpenCodeV2AdapterTest {
         val harness = harness(
             store = InMemoryStore(mutableMapOf(profile.id to pinned)),
             presented = pinned,
-            engine = healthEngine(body = """{"healthy":true,"version":"1.17.0"}"""),
+            engine = infoEngine(body = infoJson("2.0.6")),
+            compatibilityProfile = CompatibilityProfile(
+                majorVersion = 2,
+                minimumVersion = ServerVersion(2, 1, 0),
+            ),
         )
 
         assertFailsWith<HandshakeException.Incompatible> {
@@ -190,11 +295,26 @@ class OpenCodeV2AdapterTest {
     }
 
     @Test
-    fun aNonVersionHealthReplyIsAnIncompleteHandshake() = runTest {
+    fun aNonVersionInfoReplyIsAnIncompleteHandshake() = runTest {
         val harness = harness(
             store = InMemoryStore(mutableMapOf(profile.id to pinned)),
             presented = pinned,
-            engine = healthEngine(body = """{"healthy":true,"version":"not-a-version"}"""),
+            engine = infoEngine(body = infoJson("not-a-version")),
+        )
+
+        assertFailsWith<HandshakeException.Incomplete> {
+            harness.adapter.connect(profile, credential, proxyCredential)
+        }
+        assertFalse(harness.adapter.isCredentialPermitActive())
+        assertEquals(null, harness.basicAuth.currentCredential())
+    }
+
+    @Test
+    fun aBlankVersionIsAnIncompleteHandshake() = runTest {
+        val harness = harness(
+            store = InMemoryStore(mutableMapOf(profile.id to pinned)),
+            presented = pinned,
+            engine = infoEngine(body = infoJson("")),
         )
 
         assertFailsWith<HandshakeException.Incomplete> {
@@ -204,30 +324,72 @@ class OpenCodeV2AdapterTest {
     }
 
     @Test
-    fun anUnhealthyServerIsRejected() = runTest {
+    fun anInfoReplyWithoutVersionIsATypedHandshakeError() = runTest {
         val harness = harness(
             store = InMemoryStore(mutableMapOf(profile.id to pinned)),
             presented = pinned,
-            engine = healthEngine(body = """{"healthy":false,"version":"1.18.32"}"""),
+            engine = infoEngine(body = """{"pid":6,"urls":[],"paths":{"tmp":"/t"}}"""),
         )
 
-        assertFailsWith<HandshakeException.ServerUnhealthy> {
+        assertFailsWith<HandshakeException.InfoUnavailable> {
             harness.adapter.connect(profile, credential)
         }
+        assertFalse(harness.adapter.isCredentialPermitActive())
     }
 
     @Test
-    fun anUnreachableHealthProbeIsATypedHandshakeError() = runTest {
+    fun anErrorInfoReplyResetsBothCredentialsAndThePin() = runTest {
+        val harness = harness(
+            store = InMemoryStore(mutableMapOf(profile.id to pinned)),
+            presented = pinned,
+            engine = infoEngine(body = """{"error":"not found"}""", status = HttpStatusCode.NotFound),
+        )
+
+        assertFailsWith<HandshakeException.InfoUnavailable> {
+            harness.adapter.connect(profile, credential, proxyCredential)
+        }
+        assertFalse(harness.adapter.isCredentialPermitActive())
+        assertEquals(null, harness.basicAuth.currentCredential(), "Basic credential must be reset on info error")
+        assertEquals(null, harness.pin.expectedPin())
+    }
+
+    @Test
+    fun anUnreachableInfoProbeIsATypedHandshakeErrorAndResetsBothCredentials() = runTest {
         val harness = harness(
             store = InMemoryStore(mutableMapOf(profile.id to pinned)),
             presented = pinned,
             engine = MockEngine { throw IllegalStateException("connection refused") },
         )
 
-        assertFailsWith<HandshakeException.HealthUnavailable> {
-            harness.adapter.connect(profile, credential)
+        assertFailsWith<HandshakeException.InfoUnavailable> {
+            harness.adapter.connect(profile, credential, proxyCredential)
         }
         assertFalse(harness.adapter.isCredentialPermitActive())
+        assertEquals(null, harness.basicAuth.currentCredential())
+        assertEquals(null, harness.pin.expectedPin())
+    }
+
+    @Test
+    fun aTransientTransportFailureOnTheInfoProbeIsRetriedOnce() = runTest {
+        var attempts = 0
+        val harness = harness(
+            store = InMemoryStore(mutableMapOf(profile.id to pinned)),
+            presented = pinned,
+            engine = MockEngine { _ ->
+                attempts++
+                if (attempts == 1) throw IllegalStateException("tunnel still negotiating")
+                respond(
+                    content = infoJson("2.0.6"),
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+                )
+            },
+        )
+
+        val handshake = harness.adapter.connect(profile, credential)
+
+        assertEquals(2, attempts)
+        assertEquals(ServerVersion(2, 0, 6), handshake.version)
     }
 
     @Test
@@ -235,55 +397,74 @@ class OpenCodeV2AdapterTest {
         val harness = harness(
             store = InMemoryStore(mutableMapOf(profile.id to pinned)),
             presented = pinned,
-            engine = healthEngine(body = """{"healthy":true,"version":"2.0.0"}"""),
+            engine = infoEngine(body = infoJson("1.18.32")),
             compatibilityProfile = CompatibilityProfile(
-                majorVersion = 2,
-                minimumVersion = ServerVersion(2, 0, 0),
+                majorVersion = 1,
+                minimumVersion = ServerVersion(1, 18, 0),
             ),
         )
 
         val handshake = harness.adapter.connect(profile, credential)
 
-        assertEquals(ServerVersion(2, 0, 0), handshake.version)
+        assertEquals(ServerVersion(1, 18, 32), handshake.version)
     }
 
     @Test
-    fun disconnectDropsTheCredentialPermitAndThePin() = runTest {
+    fun disconnectDropsTheCredentialPermitTheBasicCredentialAndThePin() = runTest {
         val harness = harness(
             store = InMemoryStore(mutableMapOf(profile.id to pinned)),
             presented = pinned,
         )
 
-        harness.adapter.connect(profile, credential)
+        harness.adapter.connect(profile, credential, proxyCredential)
         assertTrue(harness.adapter.isCredentialPermitActive())
+        assertEquals(proxyCredential, harness.basicAuth.currentCredential())
 
         harness.adapter.disconnect()
 
         assertFalse(harness.adapter.isCredentialPermitActive())
+        assertEquals(null, harness.basicAuth.currentCredential())
         assertEquals(null, harness.pin.expectedPin())
         assertEquals(null, harness.adapter.plaintextWarningForActiveConnection())
     }
 
+    private suspend fun connectWithVersion(version: String) = harness(
+        store = InMemoryStore(mutableMapOf(profile.id to pinned)),
+        presented = pinned,
+        engine = infoEngine(body = infoJson(version)),
+    ).adapter.connect(profile, credential)
+
+    private fun infoJson(version: String): String =
+        """{"version":"$version","pid":6,"urls":["http://172.20.0.2:4096"],"paths":{"tmp":"/tmp/opencode"}}"""
+
     private fun harness(
         store: ServerIdentityStore,
         presented: ServerFingerprint,
-        engine: MockEngine = healthEngine(),
+        engine: MockEngine? = null,
         compatibilityProfile: CompatibilityProfile = CompatibilityProfile.OpenCodeServerV2,
     ): Harness {
-        val client = HttpClient(engine) {
-            install(ContentNegotiation) { json() }
+        val events = mutableListOf<String>()
+        val basicAuth = BasicAuthCredentialController()
+        lateinit var adapter: OpenCodeV2Adapter
+        val state = { "permit=${adapter.isCredentialPermitActive()},basic=${basicAuth.currentCredential() != null}" }
+        val mock = engine ?: infoEngine(onRequest = { events += "request:${state()}" })
+        val client = HttpClient(mock) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
         }
         val pin = ServerIdentityPinController()
         val gate = ServerIdentityGate(
-            TofuServerIdentityCoordinator(store, StaticVerifier(presented)),
+            TofuServerIdentityCoordinator(store, StaticVerifier(presented) { events += "verify:${state()}" }),
         )
-        return Harness(OpenCodeV2Adapter(client, gate, pin, compatibilityProfile), pin, engine)
+        adapter = OpenCodeV2Adapter(client, gate, pin, compatibilityProfile, basicAuth)
+        return Harness(adapter, pin, mock, basicAuth, events)
     }
 
-    private fun healthEngine(
-        body: String = """{"healthy":true,"version":"1.18.32"}""",
+    private fun infoEngine(
+        body: String = infoJson("2.0.6"),
         status: HttpStatusCode = HttpStatusCode.OK,
+        onRequest: () -> Unit = {},
     ): MockEngine = MockEngine { _ ->
+        onRequest()
         respond(
             content = body,
             status = status,

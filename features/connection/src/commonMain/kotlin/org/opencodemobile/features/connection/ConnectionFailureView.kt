@@ -22,6 +22,9 @@ import org.opencodemobile.design.system.resources.connection_address_path_not_al
 import org.opencodemobile.design.system.resources.connection_address_port_out_of_range
 import org.opencodemobile.design.system.resources.connection_address_unknown_scheme
 import org.opencodemobile.design.system.resources.connection_failure_address_hint
+import org.opencodemobile.design.system.resources.connection_failure_conflict_hint
+import org.opencodemobile.design.system.resources.connection_failure_conflict_message
+import org.opencodemobile.design.system.resources.connection_failure_conflict_title
 import org.opencodemobile.design.system.resources.connection_failure_address_message
 import org.opencodemobile.design.system.resources.connection_failure_address_title
 import org.opencodemobile.design.system.resources.connection_failure_auth_hint
@@ -54,9 +57,6 @@ import org.opencodemobile.design.system.resources.connection_failure_storage_tit
 import org.opencodemobile.design.system.resources.connection_failure_unconfirmed_hint
 import org.opencodemobile.design.system.resources.connection_failure_unconfirmed_message
 import org.opencodemobile.design.system.resources.connection_failure_unconfirmed_title
-import org.opencodemobile.design.system.resources.connection_failure_unhealthy_hint
-import org.opencodemobile.design.system.resources.connection_failure_unhealthy_message
-import org.opencodemobile.design.system.resources.connection_failure_unhealthy_title
 import org.opencodemobile.design.system.resources.connection_failure_unknown_hint
 import org.opencodemobile.design.system.resources.connection_failure_unknown_message
 import org.opencodemobile.design.system.resources.connection_failure_unknown_title
@@ -91,7 +91,6 @@ internal fun manualErrorText(problem: ServerInputProblem): String =
 @Suppress("CyclomaticComplexMethod")
 private fun FailureKind.resources(): Triple<StringResource, StringResource, StringResource> = when (this) {
     FailureKind.UNREACHABLE -> Triple(Res.string.connection_failure_unreachable_title, Res.string.connection_failure_unreachable_message, Res.string.connection_failure_unreachable_hint)
-    FailureKind.UNHEALTHY -> Triple(Res.string.connection_failure_unhealthy_title, Res.string.connection_failure_unhealthy_message, Res.string.connection_failure_unhealthy_hint)
     FailureKind.HANDSHAKE -> Triple(Res.string.connection_failure_handshake_title, Res.string.connection_failure_handshake_message, Res.string.connection_failure_handshake_hint)
     FailureKind.INCOMPATIBLE -> Triple(Res.string.connection_failure_incompatible_title, Res.string.connection_failure_incompatible_message, Res.string.connection_failure_incompatible_hint)
     FailureKind.REJECTED -> Triple(Res.string.connection_failure_rejected_title, Res.string.connection_failure_rejected_message, Res.string.connection_failure_rejected_hint)
@@ -104,6 +103,7 @@ private fun FailureKind.resources(): Triple<StringResource, StringResource, Stri
     FailureKind.ADDRESS -> Triple(Res.string.connection_failure_address_title, Res.string.connection_failure_address_message, Res.string.connection_failure_address_hint)
     FailureKind.LINK -> Triple(Res.string.connection_failure_link_title, Res.string.connection_failure_link_message, Res.string.connection_failure_link_hint)
     FailureKind.STORAGE -> Triple(Res.string.connection_failure_storage_title, Res.string.connection_failure_storage_message, Res.string.connection_failure_storage_hint)
+    FailureKind.CONFLICT -> Triple(Res.string.connection_failure_conflict_title, Res.string.connection_failure_conflict_message, Res.string.connection_failure_conflict_hint)
     FailureKind.UNKNOWN -> Triple(Res.string.connection_failure_unknown_title, Res.string.connection_failure_unknown_message, Res.string.connection_failure_unknown_hint)
 }
 

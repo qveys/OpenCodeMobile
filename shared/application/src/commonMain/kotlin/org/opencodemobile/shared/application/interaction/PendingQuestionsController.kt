@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.opencodemobile.shared.domain.cache.CacheMutationNotAllowedException
 import org.opencodemobile.shared.domain.cache.MutationGate
+import org.opencodemobile.shared.domain.interaction.FormAnswer
 import org.opencodemobile.shared.domain.interaction.OpenCodeInteractionGateway
 import org.opencodemobile.shared.domain.interaction.PendingQuestion
 
@@ -36,7 +37,7 @@ public data class PendingQuestionsState(
  * answer or reject (V1-07).
  *
  * **Survives a kill.** The list is not persisted anywhere: [refresh] re-reads
- * `GET /question` on start and on every reconnect, so a process kill loses
+ * `GET /api/form` on start and on every reconnect, so a process kill loses
  * nothing. Re-reading the server is the single source of truth.
  *
  * **Non-dismissable.** The class exposes no way to clear a question without a
@@ -69,18 +70,19 @@ public class PendingQuestionsController(
     }
 
     /**
-     * Answers [requestId] with one list of selected labels per asked question,
+     * Answers [requestId] with the typed values keyed by form field,
      * then re-reads the server so the state reflects what the server now holds.
      */
     public suspend fun answer(
+        sessionId: String,
         requestId: String,
-        answers: List<List<String>>,
+        answer: FormAnswer,
         directory: String? = null,
-    ): Result<Unit> = mutate(directory) { gateway.answerQuestion(requestId, answers, directory) }
+    ): Result<Unit> = mutate(directory) { gateway.answerQuestion(sessionId, requestId, answer, directory) }
 
     /** Rejects [requestId], then re-reads the server state. */
-    public suspend fun reject(requestId: String, directory: String? = null): Result<Unit> =
-        mutate(directory) { gateway.rejectQuestion(requestId, directory) }
+    public suspend fun reject(sessionId: String, requestId: String, directory: String? = null): Result<Unit> =
+        mutate(directory) { gateway.rejectQuestion(sessionId, requestId, directory) }
 
     private suspend fun mutate(directory: String?, block: suspend () -> Unit): Result<Unit> {
         if (!mutationGate.mutationsAllowed()) {

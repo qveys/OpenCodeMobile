@@ -17,7 +17,6 @@ import org.opencodemobile.shared.domain.connection.DomainError
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerCredential
 import org.opencodemobile.shared.domain.connection.ServerFingerprint
-import org.opencodemobile.shared.domain.connection.ServerHealth
 import org.opencodemobile.shared.domain.connection.ServerIdentityCheck
 import org.opencodemobile.shared.domain.connection.ServerIdentityException
 import org.opencodemobile.shared.domain.connection.ServerNetworkScope
@@ -41,7 +40,6 @@ private fun fingerprint(seed: Int): ServerFingerprint =
 
 private fun handshake(profile: ServerProfile): ConnectionHandshake = ConnectionHandshake(
     profileId = profile.id,
-    health = ServerHealth(healthy = true, version = "1.18.32"),
     identity = ServerIdentityCheck.Trusted(fingerprint(1)),
     version = ServerVersion(1, 18, 32),
     scope = ServerNetworkScope.Loopback,
@@ -365,5 +363,103 @@ class ConnectionSetupControllerTest {
 
         assertEquals("alice", controller.state.value.username)
         assertEquals("s3cr3t", controller.state.value.password)
+    }
+
+    @Test
+    fun aSavedCredentialOfAnotherServerIsNotPrefilled() = runTest {
+        val stored = ServerProfile(id = "192.168.1.10:4096", host = "192.168.1.10", port = 4096)
+        val controller = ConnectionSetupController(
+            setup = ServerConnectionSetup(FakeGateway { _, _ -> error("must not connect") }),
+            scope = this,
+            existingProfileProvider = { stored },
+            basicAuthProvider = { BasicAuthCredential("alice", "s3cr3t") },
+        )
+
+        controller.onAddressChange("192.168.1.20")
+        controller.submitManualEntry()
+        advanceUntilIdle()
+
+        assertEquals("", controller.state.value.username)
+        assertEquals("", controller.state.value.password)
+    }
+
+    @Test
+    fun changingTheAddressClearsBasicAuthFields() = runTest {
+        val controller = ConnectionSetupController(
+            setup = ServerConnectionSetup(FakeGateway { _, _ -> error("must not connect") }),
+            scope = this,
+        )
+
+        controller.onAddressChange("192.168.1.10")
+        controller.onUsernameChange("alice")
+        controller.onPasswordChange("s3cr3t")
+        controller.onAddressChange("192.168.1.20")
+
+        assertEquals("", controller.state.value.username)
+        assertEquals("", controller.state.value.password)
+    }
+
+    @Test
+    fun nothingIsPersistedWhenValidationFails() = runTest {
+        var persisted = false
+        val controller = ConnectionSetupController(
+            setup = ServerConnectionSetup(FakeGateway { _, _ -> throw IllegalStateException("down") }),
+            scope = this,
+            basicAuthPersister = { _, _ -> persisted = true },
+        )
+
+        controller.onAddressChange("192.168.1.10")
+        controller.onUsernameChange("alice")
+        controller.onPasswordChange("s3cr3t")
+        controller.submitManualEntry()
+        advanceUntilIdle()
+        controller.confirmReview()
+        advanceUntilIdle()
+
+        assertFalse(persisted)
+        assertNull(controller.state.value.connected)
+    }
+
+    @Test
+    fun basicAuthAndBearerTogetherAreRejectedBeforeValidation() = runTest {
+        var validated = false
+        var persisted = false
+        val controller = ConnectionSetupController(
+            setup = ServerConnectionSetup(FakeGateway { target, _ -> validated = true; handshake(target) }),
+            scope = this,
+            credentialProvider = { ServerCredential("token") },
+            basicAuthPersister = { _, _ -> persisted = true },
+        )
+
+        controller.onAddressChange("192.168.1.10")
+        controller.onUsernameChange("alice")
+        controller.onPasswordChange("s3cr3t")
+        controller.submitManualEntry()
+        advanceUntilIdle()
+        controller.confirmReview()
+        advanceUntilIdle()
+
+        assertEquals(FailureKind.CONFLICT, controller.state.value.failure?.kind)
+        assertFalse(validated)
+        assertFalse(persisted)
+        assertNull(controller.state.value.connected)
+    }
+
+    @Test
+    fun bearerAloneStillConnects() = runTest {
+        val controller = ConnectionSetupController(
+            setup = ServerConnectionSetup(FakeGateway { target, _ -> handshake(target) }),
+            scope = this,
+            credentialProvider = { ServerCredential("token") },
+        )
+
+        controller.onAddressChange("192.168.1.10")
+        controller.submitManualEntry()
+        advanceUntilIdle()
+        controller.confirmReview()
+        advanceUntilIdle()
+
+        assertNull(controller.state.value.failure)
+        assertNotNull(controller.state.value.connected)
     }
 }

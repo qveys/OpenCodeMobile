@@ -6,8 +6,8 @@ import org.opencodemobile.shared.domain.connection.ServerInputProblem
 
 /** Error category; each maps to a local FR/EN title/message/hint triple. */
 public enum class FailureKind {
-    UNREACHABLE, UNHEALTHY, HANDSHAKE, INCOMPATIBLE, REJECTED, AUTH, UNCONFIRMED, CHANGED,
-    UNVERIFIABLE, POLICY, METHOD, ADDRESS, LINK, STORAGE, UNKNOWN,
+    UNREACHABLE, HANDSHAKE, INCOMPATIBLE, REJECTED, AUTH, UNCONFIRMED, CHANGED,
+    UNVERIFIABLE, POLICY, METHOD, ADDRESS, LINK, STORAGE, UNKNOWN, CONFLICT,
 }
 
 /**
@@ -41,7 +41,6 @@ private fun ServerFingerprint.display(): String = colonSeparated.sanitizeForDisp
 @Suppress("CyclomaticComplexMethod")
 public fun DomainError.toConnectionFailure(): ConnectionFailure = when (this) {
     is DomainError.Unreachable -> ConnectionFailure(FailureKind.UNREACHABLE)
-    is DomainError.ServerUnhealthy -> ConnectionFailure(FailureKind.UNHEALTHY)
     is DomainError.HandshakeIncomplete -> ConnectionFailure(FailureKind.HANDSHAKE)
     is DomainError.ServerIncompatible -> ConnectionFailure(FailureKind.INCOMPATIBLE)
     is DomainError.CredentialRejected -> ConnectionFailure(FailureKind.REJECTED)

@@ -34,9 +34,6 @@
     <string name="connection_failure_unreachable_title">[x] Serveur injoignable</string>
     <string name="connection_failure_unreachable_message">L’app n’a pas pu joindre le serveur. Vérifiez qu’il est démarré, que l’adresse et le port sont corrects et que cet appareil est sur le même réseau ou tailnet.</string>
     <string name="connection_failure_unreachable_hint">Vérifiez l’adresse du serveur et réessayez.</string>
-    <string name="connection_failure_unhealthy_title">[x] Serveur en mauvais état</string>
-    <string name="connection_failure_unhealthy_message">Le serveur a répondu mais signale qu’il n’est pas en bon état.</string>
-    <string name="connection_failure_unhealthy_hint">Redémarrez le serveur et réessayez.</string>
     <string name="connection_failure_handshake_title">[x] Échange incomplet</string>
     <string name="connection_failure_handshake_message">Le serveur n’a pas envoyé les informations nécessaires à la connexion.</string>
     <string name="connection_failure_handshake_hint">Vérifiez qu’il s’agit bien d’un serveur OpenCode.</string>
@@ -73,6 +70,9 @@
     <string name="connection_failure_storage_title">[x] Erreur de stockage sécurisé</string>
     <string name="connection_failure_storage_message">L’app n’a pas pu lire ou écrire son stockage sécurisé. Votre serveur et votre identifiant enregistrés sont inchangés.</string>
     <string name="connection_failure_storage_hint">Redémarrez l’app et réessayez.</string>
+    <string name="connection_failure_conflict_title">[x] Deux accès à la fois</string>
+    <string name="connection_failure_conflict_message">Choisissez un seul accès : identifiants du proxy OU token OpenCode. Les deux utilisent le même en-tête Authorization.</string>
+    <string name="connection_failure_conflict_hint">Videz l’un des deux et réessayez.</string>
     <string name="connection_failure_unknown_title">[x] Erreur inattendue</string>
     <string name="connection_failure_unknown_message">Une erreur inattendue s’est produite pendant la connexion.</string>
     <string name="connection_failure_unknown_hint">Réessayez.</string>

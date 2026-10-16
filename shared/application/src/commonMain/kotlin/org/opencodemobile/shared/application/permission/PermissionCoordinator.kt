@@ -244,7 +244,7 @@ public class PermissionCoordinator(
         if (!request.capabilities.allows(PermissionDecision.Deny)) {
             return PermissionSubmitResult.Unavailable(PermissionDecision.Deny)
         }
-        return send(requestId, PermissionDecision.Deny)
+        return send(request, PermissionDecision.Deny)
     }
 
     /**
@@ -285,7 +285,7 @@ public class PermissionCoordinator(
         // invariant at the enforcement point, not just the content fingerprint.
         postBiometricRefusal(request)?.let { return it }
 
-        return send(requestId, decision).also {
+        return send(request, decision).also {
             if (it == PermissionSubmitResult.Accepted) disarm()
         }
     }
@@ -323,11 +323,12 @@ public class PermissionCoordinator(
 
     @Suppress("TooGenericExceptionCaught") // any port failure maps to Failed; cancellation is rethrown above
     private suspend fun send(
-        requestId: String,
+        request: PermissionRequest,
         decision: PermissionDecision,
     ): PermissionSubmitResult {
+        val requestId = request.id
         val outcome = try {
-            port.reply(requestId, decision)
+            port.reply(request.sessionId, requestId, decision)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (failure: Throwable) {

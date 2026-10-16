@@ -36,9 +36,6 @@
     <string name="connection_failure_unreachable_title">[x] Server not reachable</string>
     <string name="connection_failure_unreachable_message">The app could not reach the server. Check that it is running, that the address and port are correct, and that this device is on the same network or tailnet.</string>
     <string name="connection_failure_unreachable_hint">Check the server address and try again.</string>
-    <string name="connection_failure_unhealthy_title">[x] Server is unhealthy</string>
-    <string name="connection_failure_unhealthy_message">The server answered but reports that it is not healthy.</string>
-    <string name="connection_failure_unhealthy_hint">Restart the server and try again.</string>
     <string name="connection_failure_handshake_title">[x] Incomplete handshake</string>
     <string name="connection_failure_handshake_message">The server did not send the information the app needs to connect.</string>
     <string name="connection_failure_handshake_hint">Check that this is an OpenCode Server.</string>
@@ -75,6 +72,9 @@
     <string name="connection_failure_storage_title">[x] Secure storage error</string>
     <string name="connection_failure_storage_message">The app could not read or write its secure storage. Your saved server and credential are unchanged.</string>
     <string name="connection_failure_storage_hint">Restart the app and try again.</string>
+    <string name="connection_failure_conflict_title">[x] Two access methods</string>
+    <string name="connection_failure_conflict_message">Choose a single access: reverse-proxy credentials OR OpenCode token. Both use the same Authorization header.</string>
+    <string name="connection_failure_conflict_hint">Clear one of the two and try again.</string>
     <string name="connection_failure_unknown_title">[x] Unexpected error</string>
     <string name="connection_failure_unknown_message">An unexpected error occurred while connecting.</string>
     <string name="connection_failure_unknown_hint">Try again.</string>

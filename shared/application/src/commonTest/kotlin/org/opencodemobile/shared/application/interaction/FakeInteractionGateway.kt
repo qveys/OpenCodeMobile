@@ -3,6 +3,7 @@ package org.opencodemobile.shared.application.interaction
 import org.opencodemobile.shared.domain.interaction.OpenCodeInteractionGateway
 import org.opencodemobile.shared.domain.interaction.PendingQuestion
 import org.opencodemobile.shared.domain.interaction.ServerCatalog
+import org.opencodemobile.shared.domain.interaction.FormAnswer
 
 /**
  * In-memory [OpenCodeInteractionGateway] for the application-layer tests.
@@ -17,8 +18,8 @@ internal class FakeInteractionGateway(
     var catalog: ServerCatalog = ServerCatalog(),
 ) : OpenCodeInteractionGateway {
 
-    val answered: MutableList<Pair<String, List<List<String>>>> = mutableListOf()
-    val rejected: MutableList<String> = mutableListOf()
+    val answered: MutableList<Triple<String, String, FormAnswer>> = mutableListOf()
+    val rejected: MutableList<Pair<String, String>> = mutableListOf()
     val aborted: MutableList<String> = mutableListOf()
 
     /** Number of `GET /question` reads, so a test can prove refresh cadence. */
@@ -41,18 +42,18 @@ internal class FakeInteractionGateway(
         return questions
     }
 
-    override suspend fun answerQuestion(requestId: String, answers: List<List<String>>, directory: String?) {
+    override suspend fun answerQuestion(sessionId: String, requestId: String, answer: FormAnswer, directory: String?) {
         lastDirectory = directory
         answerError?.let { throw it }
-        answered += requestId to answers
+        answered += Triple(sessionId, requestId, answer)
         // A real server removes the answered question from `GET /question`.
         questions = questions.filterNot { it.id == requestId }
     }
 
-    override suspend fun rejectQuestion(requestId: String, directory: String?) {
+    override suspend fun rejectQuestion(sessionId: String, requestId: String, directory: String?) {
         lastDirectory = directory
         rejectError?.let { throw it }
-        rejected += requestId
+        rejected += sessionId to requestId
         questions = questions.filterNot { it.id == requestId }
     }
 

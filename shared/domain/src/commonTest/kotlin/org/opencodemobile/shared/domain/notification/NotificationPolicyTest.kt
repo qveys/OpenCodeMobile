@@ -6,7 +6,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.opencodemobile.shared.domain.interaction.PendingQuestion
-import org.opencodemobile.shared.domain.interaction.QuestionItem
+import org.opencodemobile.shared.domain.interaction.FormField
+import org.opencodemobile.shared.domain.interaction.FormFieldType
 import org.opencodemobile.shared.domain.permission.PermissionCapabilities
 import org.opencodemobile.shared.domain.permission.PermissionPolicy
 import org.opencodemobile.shared.domain.permission.PermissionRequest
@@ -33,7 +34,8 @@ class NotificationPolicyTest {
     private val question = PendingQuestion(
         id = "q_mock_0001",
         sessionId = "ses_mock_0001",
-        questions = listOf(QuestionItem(question = "Which branch?", header = "Branch")),
+        title = "Branch",
+        fields = listOf(FormField(key = "branch", type = FormFieldType.Text, title = "Which branch?")),
     )
 
     @Test

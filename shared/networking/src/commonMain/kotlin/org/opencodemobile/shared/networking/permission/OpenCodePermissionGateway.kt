@@ -22,17 +22,9 @@ import org.opencodemobile.shared.domain.permission.PermissionRequest
  * (`docs/ARCHITECTURE.md` §3.3, §"Permission approval confirmation").
  *
  * It is the only place that knows the server's permission vocabulary:
- * `GET /permission`, `POST /permission/{requestID}/reply` with `once` / `reject`
- * / `always`, and the `permission.asked` / `permission.replied` SSE payloads. The
- * domain and the UI only ever see [PermissionDecision] and [PermissionRequest].
- *
- * **Protocol scope.** The app standardizes on the canonical root surface
- * (ADR-0002 §3.1). The experimental `permission.v2.*` events and the
- * `/api/session/{sessionID}/permission/...` reply route are a different protocol
- * whose reply returns `204` and has no `once`/`always`/`reject` body; this class
- * does not silently conflate the two. `permission.v2.*` is deliberately ignored
- * until it is implemented on its own (rather than surfacing a v2 request that
- * `GET /permission` can never reconcile or reply to).
+ * `GET /api/permission/request`, `POST /api/session/{sessionID}/permission/{requestID}/reply` with
+ * `decision` (`once` / `reject` / `always`), and the `permission.asked` / `permission.replied` SSE
+ * payloads. The domain and the UI only ever see [PermissionDecision] and [PermissionRequest].
  */
 public class OpenCodePermissionGateway(
     private val httpClient: HttpClient,
@@ -49,58 +41,93 @@ public class OpenCodePermissionGateway(
     private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     override suspend fun pendingPermissions(): List<PermissionRequest> =
-        api.listPermissions().map { it.toDomain() }
+        api.listPermissionRequests().data.map { it.toDomain() }
 
     override suspend fun reply(
+        sessionId: String,
         requestId: String,
         decision: PermissionDecision,
     ): PermissionReplyOutcome {
-        val accepted = api.replyPermission(
+        api.replyPermission(
+            sessionID = sessionId,
             requestID = requestId,
-            request = ApiPermissionReplyRequest(reply = decision.toWireValue()),
+            request = ApiPermissionReplyRequest(
+                decision = decision.toWireValue(),
+            ),
         )
-        return if (accepted) {
-            PermissionReplyOutcome.Accepted
-        } else {
-            PermissionReplyOutcome.Rejected("the server did not accept the decision")
-        }
+        return PermissionReplyOutcome.Accepted
     }
 
     override fun decode(type: String, payload: String): PermissionEvent? {
         val root = runCatching { json.parseToJsonElement(payload) }.getOrNull() as? JsonObject
             ?: return null
         val declaredType = root.stringOrNull("type") ?: type
+        val data = extractDataObject(root) ?: return null
         return when (declaredType) {
-            "permission.asked" -> decodeAsked(root)
-            "permission.replied" -> decodeReplied(root)
-            // Different protocol, see the class doc: ignored, not conflated.
-            "permission.v2.asked", "permission.v2.replied" -> null
+            "permission.asked" -> decodeAsked(data)
+            "permission.replied" -> decodeReplied(data)
             else -> null
         }
     }
 
-    private fun decodeAsked(root: JsonObject): PermissionEvent? {
-        val properties = root["properties"] as? JsonObject ?: return null
-        val id = properties.stringOrNull("id") ?: return null
-        val tool = properties.stringOrNull("permission") ?: return null
-        val rememberScopes = properties.stringList("always")
+    private fun extractDataObject(root: JsonObject): JsonObject? {
+        val dataElement = root["data"] ?: root["properties"]
+        if (dataElement != null) {
+            return when (dataElement) {
+                is JsonObject -> dataElement
+                is JsonPrimitive -> {
+                    if (dataElement.isString) {
+                        runCatching { json.parseToJsonElement(dataElement.content) }.getOrNull() as? JsonObject
+                    } else {
+                        null
+                    }
+                }
+                else -> null
+            }
+        }
+        if (root.containsKey("action") || root.containsKey("resources") || root.containsKey("permission") ||
+            root.containsKey("requestID") || root.containsKey("requestId") || root.containsKey("reply")
+        ) {
+            return root
+        }
+        return null
+    }
+
+    private fun decodeAsked(data: JsonObject): PermissionEvent? {
+        val id = data.stringOrNull("id") ?: return null
+        val sessionId = data.stringOrNull("sessionID")
+            ?: data.stringOrNull("sessionId")
+            ?: return null
+        val tool = data.stringOrNull("action")
+            ?: data.stringOrNull("permission")
+            ?: return null
+        val patterns = if (data.containsKey("resources")) {
+            data.stringList("resources")
+        } else {
+            data.stringList("patterns")
+        }
+        val rememberScopes = if (data.containsKey("save")) {
+            data.stringList("save")
+        } else {
+            data.stringList("always")
+        }
+        val rawArguments = data["metadata"]?.toString().orEmpty()
         return PermissionEvent.Asked(
             PermissionRequest(
                 id = id,
-                sessionId = properties.stringOrNull("sessionID"),
+                sessionId = sessionId,
                 tool = tool,
-                patterns = properties.stringList("patterns"),
-                rawArguments = properties["metadata"]?.toString().orEmpty(),
+                patterns = patterns,
+                rawArguments = rawArguments,
                 rememberScopes = rememberScopes,
                 capabilities = PermissionCapabilities.fromServer(rememberScopes),
             ),
         )
     }
 
-    private fun decodeReplied(root: JsonObject): PermissionEvent? {
-        val properties = root["properties"] as? JsonObject ?: return null
-        val requestId = properties.stringOrNull("requestID")
-            ?: properties.stringOrNull("requestId")
+    private fun decodeReplied(data: JsonObject): PermissionEvent? {
+        val requestId = data.stringOrNull("requestID")
+            ?: data.stringOrNull("requestId")
             ?: return null
         return PermissionEvent.Replied(requestId)
     }
@@ -108,17 +135,17 @@ public class OpenCodePermissionGateway(
     private fun ApiPermissionRequest.toDomain(): PermissionRequest = PermissionRequest(
         id = id,
         sessionId = sessionID,
-        tool = permission,
-        patterns = patterns,
+        tool = action,
+        patterns = resources,
         rawArguments = metadata?.toString().orEmpty(),
-        rememberScopes = always,
-        capabilities = PermissionCapabilities.fromServer(always),
+        rememberScopes = save,
+        capabilities = PermissionCapabilities.fromServer(save),
     )
 }
 
 /**
- * The app's decision, encoded exactly as the pinned OpenCode Server v2 root
- * surface expects (`PermissionV2Reply`: `once` / `always` / `reject`). The app's
+ * The app's decision, encoded exactly as the OpenCode Server v2 HTTP API
+ * expects (`decision`: `once` / `always` / `reject`). The app's
  * vocabulary ("Allow once" / "Deny" / "Allow session") never leaks onto the wire,
  * and the wire never leaks into the UI.
  */

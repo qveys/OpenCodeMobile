@@ -3,68 +3,62 @@ package org.opencodemobile.features.questions
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.opencodemobile.shared.application.interaction.PendingQuestionsState
+import org.opencodemobile.shared.domain.interaction.FormField
+import org.opencodemobile.shared.domain.interaction.FormFieldType
+import org.opencodemobile.shared.domain.interaction.FormOption
+import org.opencodemobile.shared.domain.interaction.FormValue
 import org.opencodemobile.shared.domain.interaction.PendingQuestion
-import org.opencodemobile.shared.domain.interaction.QuestionItem
-import org.opencodemobile.shared.domain.interaction.QuestionOption
 
-/** V1-07: the UI projection mirrors the server state and never invents a reply. */
 class QuestionsUiStateTest {
-
-    private val question = PendingQuestion(
-        id = "que_1",
-        sessionId = "ses_1",
-        questions = listOf(
-            QuestionItem(
-                question = "Which branch should I rebase onto?",
-                header = "Rebase target",
-                options = listOf(QuestionOption("main"), QuestionOption("release")),
-            ),
-        ),
-    )
-
     @Test
-    fun theUiStateMirrorsTheServerQuestionsAndBlocksTheTurn() {
-        val ui = QuestionsUiState.from(PendingQuestionsState(questions = listOf(question)))
-
-        assertTrue(ui.hasPending)
-        assertTrue(ui.blocksTurn, "an open question blocks the turn")
-        val mapped = ui.questions.single()
-        assertEquals("que_1", mapped.requestId)
-        assertEquals("Rebase target", mapped.items.single().header)
-        assertEquals(listOf("main", "release"), mapped.items.single().options.map { it.label })
+    fun theUiPreservesFormIdentityFieldsAndBlocksTheTurn() {
+        val field = FormField("branch", FormFieldType.Multiselect, required = true,
+            options = listOf(FormOption("main-value", "Main")))
+        val ui = QuestionsUiState.from(PendingQuestionsState(questions = listOf(
+            PendingQuestion("frm_1", "ses_1", "Rebase target", listOf(field)),
+        )))
+        assertTrue(ui.blocksTurn)
+        assertEquals(PendingQuestionUi("frm_1", "ses_1", "Rebase target", listOf(field)), ui.questions.single())
+        assertFalse(QuestionsUiState().hasPending)
     }
 
     @Test
-    fun anEmptyServerListBlocksNothing() {
-        val ui = QuestionsUiState.from(PendingQuestionsState())
-
-        assertFalse(ui.hasPending)
-        assertFalse(ui.blocksTurn)
+    fun choicesEchoValuesInServerOrderAndAllowOnlyExplicitCustomInput() {
+        val field = FormField("branch", FormFieldType.Multiselect,
+            options = listOf(FormOption("main-value", "Main"), FormOption("release-value", "Release")))
+        assertEquals(FormValue.Choices(listOf("main-value", "release-value")),
+            field.answer(selected = setOf("release-value", "main-value", "unknown")))
+        assertNull(field.answer(selected = setOf("Main")))
+        assertNull(field.answer(text = "extra"))
+        assertEquals(FormValue.Choices(listOf("extra")), field.copy(custom = true).answer(text = " extra "))
     }
 
     @Test
-    fun theReplyEchoesOnlyLabelsTheServerOfferedPlusCustomTextWhenAllowed() {
-        val single = question.questions.single().toUiPublic()
-        assertEquals(listOf("main"), single.answer(setOf("main")))
-        assertEquals(emptyList(), single.answer(setOf("not-an-option")))
+    fun requiredFieldsAndMalformedOptionalNumbersGateReply() {
+        assertFalse(FormField("x", FormFieldType.Text, required = true).canReply())
+        assertTrue(FormField("x", FormFieldType.Text).canReply())
+        assertFalse(FormField("x", FormFieldType.Multiselect, required = true).canReply())
+        assertFalse(FormField("x", FormFieldType.Number).canReply("bad"))
+        assertFalse(FormField("x", FormFieldType.Integer).canReply("1.5"))
+        assertTrue(FormField("x", FormFieldType.Number).canReply())
+        assertTrue(FormField("x", FormFieldType.Toggle, required = true).canReply(toggled = false))
+        assertTrue(FormField("x", FormFieldType.External, required = true).canReply())
+    }
 
-        val custom = QuestionItem(
-            question = "Anything else?",
-            header = "Notes",
-            custom = true,
-        ).toUiPublic()
-        assertEquals(listOf("a note"), custom.answer(emptySet(), "  a note  "))
-        assertTrue(custom.hasAnswer(emptySet(), "a note"))
-        assertFalse(custom.hasAnswer(emptySet(), "   "))
+    @Test
+    fun typedValuesRejectInvalidNumbersAndPreserveFalseAndZero() {
+        assertEquals(FormValue.Text("hello"), FormField("x", FormFieldType.Text).answer(" hello "))
+        assertNull(FormField("x", FormFieldType.Text).answer(" "))
+        assertEquals(FormValue.Number(1.5), FormField("x", FormFieldType.Number).answer("1.5"))
+        assertNull(FormField("x", FormFieldType.Number).answer("NaN"))
+        assertNull(FormField("x", FormFieldType.Number).answer("Infinity"))
+        assertNull(FormField("x", FormFieldType.Number).answer("bad"))
+        assertNull(FormField("x", FormFieldType.Integer).answer("1.5"))
+        assertEquals(FormValue.Number(0.0), FormField("x", FormFieldType.Integer).answer("0"))
+        assertEquals(FormValue.Toggle(false), FormField("x", FormFieldType.Toggle).answer())
+        assertNull(FormField("x", FormFieldType.External, required = true).answer())
     }
 }
-
-private fun QuestionItem.toUiPublic(): QuestionItemUi = QuestionItemUi(
-    header = header,
-    question = question,
-    options = options.map { QuestionOptionUi(it.label, it.description) },
-    multiple = multiple,
-    custom = custom,
-)

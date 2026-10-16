@@ -461,8 +461,8 @@ private fun QuestionBanner(
     val state = questionsPresenter.state.collectAsState().value
     PendingQuestionsScreen(
         state = state,
-        onReply = { requestId, answers -> questionsPresenter.answer(requestId, answers) },
-        onReject = { requestId -> questionsPresenter.reject(requestId) },
+        onReply = { sessionId, requestId, answer -> questionsPresenter.answer(sessionId, requestId, answer) },
+        onReject = { sessionId, requestId -> questionsPresenter.reject(sessionId, requestId) },
         modifier = modifier,
     )
 }
@@ -536,8 +536,8 @@ private fun SessionContent(
                     HorizontalDivider(color = colors.line, thickness = OpenCodeMetrics.hairline)
                     PendingQuestionsScreen(
                         state = questions,
-                        onReply = { requestId, answers -> questionsPresenter.answer(requestId, answers) },
-                        onReject = { requestId -> questionsPresenter.reject(requestId) },
+                        onReply = { sessionId, requestId, answer -> questionsPresenter.answer(sessionId, requestId, answer) },
+                        onReject = { sessionId, requestId -> questionsPresenter.reject(sessionId, requestId) },
                     )
                 }
                 HorizontalDivider(color = colors.line, thickness = OpenCodeMetrics.hairline)

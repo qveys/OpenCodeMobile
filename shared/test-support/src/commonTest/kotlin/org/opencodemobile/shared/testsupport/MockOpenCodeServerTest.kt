@@ -1,616 +1,238 @@
 package org.opencodemobile.shared.testsupport
 
-import io.ktor.client.plugins.skipSavingBody
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.patch
-import io.ktor.client.request.post
 import io.ktor.client.request.prepareGet
+import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.content.TextContent
-import io.ktor.http.contentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readUTF8Line
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.time.TimeSource
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.int
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.long
 
-/**
- * End-to-end example that proves the [MockOpenCodeServer] harness works.
- *
- * The test drives the mock through a real Ktor client stack (request routing, headers and
- * body decoding all run) but no socket is opened: the engine is in-process. It covers the
- * baseline routes (health, session list, scripted SSE) and has one test per
- * [MockOpenCodeScenario], including the streaming, disconnect, reconnect, permission-request,
- * slow-network and long-transcript scenarios added for the MVP acceptance run (OPE-115).
- */
 class MockOpenCodeServerTest {
-    private val server = MockOpenCodeServer()
+    private val servers = mutableListOf<MockOpenCodeServer>()
+    private fun server(scenario: MockOpenCodeScenario = MockOpenCodeScenario.Default, config: MockOpenCodeStreamConfig = MockOpenCodeStreamConfig()): MockOpenCodeServer =
+        MockOpenCodeServer(scenario, streamConfig = config).start().also { servers += it }
+    private fun obj(raw: String): JsonObject = Json.parseToJsonElement(raw).jsonObject
+    private val sessionId = OpenCodeFixtures.sessions.first().id
 
-    @AfterTest
-    fun tearDown() {
-        server.stop()
-    }
+    @AfterTest fun cleanup() { servers.forEach { it.stop() } }
 
-    @Test
-    fun startIsIdempotentAndStopClosesTheServer() {
-        assertFalse(server.isRunning)
-        server.start().start()
+    @Test fun lifecycleIsIdempotent() {
+        val server = server()
         assertTrue(server.isRunning)
+        val client = server.client
+        server.start()
+        assertTrue(client === server.client)
+        server.stop()
         server.stop()
         assertFalse(server.isRunning)
     }
 
-    @Test
-    fun healthCheckReturnsThePinnedFixture() = runTest {
-        server.start()
-        val body = server.client.get("${server.baseUrl}${MockOpenCodeServer.HEALTH_PATH}").bodyAsText()
-        val health = Json.parseToJsonElement(body).jsonObject
-
-        assertEquals("true", health["healthy"]?.jsonPrimitive?.content)
-        assertEquals(OpenCodeFixtures.SERVER_VERSION, health["version"]?.jsonPrimitive?.content)
+    @Test fun infoUsesVersionTwoAndLegacyRoutesAreAbsent() = runTest {
+        val server = server()
+        val info = obj(server.client.get("${server.baseUrl}/api/info").bodyAsText())
+        assertEquals("2.0.6", info["version"]?.jsonPrimitive?.content)
+        assertNotNull(info["pid"])
+        assertNull(info["healthy"])
+        for (path in listOf("/global/health", "/doc", "/session", "/event", "/question", "/api/health")) {
+            assertEquals(HttpStatusCode.NotFound, server.client.get("${server.baseUrl}$path").status)
+        }
     }
 
-    @Test
-    fun sessionListReturnsDeterministicFixtures() = runTest {
-        server.start()
-        val body = server.client.get("${server.baseUrl}${MockOpenCodeServer.SESSION_PATH}").bodyAsText()
-        val sessions = Json.parseToJsonElement(body).jsonArray
-
-        assertEquals(2, sessions.size)
-        assertEquals("ses_mock_0001", sessions[0].jsonObject["id"]?.jsonPrimitive?.content)
-        assertEquals("ses_mock_0002", sessions[1].jsonObject["id"]?.jsonPrimitive?.content)
-        assertEquals(OpenCodeFixtures.DIRECTORY, sessions[0].jsonObject["directory"]?.jsonPrimitive?.content)
+    @Test fun sessionCrudAndForkUseV2EnvelopesAndStatuses() = runTest {
+        val server = server()
+        val base = "${server.baseUrl}/api/session"
+        val list = obj(server.client.get(base).bodyAsText())
+        assertEquals(2, list["data"]?.jsonArray?.size)
+        assertNotNull(list["cursor"])
+        val first = list["data"]!!.jsonArray.first().jsonObject
+        assertEquals(OpenCodeFixtures.DIRECTORY, first["location"]?.jsonObject?.get("directory")?.jsonPrimitive?.content)
+        assertNull(first["directory"])
+        val created = server.client.post(base) { setBody("""{"title":"Created"}""") }
+        assertEquals(HttpStatusCode.OK, created.status)
+        val id = obj(created.bodyAsText())["data"]!!.jsonObject["id"]!!.jsonPrimitive.content
+        assertEquals(HttpStatusCode.NoContent, server.client.patch("$base/$id") { setBody("""{"title":"Renamed"}""") }.status)
+        assertEquals("Renamed", obj(server.client.get("$base/$id").bodyAsText())["data"]!!.jsonObject["title"]!!.jsonPrimitive.content)
+        val fork = obj(server.client.post("$base/$id/fork") { setBody("{}") }.bodyAsText())["data"]!!.jsonObject
+        assertEquals(id, fork["parentID"]!!.jsonPrimitive.content)
+        assertEquals(HttpStatusCode.NoContent, server.client.delete("$base/$id").status)
+        assertEquals(HttpStatusCode.NotFound, server.client.get("$base/$id").status)
+        assertEquals(HttpStatusCode.NotFound, server.client.delete("$base/$id/nonexistent").status)
     }
 
-    @Test
-    fun createdSessionsAppearInTheListDeterministically() = runTest {
-        server.start()
-        server.client.post("${server.baseUrl}${MockOpenCodeServer.SESSION_PATH}")
-        val body = server.client.get("${server.baseUrl}${MockOpenCodeServer.SESSION_PATH}").bodyAsText()
-        val sessions = Json.parseToJsonElement(body).jsonArray
-
-        assertEquals(3, sessions.size)
-        assertEquals("ses_mock_1001", sessions[2].jsonObject["id"]?.jsonPrimitive?.content)
-        assertTrue(server.requests.contains("POST /session"))
+    @Test fun sessionPagesAndCreationLocationMatchV2() = runTest {
+        val server = server()
+        val base = "${server.baseUrl}/api/session"
+        val first = obj(server.client.get("$base?limit=1").bodyAsText())
+        assertEquals(1, first["data"]!!.jsonArray.size)
+        val next = first["cursor"]!!.jsonObject["next"]!!.jsonPrimitive.content
+        val second = obj(server.client.get("$base?limit=1&cursor=$next").bodyAsText())
+        assertFalse(first["data"]!!.jsonArray.single() == second["data"]!!.jsonArray.single())
+        val created = obj(server.client.post(base) { setBody("""{"title":"Other project","location":{"directory":"/tmp/other"}}""") }.bodyAsText())["data"]!!.jsonObject
+        assertEquals("/tmp/other", created["location"]!!.jsonObject["directory"]!!.jsonPrimitive.content)
+        assertEquals(1, obj(server.client.get("$base?directory=/tmp/other").bodyAsText())["data"]!!.jsonArray.size)
     }
 
-    @Test
-    fun scriptedSseEventsAreDeliveredInOrder() = runTest {
-        server.start()
-        val raw = server.client.get("${server.baseUrl}${MockOpenCodeServer.EVENT_PATH}").bodyAsText()
+    @Test fun promptAndTranscriptUseTextAndContent() = runTest {
+        val server = server()
+        val base = "${server.baseUrl}/api/session/$sessionId"
+        val response = server.client.post("$base/prompt") { setBody("""{"text":"hello"}""") }
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertNotNull(obj(response.bodyAsText())["data"])
+        assertEquals("hello", server.prompts.single().text)
+        val transcript = obj(server.client.get("$base/message").bodyAsText())
+        assertNotNull(transcript["cursor"])
+        val messages = transcript["data"]!!.jsonArray
+        assertEquals("user", messages.first().jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals("hello", messages.first().jsonObject["text"]!!.jsonPrimitive.content)
+        assertNotNull(messages.last().jsonObject["content"])
+        assertNull(messages.last().jsonObject["info"])
+    }
+
+    @Test fun activeSessionsExposeOnlyType() = runTest {
+        val server = server()
+        val data = obj(server.client.get("${server.baseUrl}/api/session/active").bodyAsText())["data"]!!.jsonObject
+        assertEquals(setOf("type"), data[sessionId]!!.jsonObject.keys)
+        assertEquals("running", data[sessionId]!!.jsonObject["type"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun permissionsAndFormsAreSessionScoped() = runTest {
+        val server = server(MockOpenCodeScenario.PermissionRequest)
+        val base = server.baseUrl
+        val pending = obj(server.client.get("$base/api/permission/request").bodyAsText())
+        assertNotNull(pending["location"])
+        val request = pending["data"]!!.jsonArray.single().jsonObject
+        assertEquals("bash", request["action"]!!.jsonPrimitive.content)
+        assertNotNull(request["resources"])
+        val permissionPath = "$base/api/session/$sessionId/permission/${OpenCodeFixtures.PERMISSION_REQUEST_ID}/reply"
+        assertEquals(HttpStatusCode.NoContent, server.client.post(permissionPath) { setBody("""{"decision":"once"}""") }.status)
+        assertEquals(sessionId, server.permissionReplies.single().sessionId)
+        assertEquals("once", server.permissionReplies.single().reply)
+        assertEquals(HttpStatusCode.BadRequest, server.client.post(permissionPath) { setBody("""{"reply":"once"}""") }.status)
+        val forms = obj(server.client.get("$base/api/form").bodyAsText())["data"]!!.jsonArray
+        assertEquals("frm_mock_0001", forms.single().jsonObject["id"]!!.jsonPrimitive.content)
+        assertNotNull(forms.single().jsonObject["fields"])
+        val formPath = "$base/api/session/$sessionId/form/${OpenCodeFixtures.FORM_REQUEST_ID}"
+        assertEquals(HttpStatusCode.NoContent, server.client.post("$formPath/reply") { setBody("""{"answer":{"branch":["main"]}}""") }.status)
+        assertEquals("main", server.formReplies.single().answer!!["branch"]!!.jsonArray.single().jsonPrimitive.content)
+        assertEquals(HttpStatusCode.NoContent, server.client.delete(formPath).status)
+        assertEquals("cancel", server.formReplies.last().decision)
+        assertEquals(HttpStatusCode.NotFound, server.client.post("$base/api/session/ses_wrong/form/${OpenCodeFixtures.FORM_REQUEST_ID}/reply") { setBody("""{"answer":{}}""") }.status)
+    }
+
+    @Test fun streamHasJsonOnlyFramesConnectedWithoutCreatedAndHeartbeat() = runTest {
+        val server = server(MockOpenCodeScenario.PermissionRequest)
+        val response = server.client.get("${server.baseUrl}/api/event")
+        assertEquals("no-cache, no-transform", response.headers["Cache-Control"])
+        val raw = response.bodyAsText()
+        assertFalse(raw.lineSequence().any { it.startsWith("event:") || it.startsWith("id:") })
+        assertTrue(raw.contains(": heartbeat\n\n"))
         val events = MockSseCodec.decode(raw)
-
-        assertEquals(listOf("evt_mock_0001", "evt_mock_0002"), events.map { it.id })
-        assertEquals("session.updated", events[0].type)
-        assertEquals("message.part.updated", events[1].type)
-        assertTrue(events[1].data.contains("Streaming from the mock server."))
+        assertEquals("server.connected", events.first().type)
+        val connected = obj(events.first().data)
+        assertNull(connected["created"])
+        assertEquals(JsonObject(emptyMap()), connected["data"])
+        assertEquals(listOf("server.connected", "session.status", "permission.asked", "form.created"), events.map { it.type })
+        assertNotNull(obj(events[2].data)["data"]!!.jsonObject["action"])
     }
 
-    @Test
-    fun streamingScenarioDeliversEventsProgressively() = runTest {
-        val streaming = MockOpenCodeServer(MockOpenCodeScenario.Streaming).start()
-        try {
-            val expected = OpenCodeFixtures.streamingSseEvents()
-
-            // `client.get` downloads the whole body before returning, so this scenario uses the
-            // streaming syntax: the block reads the body while it is still being produced.
-            streaming.client
-                .prepareGet("${streaming.baseUrl}${MockOpenCodeServer.EVENT_PATH}")
-                .execute { response ->
-                    val channel = response.bodyAsChannel()
-
-                    val first = readEvent(channel)
-                    assertEquals(expected[0].id, first?.id)
-
-                    // The second event is held back by the inter-event delay, so consuming the
-                    // body is genuinely progressive rather than one concatenated block.
-                    assertNull(withTimeoutOrNull(30) { readEvent(channel) })
-
-                    assertEquals(expected[1].id, readEvent(channel)?.id)
-                    assertEquals(expected[2].id, readEvent(channel)?.id)
-                    assertNull(readEvent(channel))
-                }
-        } finally {
-            streaming.stop()
-        }
+    @Test fun reconnectIgnoresLastEventIdAndNeverReplays() = runTest {
+        val server = server(MockOpenCodeScenario.Reconnect)
+        val url = "${server.baseUrl}/api/event"
+        val first = MockSseCodec.decode(server.client.get(url).bodyAsText())
+        val second = MockSseCodec.decode(server.client.get(url) { header("Last-Event-ID", first[1].id) }.bodyAsText())
+        assertEquals("server.connected", second.first().type)
+        val oldIds = first.drop(1).map { it.id }.toSet()
+        assertTrue(second.drop(1).none { it.id in oldIds })
+        assertEquals(2, server.eventStreamConnections)
     }
 
-    @Test
-    fun slowNetworkScenarioTakesAtLeastOneInterEventDelay() = runTest {
-        val slow = MockOpenCodeServer(MockOpenCodeScenario.SlowNetwork).start()
-        try {
-            val started = TimeSource.Monotonic.markNow()
-            val raw = slow.client.get("${slow.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }.bodyAsText()
-            val elapsed = started.elapsedNow().inWholeMilliseconds
-            val events = MockSseCodec.decode(raw)
-
-            assertEquals(3, events.size)
-            assertTrue(
-                elapsed >= slow.streamConfig.slowNetworkDelayMillis,
-                "expected at least one inter-event delay (${slow.streamConfig.slowNetworkDelayMillis}ms), took ${elapsed}ms",
-            )
-        } finally {
-            slow.stop()
-        }
+    @Test fun streamingDeliversAnEventBeforeTheDelayedRemainder() = runTest {
+        val server = server(MockOpenCodeScenario.Streaming, MockOpenCodeStreamConfig(streamingDelayMillis = 50))
+        val channel = server.client.get("${server.baseUrl}/api/event").bodyAsChannel()
+        assertEquals("server.connected", readEvent(channel)?.type)
+        assertEquals("session.status", readEvent(channel)?.type)
+        assertEquals("session.text.ended", readEvent(channel)?.type)
+        assertEquals("session.text.ended", readEvent(channel)?.type)
+        assertNull(readEvent(channel))
     }
 
-    @Test
-    fun disconnectScenarioStopsBeforeTheLastEvent() = runTest {
-        val disconnected = MockOpenCodeServer(MockOpenCodeScenario.Disconnect).start()
-        try {
-            val script = OpenCodeFixtures.disconnectSseEvents()
-            val channel = disconnected.client
-                .get("${disconnected.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
-                .bodyAsChannel()
-            val received = readEvents(channel)
-
-            assertEquals(disconnected.streamConfig.disconnectAfterEvents, received.size)
-            assertTrue(received.size < script.size, "the stream must stop before the last scripted event")
-            assertEquals(script[0].id, received[0].id)
-            assertFalse(
-                received.any { it.id == script.last().id },
-                "the last scripted event must never arrive on a disconnected stream",
-            )
-        } finally {
-            disconnected.stop()
+    @Test fun abortStopsFutureContentAndTranscriptKeepsCommittedContent() = runTest {
+        val server = server(MockOpenCodeScenario.Abort)
+        server.client.prepareGet("${server.baseUrl}/api/event").execute { stream ->
+        val channel = stream.bodyAsChannel()
+        assertEquals("server.connected", readEvent(channel)?.type)
+        assertEquals("session.status", readEvent(channel)?.type)
+        assertEquals("session.text.ended", readEvent(channel)?.type)
+        val response = server.client.post("${server.baseUrl}/api/session/$sessionId/interrupt?directory=/tmp/project")
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("true", obj(response.bodyAsText())["interrupted"]!!.jsonPrimitive.content)
+        assertEquals("/tmp/project", server.aborts.single().directory)
+        assertEquals("session.text.ended", readEvent(channel)?.type)
+        assertNull(readEvent(channel))
         }
+        val transcript = obj(server.client.get("${server.baseUrl}/api/session/$sessionId/message").bodyAsText())["data"]!!.jsonArray
+        assertEquals(1, transcript.size)
+        assertEquals("msg_mock_0001", transcript.single().jsonObject["id"]!!.jsonPrimitive.content)
     }
 
-    @Test
-    fun reconnectScenarioResumesWithoutReplayingConsumedEvents() = runTest {
-        val reconnect = MockOpenCodeServer(MockOpenCodeScenario.Reconnect).start()
-        try {
-            val script = OpenCodeFixtures.disconnectSseEvents()
-
-            val first = readEvents(
-                reconnect.client
-                    .get("${reconnect.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
-                    .bodyAsChannel(),
-            )
-            assertEquals(reconnect.streamConfig.disconnectAfterEvents, first.size)
-
-            val second = readEvents(
-                reconnect.client
-                    .get("${reconnect.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
-                    .bodyAsChannel(),
-            )
-            assertTrue(second.isNotEmpty())
-            val consumedIds = first.map { it.id }.toSet()
-            assertTrue(
-                second.none { it.id in consumedIds },
-                "reconnect must not replay already-consumed events",
-            )
-            assertEquals(script.map { it.id }, (first + second).map { it.id })
-        } finally {
-            reconnect.stop()
-        }
+    @Test fun malformedEventIsPreservedAndLongTranscriptIsBounded() = runTest {
+        val bad = server(MockOpenCodeScenario.MalformedEvent)
+        val events = MockSseCodec.decode(bad.client.get("${bad.baseUrl}/api/event").bodyAsText())
+        assertTrue(runCatching { Json.parseToJsonElement(events.last().data) }.isFailure)
+        val long = server(MockOpenCodeScenario.LongTranscript, MockOpenCodeStreamConfig(longTranscriptPartCount = 600))
+        val all = MockSseCodec.decode(long.client.get("${long.baseUrl}/api/event").bodyAsText())
+        assertEquals(600, all.count { it.type == "session.text.ended" })
     }
 
-    @Test
-    fun abortScenarioStopsTheTurnAndNeverReplaysIt() = runTest {
-        val abort = MockOpenCodeServer(MockOpenCodeScenario.Abort).start()
-        try {
-            val script = OpenCodeFixtures.abortSseEvents()
-            val sessionID = OpenCodeFixtures.sessions.first().id
-
-            abort.client
-                .prepareGet("${abort.baseUrl}${MockOpenCodeServer.EVENT_PATH}")
-                .execute { response ->
-                    val channel = response.bodyAsChannel()
-                    // Pre-abort prefix: the session update and the first chunk.
-                    assertEquals(script[0].id, readEvent(channel)?.id)
-                    assertEquals(script[1].id, readEvent(channel)?.id)
-
-                    // Abort the turn while the stream holds it open, with the
-                    // active directory (ADR-0002 §3.3).
-                    val aborted = abort.client.post(
-                        "${abort.baseUrl}${MockOpenCodeServer.SESSION_PATH}/$sessionID/abort" +
-                            "?directory=${OpenCodeFixtures.DIRECTORY}",
-                    )
-                    assertEquals(200, aborted.status.value)
-
-                    // The event in flight at the abort is still delivered...
-                    assertEquals(script[2].id, readEvent(channel)?.id)
-                    // ...and the turn stops: nothing after it.
-                    assertNull(readEvent(channel), "no event may follow the aborted turn's in-flight event")
-                }
-
-            val recorded = abort.aborts.single()
-            assertEquals(sessionID, recorded.sessionId)
-            assertEquals(OpenCodeFixtures.DIRECTORY, recorded.directory, "the abort must carry the directory")
-            assertEquals(setOf(sessionID), abort.abortedSessions)
-
-            // A reconnect never replays the aborted turn.
-            val replayed = readEvents(
-                abort.client
-                    .get("${abort.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
-                    .bodyAsChannel(),
-            )
-            assertTrue(
-                replayed.none { it.type == "message.part.updated" },
-                "the aborted turn must not be replayed: $replayed",
-            )
-
-            // The authoritative transcript only commits the part written before
-            // the abort; the in-flight orphan never becomes server state.
-            val transcript = abort.client
-                .get("${abort.baseUrl}${MockOpenCodeServer.SESSION_PATH}/$sessionID/message")
-                .bodyAsText()
-            assertTrue(transcript.contains("streamed chunk 1"), transcript)
-            assertFalse(transcript.contains("streamed chunk 2"), transcript)
-        } finally {
-            abort.stop()
-        }
+    @Test fun unsupportedAuthenticationAndServerFailuresRemainInjectable() = runTest {
+        val old = server(MockOpenCodeScenario.UnsupportedVersion)
+        assertEquals("1.18.32", obj(old.client.get("${old.baseUrl}/api/info").bodyAsText())["version"]!!.jsonPrimitive.content)
+        val auth = server(MockOpenCodeScenario.AuthenticationFailure)
+        assertEquals(HttpStatusCode.Unauthorized, auth.client.get("${auth.baseUrl}/api/info").status)
+        val error = server(MockOpenCodeScenario.ServerError)
+        assertEquals(HttpStatusCode.InternalServerError, error.client.get("${error.baseUrl}/api/info").status)
     }
 
-    @Test
-    fun permissionRequestScenarioProvidesEventAndDecisionEndpoint() = runTest {
-        val permission = MockOpenCodeServer(MockOpenCodeScenario.PermissionRequest).start()
-        try {
-            val events = MockSseCodec.decode(
-                permission.client.get("${permission.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
-                    .bodyAsText(),
-            )
-            val asked = events.single { it.type == "permission.asked" }
-            val properties = Json.parseToJsonElement(asked.data).jsonObject["properties"]!!.jsonObject
-            val requestID = properties["id"]!!.jsonPrimitive.content
-            assertEquals(OpenCodeFixtures.PERMISSION_REQUEST_ID, requestID)
-
-            val pending = permission.client
-                .get("${permission.baseUrl}${MockOpenCodeServer.PERMISSION_PATH}")
-                .bodyAsText()
-            assertTrue(pending.contains(OpenCodeFixtures.PERMISSION_REQUEST_ID))
-
-            val questions = permission.client
-                .get("${permission.baseUrl}${MockOpenCodeServer.QUESTION_PATH}")
-                .bodyAsText()
-            assertTrue(questions.contains(OpenCodeFixtures.QUESTION_REQUEST_ID))
-
-            val response = permission.client.post(
-                "${permission.baseUrl}${MockOpenCodeServer.PERMISSION_PATH}/$requestID/reply",
-            ) {
-                contentType(ContentType.Application.Json)
-                setBody(TextContent("""{"reply":"once"}""", ContentType.Application.Json))
-            }
-            assertEquals(200, response.status.value)
-            assertTrue(Json.parseToJsonElement(response.bodyAsText()).jsonPrimitive.boolean)
-            assertEquals("once", permission.permissionReplies.single().reply)
-            assertTrue(permission.requests.contains("POST /permission/$requestID/reply"))
-
-            val reject = permission.client.post(
-                "${permission.baseUrl}${MockOpenCodeServer.QUESTION_PATH}/" +
-                    "${OpenCodeFixtures.QUESTION_REQUEST_ID}/reject",
-            )
-            assertEquals(200, reject.status.value)
-            assertEquals("reject", permission.questionReplies.single().decision)
-        } finally {
-            permission.stop()
+    @Test fun catalogUsesSeparateProviderModelAndAgentEnvelopes() = runTest {
+        val server = server()
+        for (path in listOf("provider", "model", "agent")) {
+            val body = obj(server.client.get("${server.baseUrl}/api/$path").bodyAsText())
+            assertTrue(body["data"]!!.jsonArray.isNotEmpty())
+            assertNotNull(body["location"])
         }
+        val empty = server(MockOpenCodeScenario.NoCatalog)
+        assertTrue(obj(empty.client.get("${empty.baseUrl}/api/provider").bodyAsText())["data"]!!.jsonArray.isEmpty())
     }
 
-    @Test
-    fun longTranscriptScenarioStreamsHundredsOfParts() = runTest {
-        val transcript = MockOpenCodeServer(MockOpenCodeScenario.LongTranscript).start()
-        try {
-            val raw = transcript.client
-                .get("${transcript.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
-                .bodyAsText()
-            val events = MockSseCodec.decode(raw)
-
-            assertEquals(1 + transcript.streamConfig.longTranscriptPartCount, events.size)
-            assertEquals("message.part.updated", events.last().type)
-            assertEquals("evt_mock_part_0600", events.last().id)
-        } finally {
-            transcript.stop()
-        }
-    }
-
-    @Test
-    fun unsupportedVersionScenarioReportsAnIncompatibleVersion() = runTest {
-        val old = MockOpenCodeServer(MockOpenCodeScenario.UnsupportedVersion).start()
-        try {
-            val body = old.client.get("${old.baseUrl}${MockOpenCodeServer.HEALTH_PATH}").bodyAsText()
-            val health = Json.parseToJsonElement(body).jsonObject
-            assertEquals(
-                OpenCodeFixtures.UNSUPPORTED_SERVER_VERSION,
-                health["version"]?.jsonPrimitive?.content,
-            )
-        } finally {
-            old.stop()
-        }
-    }
-
-    @Test
-    fun authenticationFailureScenarioReturnsUnauthorized() = runTest {
-        val locked = MockOpenCodeServer(MockOpenCodeScenario.AuthenticationFailure).start()
-        try {
-            val response = locked.client.get("${locked.baseUrl}${MockOpenCodeServer.SESSION_PATH}")
-            assertEquals(401, response.status.value)
-        } finally {
-            locked.stop()
-        }
-    }
-
-    @Test
-    fun serverErrorScenarioReturnsATypedErrorBody() = runTest {
-        val failing = MockOpenCodeServer(MockOpenCodeScenario.ServerError).start()
-        try {
-            val response = failing.client.get("${failing.baseUrl}${MockOpenCodeServer.SESSION_PATH}")
-            assertEquals(500, response.status.value)
-            val error = Json.parseToJsonElement(response.bodyAsText()).jsonObject["error"]!!.jsonObject
-            assertEquals("server_error", error["type"]?.jsonPrimitive?.content)
-        } finally {
-            failing.stop()
-        }
-    }
-
-    @Test
-    fun malformedEventScenarioPreservesTheTruncatedPayload() = runTest {
-        val malformed = MockOpenCodeServer(MockOpenCodeScenario.MalformedEvent).start()
-        try {
-            val raw = malformed.client.get("${malformed.baseUrl}${MockOpenCodeServer.EVENT_PATH}").bodyAsText()
-            val events = MockSseCodec.decode(raw)
-
-            assertEquals(2, events.size)
-            assertEquals("evt_mock_0001", events[0].id)
-            assertEquals("evt_mock_bad", events[1].id)
-            assertEquals(
-                """{"type":"message.part.updated","properties":{"part":""",
-                events[1].data,
-            )
-            assertFailsWith<SerializationException> { Json.parseToJsonElement(events[1].data) }
-        } finally {
-            malformed.stop()
-        }
-    }
-
-    @Test
-    fun sessionStatusRouteReturnsThePinnedStatusMap() = runTest {
-        server.start()
-        val body = server.client.get("${server.baseUrl}${MockOpenCodeServer.SESSION_STATUS_PATH}").bodyAsText()
-        val statuses = Json.parseToJsonElement(body).jsonObject
-
-        assertEquals(OpenCodeFixtures.sessions.size, statuses.size)
-        val active = statuses.getValue(OpenCodeFixtures.sessions.first().id).jsonObject
-        assertEquals("retry", active["type"]?.jsonPrimitive?.content)
-        assertEquals(OpenCodeFixtures.SESSION_STATUS_RETRY_ATTEMPT, active["attempt"]?.jsonPrimitive?.int)
-        assertEquals(OpenCodeFixtures.SESSION_STATUS_RETRY_MESSAGE, active["message"]?.jsonPrimitive?.content)
-        assertEquals(OpenCodeFixtures.SESSION_STATUS_RETRY_NEXT, active["next"]?.jsonPrimitive?.long)
-
-        val idle = statuses.getValue(OpenCodeFixtures.sessions[1].id).jsonObject
-        assertEquals("idle", idle["type"]?.jsonPrimitive?.content)
-        assertTrue(server.requests.contains("GET ${MockOpenCodeServer.SESSION_STATUS_PATH}"))
-    }
-
-    @Test
-    fun stayingDownServerFailsConsecutiveAttemptsBeforeResuming() = runTest {
-        val config = MockOpenCodeStreamConfig(disconnectAfterEvents = 0, disconnectConnections = 3)
-        val down = MockOpenCodeServer(MockOpenCodeScenario.Reconnect, streamConfig = config).start()
-        try {
-            val script = OpenCodeFixtures.disconnectSseEvents()
-            repeat(config.disconnectConnections) { attempt ->
-                val events = readEvents(
-                    down.client
-                        .get("${down.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
-                        .bodyAsChannel(),
-                )
-                assertTrue(events.isEmpty(), "down attempt ${attempt + 1} must deliver no events")
-            }
-
-            val resumed = readEvents(
-                down.client
-                    .get("${down.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
-                    .bodyAsChannel(),
-            )
-            assertEquals(script.map { it.id }, resumed.map { it.id })
-            assertEquals(config.disconnectConnections + 1, down.eventStreamConnections)
-        } finally {
-            down.stop()
-        }
-    }
-
-    @Test
-    fun reconnectingClientReceivesTailEventsOnANonClosingConnection() = runTest {
-        val tail = OpenCodeFixtures.liveTailSseEvents()
-        val config = MockOpenCodeStreamConfig(
-            disconnectAfterEvents = 2,
-            tailEvents = tail,
-            tailDelayMillis = 30L,
-            keepOpenMillis = 200L,
-        )
-        val server = MockOpenCodeServer(MockOpenCodeScenario.Reconnect, streamConfig = config).start()
-        try {
-            val script = OpenCodeFixtures.disconnectSseEvents()
-            val truncated = readEvents(
-                server.client
-                    .get("${server.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
-                    .bodyAsChannel(),
-            )
-            assertEquals(config.disconnectAfterEvents, truncated.size)
-
-            server.client
-                .prepareGet("${server.baseUrl}${MockOpenCodeServer.EVENT_PATH}")
-                .execute { response ->
-                    val channel = response.bodyAsChannel()
-                    // The reconnect first drains the remaining backlog...
-                    assertEquals(script[2].id, readEvent(channel)?.id)
-                    assertEquals(script[3].id, readEvent(channel)?.id)
-                    // ...the tail event is emitted later, on a channel that stays open.
-                    assertNull(withTimeoutOrNull(10) { readEvent(channel) })
-                    assertEquals(tail.single().id, readEvent(channel)?.id)
-                }
-            assertEquals(2, server.eventStreamConnections)
-        } finally {
-            server.stop()
-        }
-    }
-
-    @Test
-    fun keepOpenMillisKeepsTheEventBodyOpenAfterTheScript() = runTest {
-        val config = MockOpenCodeStreamConfig(keepOpenMillis = 120L)
-        val server = MockOpenCodeServer(MockOpenCodeScenario.Default, streamConfig = config).start()
-        try {
-            val started = TimeSource.Monotonic.markNow()
-            val raw = server.client
-                .get("${server.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
-                .bodyAsText()
-            val elapsed = started.elapsedNow().inWholeMilliseconds
-
-            assertEquals(OpenCodeFixtures.defaultSseEvents().size, MockSseCodec.decode(raw).size)
-            assertTrue(
-                elapsed >= config.keepOpenMillis,
-                "expected the body to stay open ${config.keepOpenMillis}ms, ended after ${elapsed}ms",
-            )
-        } finally {
-            server.stop()
-        }
-    }
-
-    @Test
-    fun replayedEventIdIsDeliveredAgainForDeduplication() = runTest {
-        val script = OpenCodeFixtures.disconnectSseEvents()
-        val replayedId = script[1].id
-        val config = MockOpenCodeStreamConfig(disconnectAfterEvents = 2, replayFromEventId = replayedId)
-        val server = MockOpenCodeServer(MockOpenCodeScenario.Reconnect, streamConfig = config).start()
-        try {
-            val first = readEvents(
-                server.client
-                    .get("${server.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
-                    .bodyAsChannel(),
-            )
-            val consumed = first.map { it.id }.toSet()
-            val second = readEvents(
-                server.client
-                    .get("${server.baseUrl}${MockOpenCodeServer.EVENT_PATH}") { skipSavingBody() }
-                    .bodyAsChannel(),
-            )
-
-            assertEquals(replayedId, second.first().id)
-            assertTrue(second.first().id in consumed, "the replayed id must already have been consumed")
-
-            val delivered = (first + second).map { it.id }
-            assertEquals(script.size + 1, delivered.size, "the server must replay exactly one consumed id")
-            // OPE-106 EventProcessor contract: drop replayed/duplicate events by server-issued id.
-            assertEquals(script.map { it.id }, delivered.distinct())
-        } finally {
-            server.stop()
-        }
-    }
-
-    @Test
-    fun sessionMutationRoutesAreReflectedInTheListAndInTheDocumentSurface() = runTest {
-        server.start()
-
-        // create (honours the requested title)
-        server.client.post("${server.baseUrl}${MockOpenCodeServer.SESSION_PATH}") {
-            contentType(ContentType.Application.Json)
-            setBody(TextContent("""{"title":"Titled session"}""", ContentType.Application.Json))
-        }
-        // rename
-        val renamed = server.client.patch(
-            "${server.baseUrl}${MockOpenCodeServer.SESSION_PATH}/ses_mock_1001",
-        ) {
-            contentType(ContentType.Application.Json)
-            setBody(TextContent("""{"title":"Renamed session"}""", ContentType.Application.Json))
-        }
-        assertEquals(200, renamed.status.value)
-        // delete
-        assertEquals(
-            200,
-            server.client.delete("${server.baseUrl}${MockOpenCodeServer.SESSION_PATH}/ses_mock_0002").status.value,
-        )
-        // fork
-        val forked = server.client.post(
-            "${server.baseUrl}${MockOpenCodeServer.SESSION_PATH}/ses_mock_0001/fork",
-        )
-        assertEquals(201, forked.status.value)
-
-        val sessions = Json.parseToJsonElement(
-            server.client.get("${server.baseUrl}${MockOpenCodeServer.SESSION_PATH}").bodyAsText(),
-        ).jsonArray
-        assertTrue(sessions.any { it.jsonObject["id"]?.jsonPrimitive?.content == "ses_mock_1001" })
-        assertTrue(
-            sessions.none { it.jsonObject["id"]?.jsonPrimitive?.content == "ses_mock_0002" },
-            "the deleted session must leave the list",
-        )
-        val forkedObject = sessions.single {
-            it.jsonObject["parentID"]?.jsonPrimitive?.content == "ses_mock_0001"
-        }
-        assertEquals(
-            "Renamed session",
-            sessions.single { it.jsonObject["id"]?.jsonPrimitive?.content == "ses_mock_1001" }
-                .jsonObject["title"]?.jsonPrimitive?.content,
-        )
-        assertTrue(forkedObject.jsonObject["id"]!!.jsonPrimitive.content.startsWith("ses_"))
-
-        val document = Json.parseToJsonElement(
-            server.client.get("${server.baseUrl}${MockOpenCodeServer.DOC_PATH}").bodyAsText(),
-        ).jsonObject
-        assertTrue(document["paths"]!!.jsonObject.containsKey("/session/{sessionID}/fork"))
-    }
-
-    @Test
-    fun noForkScenarioOmitsForkFromTheDocumentAndAnswers404() = runTest {
-        val noFork = MockOpenCodeServer(MockOpenCodeScenario.NoFork).start()
-        try {
-            val document = Json.parseToJsonElement(
-                noFork.client.get("${noFork.baseUrl}${MockOpenCodeServer.DOC_PATH}").bodyAsText(),
-            ).jsonObject
-            assertFalse(document["paths"]!!.jsonObject.containsKey("/session/{sessionID}/fork"))
-
-            val response = noFork.client.post(
-                "${noFork.baseUrl}${MockOpenCodeServer.SESSION_PATH}/ses_mock_0001/fork",
-            )
-            assertEquals(404, response.status.value)
-            assertFalse(noFork.requests.any { it.endsWith("/fork") && it.startsWith("GET") })
-        } finally {
-            noFork.stop()
-        }
-    }
-
-    /** Reads one SSE record, or `null` at end of stream. */
     private suspend fun readEvent(channel: ByteReadChannel): MockSseEvent? {
         val lines = mutableListOf<String>()
         while (true) {
-            val line = channel.readUTF8Line()
-            if (line == null) {
-                return if (lines.isEmpty()) null else decodeEvent(lines)
-            }
-            if (line.isEmpty()) {
-                return decodeEvent(lines)
-            }
+            val line = channel.readUTF8Line() ?: return MockSseCodec.decode(lines.joinToString("\n")).firstOrNull()
             lines += line
+            if (line.isEmpty()) {
+                val event = MockSseCodec.decode(lines.joinToString("\n")).firstOrNull()
+                if (event != null) return event
+                lines.clear()
+            }
         }
-    }
-
-    private fun decodeEvent(lines: List<String>): MockSseEvent? =
-        MockSseCodec.decode(lines.joinToString("\n") + "\n").firstOrNull()
-
-    private suspend fun readEvents(channel: ByteReadChannel): List<MockSseEvent> {
-        val events = mutableListOf<MockSseEvent>()
-        while (true) {
-            val event = readEvent(channel) ?: break
-            events += event
-        }
-        return events
     }
 }

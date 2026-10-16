@@ -1,7 +1,7 @@
 package org.opencodemobile.shared.testsupport
 
 /**
- * Injectable knobs for the `/event` transport modelled by [MockOpenCodeServer].
+ * Injectable knobs for the `/api/event` transport modelled by [MockOpenCodeServer].
  *
  * Defaults are chosen so every scenario is deterministic and fast enough for CI. Tests that
  * need to assert a cadence or a shorter/longer transcript pass a custom instance to
@@ -15,16 +15,15 @@ public data class MockOpenCodeStreamConfig(
     public val slowNetworkDelayMillis: Long = 150L,
 
     /**
-     * Number of events each truncated `/event` connection delivers before
+     * Number of business events each truncated `/api/event` connection delivers before
      * [MockOpenCodeScenario.Disconnect] and [MockOpenCodeScenario.Reconnect] cut the body.
      *
-     * `0` models a connection that drops immediately, which is the shape of a server that is
-     * still down: the client observes an empty body and must retry.
+     * `0` ends after server.connected and a heartbeat, before any business event.
      */
     public val disconnectAfterEvents: Int = 2,
 
     /**
-     * Number of consecutive `/event` connections that are truncated before the script
+     * Number of consecutive `/api/event` connections that are truncated before the script
      * resumes. The default `1` preserves the historical single-cut behaviour.
      *
      * Raise it (with [disconnectAfterEvents] = `0`) to model a server that stays down for N
@@ -33,16 +32,6 @@ public data class MockOpenCodeStreamConfig(
      * truncated one delivers the remaining script normally.
      */
     public val disconnectConnections: Int = 1,
-
-    /**
-     * When non-null, a reconnecting `/event` client receives the tail of the events it already
-     * consumed — from this server-issued id up to the current cursor — before the new events.
-     *
-     * A live server can replay the backlog on resubscribe, so the client must drop an id it
-     * already consumed (OPE-106 `EventProcessor` dedup by server id). With this knob a test can
-     * assert that the same id is delivered twice and that a dedup filter keeps a single copy.
-     */
-    public val replayFromEventId: String? = null,
 
     /**
      * Events written after the main script on the connection that exhausts it. Combined with
@@ -56,19 +45,19 @@ public data class MockOpenCodeStreamConfig(
     public val tailDelayMillis: Long = 0L,
 
     /**
-     * How long the `/event` connection stays open after the script (and any [tailEvents]) have
+     * How long the `/api/event` connection stays open after the script (and any [tailEvents]) have
      * been written, before the body ends. `0` closes as soon as the script is done, i.e. a
      * healthy but idle server and a server in a reconnect loop are indistinguishable. A value
      * above `0` keeps the body open so a test can prove the channel did not end.
      */
     public val keepOpenMillis: Long = 0L,
 
-    /** Number of `message.part.updated` events in the [MockOpenCodeScenario.LongTranscript] fixture. */
+    /** Number of `session.text.ended` events in the [MockOpenCodeScenario.LongTranscript] fixture. */
     public val longTranscriptPartCount: Int = 600,
 
     /**
      * [MockOpenCodeScenario.Abort]: number of events written before the stream
-     * suspends for the abort signal. The event at this index is the one already
+     * suspends for the abort signal (server.connected is excluded). The event at this index is the one already
      * in flight when the abort lands; it is delivered (the client must drop it)
      * and then the stream stops. `0` holds before the first event.
      */

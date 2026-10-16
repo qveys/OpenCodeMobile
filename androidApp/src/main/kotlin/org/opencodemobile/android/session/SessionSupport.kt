@@ -1,6 +1,5 @@
 package org.opencodemobile.android.session
 
-import org.opencodemobile.shared.domain.session.SessionCapabilities
 import org.opencodemobile.shared.domain.session.SessionGateway
 import org.opencodemobile.shared.domain.session.SessionNotConnectedException
 import org.opencodemobile.shared.domain.session.SessionSummary
@@ -55,9 +54,6 @@ internal object UnavailableSessionGateway : SessionGateway {
 
     override suspend fun forkSession(sessionId: String): SessionSummary =
         throw SessionNotConnectedException()
-
-    override suspend fun sessionCapabilities(directory: String?): SessionCapabilities =
-        SessionCapabilities.Unknown
 }
 
 /**
@@ -87,7 +83,4 @@ internal class DeferredSessionGateway(
 
     override suspend fun forkSession(sessionId: String): SessionSummary =
         gateway().forkSession(sessionId)
-
-    override suspend fun sessionCapabilities(directory: String?): SessionCapabilities =
-        gateway().sessionCapabilities(directory)
 }
