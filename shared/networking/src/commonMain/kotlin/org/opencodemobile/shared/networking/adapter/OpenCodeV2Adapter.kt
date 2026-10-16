@@ -258,7 +258,7 @@ public class OpenCodeV2Adapter(
             cursor = page.cursor.next
             check(cursor == null || seen.add(cursor)) { "Repeated message pagination cursor" }
         } while (cursor != null)
-        return result.distinctBy { it.id }.sortedBy { it.time.created }.map { it.toDomain(sessionId) }
+        return result.distinctBy { it.id }.sortedBy { it.time.created }.mapNotNull { it.toDomain(sessionId) }
     }
 
     override suspend fun sendPrompt(sessionId: String, prompt: ChatPrompt) {
