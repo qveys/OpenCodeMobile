@@ -3,6 +3,7 @@ package org.opencodemobile.shared.networking.adapter
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.darwin.Darwin
+import io.ktor.client.plugins.HttpTimeout
 import org.opencodemobile.shared.security.identity.IosSpkiPinningChallengeDelegate
 import org.opencodemobile.shared.security.identity.ServerIdentityPinController
 
@@ -27,6 +28,7 @@ public actual fun createOpenCodeHttpClient(
             }
         }
         applyConnectionTransportPolicy()
+        install(HttpTimeout)
         installBasicAuthHeader(basicAuthController)
         configure()
     }

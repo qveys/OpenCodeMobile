@@ -3,6 +3,10 @@ package org.opencodemobile.shared.networking.realtime
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.HttpTimeoutCapability
+import io.ktor.client.plugins.HttpTimeoutConfig
+import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.writeStringUtf8
@@ -19,6 +23,34 @@ import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class NetworkingRealtimeTransportTest {
+    @Test
+    fun sseOverridesSocketAndRequestTimeoutsWithoutChangingRestDefaults() = runTest {
+        val observed = mutableListOf<HttpTimeoutConfig>()
+        val client = HttpClient(MockEngine { request ->
+            observed += requireNotNull(request.getCapabilityOrNull(HttpTimeoutCapability))
+            respond(": heartbeat\n\n", HttpStatusCode.OK)
+        }) {
+            install(HttpTimeout) {
+                connectTimeoutMillis = 5_000
+                socketTimeoutMillis = 10_000
+                requestTimeoutMillis = 20_000
+            }
+        }
+        try {
+            client.get("http://localhost/api/info")
+            NetworkingRealtimeTransport(client, "http://localhost").openEventStream().collect()
+            client.get("http://localhost/api/info")
+            assertEquals(listOf(10_000L, 60_000L, 10_000L), observed.map { it.socketTimeoutMillis })
+            assertEquals(
+                listOf(20_000L, HttpTimeoutConfig.INFINITE_TIMEOUT_MS, 20_000L),
+                observed.map { it.requestTimeoutMillis },
+            )
+            assertEquals(listOf(5_000L, 5_000L, 5_000L), observed.map { it.connectTimeoutMillis })
+        } finally {
+            client.close()
+        }
+    }
+
     @Test
     fun connectedAndHeartbeatBecomeInternalSignals() = runTest {
         val body = "data: {\"id\":\"connected-id\",\"type\":\"server.connected\",\"data\":{}}\n\n" +

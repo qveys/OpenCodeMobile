@@ -1,5 +1,9 @@
 package org.opencodemobile.shared.networking.realtime
 
+import io.ktor.client.plugins.HttpTimeoutConfig
+import io.ktor.client.plugins.HttpTimeoutCapability
+import io.ktor.client.plugins.timeout
+
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
@@ -85,6 +89,15 @@ public class NetworkingRealtimeTransport(
 
     override fun openEventStream(): Flow<RawServerEvent> = flow {
         httpClient.prepareGet("$baseUrl/api/event") {
+            // OkHttp's native 10 s read timeout is shorter than the server's
+            // 15 s heartbeat. Keep REST defaults; EventProcessor owns the 30 s
+            // inactivity watchdog, including heartbeat activity, for this flow.
+            if (HttpTimeoutCapability in httpClient.engine.supportedCapabilities) {
+                timeout {
+                    requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS
+                    socketTimeoutMillis = 60_000
+                }
+            }
             authTokenProvider()?.let { token ->
                 header(HttpHeaders.Authorization, "Bearer $token")
             }

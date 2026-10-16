@@ -3,6 +3,7 @@ package org.opencodemobile.shared.networking.adapter
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpTimeout
 import java.security.SecureRandom
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
@@ -43,6 +44,7 @@ public actual fun createOpenCodeHttpClient(
             preconfigured = okHttpClient
         }
         applyConnectionTransportPolicy()
+        install(HttpTimeout)
         installBasicAuthHeader(basicAuthController)
         configure()
     }
