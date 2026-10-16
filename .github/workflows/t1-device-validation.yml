@@ -124,6 +124,8 @@ jobs:
           fi
           chown -R "$owner" "$GITHUB_WORKSPACE"
 
+  # OPE-316 exception: retain host provisioning until a KVM-capable runner
+  # and an emulator image/device-access path are verified (ADR 0007).
   android-emulator:
     name: T1 handshake (Android emulator)
     # OPE-250 (D2): heavy device validation stays off the PR path; it runs on
