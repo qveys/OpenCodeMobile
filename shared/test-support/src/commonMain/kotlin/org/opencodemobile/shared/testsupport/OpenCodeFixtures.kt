@@ -142,11 +142,8 @@ public object OpenCodeFixtures {
         sessionUpdatedEvent(sessionID), MockSseEvent("evt_mock_bad", "session.text.ended", """{"id":"evt_mock_bad","type":"session.text.ended","data":{ """),
     )
 
-    public fun textPartObject(partId: String, messageId: String, text: String, sessionID: String = sessions.first().id, start: Long = BASE_TIME): JsonObject =
-        buildJsonObject { put("type", "text"); put("text", text) }
-
     public fun messageEnvelopeObject(messageId: String, role: String, parts: List<JsonObject>, sessionID: String = sessions.first().id, time: Long = BASE_TIME): JsonObject = buildJsonObject {
-        put("id", messageId); put("type", role)
+        put("id", messageId); put("type", role); put("sessionID", sessionID)
         putJsonObject("time") { put("created", time) }
         if (role == "user") {
             put("text", parts.joinToString("") { (it["text"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty() })

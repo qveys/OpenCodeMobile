@@ -85,12 +85,7 @@ public class OpenCodePermissionGateway(
                 else -> null
             }
         }
-        if (root.containsKey("action") || root.containsKey("resources") || root.containsKey("permission") ||
-            root.containsKey("requestID") || root.containsKey("requestId") || root.containsKey("reply")
-        ) {
-            return root
-        }
-        return null
+        return root.takeIf { r -> PERMISSION_KEYS.any(r::containsKey) }
     }
 
     private fun decodeAsked(data: JsonObject): PermissionEvent? {
@@ -167,3 +162,5 @@ private fun JsonObject.stringList(key: String): List<String> =
     (this[key] as? JsonArray)
         ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
         ?: emptyList()
+
+private val PERMISSION_KEYS = listOf("action", "resources", "permission", "requestID", "requestId", "reply")

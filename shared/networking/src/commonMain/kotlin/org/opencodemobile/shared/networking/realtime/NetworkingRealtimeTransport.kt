@@ -113,25 +113,22 @@ public class NetworkingRealtimeTransport(
             try {
                 while (!channel.isClosedForRead) {
                     val line = channel.readUTF8Line() ?: break
-                    if (!line.startsWith("data:")) {
-                        if (line.isNotEmpty()) emit(RawServerEvent.activity())
-                        continue
-                    }
-                    val data = line.removePrefix("data:").removePrefix(" ")
-                    val envelope = runCatching { Json.parseToJsonElement(data) }.getOrNull() as? JsonObject
-                        ?: continue
-                    val type = (envelope["type"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
-                    if (type == SERVER_CONNECTED) {
-                        emit(RawServerEvent.opened())
-                        continue
-                    }
-                    val id = (envelope["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-                    emit(RawServerEvent(id = id, type = type, data = data))
+                    parseSseLine(line)?.let { emit(it) }
                 }
             } finally {
                 channel.cancel(null)
             }
         }
+    }
+
+    private fun parseSseLine(line: String): RawServerEvent? {
+        if (!line.startsWith("data:")) return if (line.isNotEmpty()) RawServerEvent.activity() else null
+        val data = line.removePrefix("data:").removePrefix(" ")
+        val envelope = runCatching { Json.parseToJsonElement(data) }.getOrNull() as? JsonObject ?: return null
+        val type = (envelope["type"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        if (type == SERVER_CONNECTED) return RawServerEvent.opened()
+        val id = (envelope["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        return RawServerEvent(id = id, type = type, data = data)
     }
 
     private companion object {

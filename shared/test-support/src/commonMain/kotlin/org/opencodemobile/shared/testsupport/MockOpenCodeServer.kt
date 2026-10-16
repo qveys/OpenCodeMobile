@@ -609,20 +609,7 @@ public class MockOpenCodeServer(
                     channel.flush()
                 }
             }
-            if (tails.isNotEmpty()) {
-                if (streamConfig.tailDelayMillis > 0L) delay(streamConfig.tailDelayMillis)
-                tails.forEach { event ->
-                    channel.writeStringUtf8(event.encode())
-                    channel.flush()
-                }
-            }
-            var keepOpen = streamConfig.keepOpenMillis
-            while (keepOpen > 0L) {
-                val pause = minOf(keepOpen, 15_000L)
-                delay(pause)
-                keepOpen -= pause
-                if (pause == 15_000L) { channel.writeStringUtf8(": heartbeat\n\n"); channel.flush() }
-            }
+            writeTailAndKeepOpen(channel, tails)
         }
 
         return HttpResponseData(
@@ -645,6 +632,24 @@ public class MockOpenCodeServer(
     /** The session whose turn the [MockOpenCodeScenario.Abort] fixture aborts. */
     private val abortedSessionId: String
         get() = OpenCodeFixtures.sessions.first().id
+
+    /** Emits late "resume live" activity, then holds the connection open with heartbeats. */
+    private suspend fun writeTailAndKeepOpen(channel: ByteWriteChannel, tails: List<MockSseEvent>) {
+        if (tails.isNotEmpty()) {
+            if (streamConfig.tailDelayMillis > 0L) delay(streamConfig.tailDelayMillis)
+            tails.forEach { event ->
+                channel.writeStringUtf8(event.encode())
+                channel.flush()
+            }
+        }
+        var keepOpen = streamConfig.keepOpenMillis
+        while (keepOpen > 0L) {
+            val pause = minOf(keepOpen, 15_000L)
+            delay(pause)
+            keepOpen -= pause
+            if (pause == 15_000L) { channel.writeStringUtf8(": heartbeat\n\n"); channel.flush() }
+        }
+    }
 
     /**
      * Writes the [MockOpenCodeScenario.Abort] stream.

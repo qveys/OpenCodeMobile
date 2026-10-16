@@ -210,9 +210,8 @@ class LiveServerSmokeTest {
             try {
                 s.adapter.deleteSession(id)
                 println("LiveServerSmokeTest: throwaway session $id deleted")
-            } catch (e: CancellationException) {
-                throw e
             } catch (e: Exception) {
+                // Best-effort cleanup: never mask the test's own outcome from a finally block.
                 println("LiveServerSmokeTest: CLEANUP FAILED (${e::class.simpleName}); delete session $id manually")
             }
         }
