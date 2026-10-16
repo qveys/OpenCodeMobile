@@ -1,5 +1,8 @@
 package org.opencodemobile.shared.networking.adapter
 
+import kotlinx.serialization.json.Json
+import org.opencodemobile.shared.domain.interaction.FormFieldType
+import org.opencodemobile.shared.domain.interaction.FormValue
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -15,6 +18,7 @@ import org.opencodemobile.shared.domain.interaction.InteractionNotConnectedExcep
 import org.opencodemobile.shared.security.identity.ServerIdentityGate
 import org.opencodemobile.shared.security.identity.ServerIdentityPinController
 import org.opencodemobile.shared.security.identity.TofuServerIdentityCoordinator
+import org.opencodemobile.shared.testsupport.MockAbort
 import org.opencodemobile.shared.testsupport.MockOpenCodeScenario
 import org.opencodemobile.shared.testsupport.MockOpenCodeServer
 import org.opencodemobile.shared.testsupport.OpenCodeFixtures
@@ -63,10 +67,13 @@ class InteractionGatewayAdapterTest {
 
             assertEquals(1, questions.size)
             val question = questions.single()
-            assertEquals(OpenCodeFixtures.QUESTION_REQUEST_ID, question.id)
+            assertEquals(OpenCodeFixtures.FORM_REQUEST_ID, question.id)
             assertEquals(OpenCodeFixtures.sessions.first().id, question.sessionId)
-            assertEquals("Rebase target", question.questions.single().header)
-            assertEquals(listOf("main", "release"), question.questions.single().options.map { it.label })
+            assertEquals("Rebase target", question.title)
+            assertEquals("branch", question.fields.single().key)
+            assertEquals(FormFieldType.Multiselect, question.fields.single().type)
+            assertTrue(question.fields.single().required)
+            assertEquals(listOf("main", "release"), question.fields.single().options.map { it.label })
         } finally {
             server.stop()
         }
@@ -80,24 +87,30 @@ class InteractionGatewayAdapterTest {
             adapter.connect(profile, ServerCredential("s3cr3t"))
 
             adapter.answerQuestion(
-                requestId = OpenCodeFixtures.QUESTION_REQUEST_ID,
-                answers = listOf(listOf("main")),
+                requestId = OpenCodeFixtures.FORM_REQUEST_ID,
+                sessionId = OpenCodeFixtures.sessions.first().id,
+                answer = mapOf("branch" to FormValue.Choices(listOf("main"))),
             )
-            adapter.rejectQuestion(OpenCodeFixtures.QUESTION_REQUEST_ID)
+            adapter.rejectQuestion(OpenCodeFixtures.sessions.first().id, OpenCodeFixtures.FORM_REQUEST_ID)
 
-            val decisions = server.questionReplies
+            val decisions = server.formReplies
             assertEquals(2, decisions.size)
             assertEquals("reply", decisions[0].decision)
-            assertEquals(OpenCodeFixtures.QUESTION_REQUEST_ID, decisions[0].requestID)
-            assertEquals(listOf(listOf("main")), decisions[0].answers)
-            assertEquals("reject", decisions[1].decision)
+            assertEquals(OpenCodeFixtures.FORM_REQUEST_ID, decisions[0].requestID)
+            assertEquals<kotlinx.serialization.json.JsonElement?>(Json.parseToJsonElement("""{"branch":["main"]}"""), decisions[0].answer)
+            assertTrue(decisions.all { it.sessionId == OpenCodeFixtures.sessions.first().id })
+            assertEquals("cancel", decisions[1].decision)
+            assertEquals(OpenCodeFixtures.FORM_REQUEST_ID, decisions[1].requestID)
+            assertTrue(adapter.pendingQuestions().isEmpty())
+            val formPath = "/api/session/${OpenCodeFixtures.sessions.first().id}/form/${OpenCodeFixtures.FORM_REQUEST_ID}"
+            assertTrue(server.requests.containsAll(listOf("POST $formPath/reply", "DELETE $formPath")))
         } finally {
             server.stop()
         }
     }
 
     @Test
-    fun abortHitsTheSessionAbortRouteAndCarriesTheDirectory() = runTest {
+    fun abortHitsTheSessionInterruptRoute() = runTest {
         val server = MockOpenCodeServer().start()
         try {
             val adapter = adapterFor(server)
@@ -106,15 +119,15 @@ class InteractionGatewayAdapterTest {
             adapter.abortTurn("ses_mock_0001", OpenCodeFixtures.DIRECTORY)
 
             assertTrue(
-                server.requests.contains("POST /session/ses_mock_0001/abort"),
-                "abort must call POST /session/{id}/abort: ${server.requests}",
+                server.requests.contains("POST /api/session/ses_mock_0001/interrupt"),
+                "abort must call POST /api/session/{id}/interrupt: ${server.requests}",
             )
-            val recorded = server.aborts.single()
-            assertEquals("ses_mock_0001", recorded.sessionId)
+            // abortTurn received DIRECTORY; the mock reads directory only from the query, so a
+            // non-null value here means the adapter leaked it onto the v2 route.
             assertEquals(
-                OpenCodeFixtures.DIRECTORY,
-                recorded.directory,
-                "abort must pass the active directory as a query parameter (ADR-0002 §3.3)",
+                MockAbort(sessionId = "ses_mock_0001", directory = null),
+                server.aborts.single(),
+                "v2 interruption is scoped by session ID: the directory argument must not reach the wire",
             )
         } finally {
             server.stop()
@@ -136,7 +149,8 @@ class InteractionGatewayAdapterTest {
                 catalog.providers.first().models.map { it.id },
             )
             assertEquals("anthropic", catalog.providers.first().models.first().providerId)
-            assertEquals(mapOf("anthropic" to OpenCodeFixtures.MODEL_ID), catalog.defaultModelByProvider)
+            assertTrue(catalog.defaultModelByProvider.isEmpty(), "v2 does not publish default models")
+            assertTrue(server.requests.containsAll(listOf("GET /api/provider", "GET /api/model", "GET /api/agent")))
             assertEquals(listOf("build", "plan"), catalog.agents.map { it.name })
             assertTrue(catalog.providersAvailable && catalog.agentsAvailable)
             assertTrue(!catalog.isEmpty)
@@ -175,8 +189,8 @@ class InteractionGatewayAdapterTest {
 
             assertTrue(catalog.providers.isEmpty() && catalog.agents.isEmpty())
             assertTrue(catalog.isEmpty)
-            assertTrue(!catalog.providersAvailable, "a 404 on GET /provider means the route is absent")
-            assertTrue(!catalog.agentsAvailable, "a 404 on GET /agent means the route is absent")
+            assertTrue(!catalog.providersAvailable, "a 404 on GET /api/provider means the route is absent")
+            assertTrue(!catalog.agentsAvailable, "a 404 on GET /api/agent means the route is absent")
         } finally {
             server.stop()
         }
@@ -209,7 +223,7 @@ class InteractionGatewayAdapterTest {
             assertEquals("No active OpenCode Server connection", failure.message)
 
             // A disconnected adapter must not have sent anything to the server.
-            assertTrue(server.requests.none { it.startsWith("GET /question") })
+            assertTrue(server.requests.none { it.startsWith("GET /api/form") })
         } finally {
             server.stop()
         }

@@ -20,8 +20,10 @@ import org.opencodemobile.shared.domain.event.EventSource
 import org.opencodemobile.shared.domain.event.RealtimeState
 import org.opencodemobile.shared.domain.event.ServerEvent
 import org.opencodemobile.shared.domain.interaction.PendingQuestion
-import org.opencodemobile.shared.domain.interaction.QuestionItem
-import org.opencodemobile.shared.domain.interaction.QuestionOption
+import org.opencodemobile.shared.domain.interaction.FormField
+import org.opencodemobile.shared.domain.interaction.FormFieldType
+import org.opencodemobile.shared.domain.interaction.FormValue
+import org.opencodemobile.shared.domain.interaction.FormOption
 
 private class FakeEventSource : EventSource {
     private val mutableState = MutableStateFlow(RealtimeState())
@@ -47,11 +49,13 @@ class PendingQuestionsRealtimeBridgeTest {
     private val question = PendingQuestion(
         id = "que_1",
         sessionId = "ses_1",
-        questions = listOf(
-            QuestionItem(
-                question = "Which branch?",
-                header = "Rebase target",
-                options = listOf(QuestionOption("main"), QuestionOption("release")),
+        title = "Rebase target",
+        fields = listOf(
+            FormField(
+                key = "branch",
+                type = FormFieldType.Multiselect,
+                title = "Which branch?",
+                options = listOf(FormOption("main", "main"), FormOption("release", "release")),
             ),
         ),
     )

@@ -27,8 +27,8 @@ import org.opencodemobile.features.catalog.CatalogUiState
 import org.opencodemobile.features.catalog.ModelUi
 import org.opencodemobile.features.catalog.ProviderUi
 import org.opencodemobile.features.catalog.ServerCatalogScreen
-import org.opencodemobile.features.composer.DictationComposerPresenter
 import org.opencodemobile.features.composer.ComposerScreen
+import org.opencodemobile.features.composer.DictationComposerPresenter
 import org.opencodemobile.features.connection.ConnectionFailure
 import org.opencodemobile.features.connection.ConnectionSetupContent
 import org.opencodemobile.features.connection.ConnectionSetupUiState
@@ -39,8 +39,6 @@ import org.opencodemobile.features.permissions.PermissionDecisionUi
 import org.opencodemobile.features.permissions.PermissionEmphasis
 import org.opencodemobile.features.questions.PendingQuestionUi
 import org.opencodemobile.features.questions.PendingQuestionsScreen
-import org.opencodemobile.features.questions.QuestionItemUi
-import org.opencodemobile.features.questions.QuestionOptionUi
 import org.opencodemobile.features.questions.QuestionsUiState
 import org.opencodemobile.features.settings.EraseEverythingActions
 import org.opencodemobile.features.settings.EraseEverythingScreen
@@ -62,6 +60,9 @@ import org.opencodemobile.shared.domain.dictation.DictationAvailability
 import org.opencodemobile.shared.domain.dictation.DictationEvent
 import org.opencodemobile.shared.domain.dictation.DictationProvider
 import org.opencodemobile.shared.domain.dictation.DictationUnavailableReason
+import org.opencodemobile.shared.domain.interaction.FormField
+import org.opencodemobile.shared.domain.interaction.FormFieldType
+import org.opencodemobile.shared.domain.interaction.FormOption
 import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
 
 /**
@@ -108,7 +109,7 @@ class V1ScreenshotTest(private val locale: String, private val dark: Boolean) {
 
     @Test
     fun connection_manual_entry() = shot {
-        ConnectionSetupContent(ConnectionSetupUiState(), {}, {}, {}, {}, {}, {}, {})
+        ConnectionSetupContent(ConnectionSetupUiState(), {}, {}, {}, {}, {}, {}, {}, {}, {})
     }
 
     @Test
@@ -117,7 +118,7 @@ class V1ScreenshotTest(private val locale: String, private val dark: Boolean) {
             address = "http://",
             manualError = DomainError.InvalidServerAddress(ServerInputProblem.MISSING_HOST, "http://"),
         )
-        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {})
+        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {}, {}, {})
     }
 
     @Test
@@ -126,7 +127,7 @@ class V1ScreenshotTest(private val locale: String, private val dark: Boolean) {
             address = "192.168.1.20:4096",
             failure = ConnectionFailure(FailureKind.UNREACHABLE),
         )
-        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {})
+        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {}, {}, {})
     }
 
     @Test
@@ -195,18 +196,21 @@ class V1ScreenshotTest(private val locale: String, private val dark: Boolean) {
                     PendingQuestionUi(
                         "q1",
                         "s1",
-                        listOf(
-                            QuestionItemUi(
-                                header = tr("Branche", "Branch"),
-                                question = tr("Sur quelle branche appliquer le correctif ?", "Which branch should the fix go on?"),
-                                options = listOf(QuestionOptionUi("main"), QuestionOptionUi("release", tr("Branche de publication", "Release branch"))),
+                        title = tr("Branche", "Branch"),
+                        fields = listOf(
+                            FormField(
+                                key = "branch",
+                                type = FormFieldType.Multiselect,
+                                title = tr("Branche", "Branch"),
+                                description = tr("Sur quelle branche appliquer le correctif ?", "Which branch should the fix go on?"),
+                                options = listOf(FormOption("main", "main"), FormOption("release", tr("Branche de publication", "Release branch"))),
                             ),
                         ),
                     ),
                 ),
             ),
-            onReply = { _, _ -> },
-            onReject = {},
+            onReply = { _, _, _ -> },
+            onReject = { _, _ -> },
         )
     }
 

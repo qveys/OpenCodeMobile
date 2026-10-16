@@ -4,6 +4,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
@@ -71,6 +73,64 @@ class EventProcessorTest {
 
         processor.stop()
         assertEquals(ConnectionPhase.Stopped, processor.state.value.phase)
+    }
+
+    @Test
+    fun heartbeatsKeepIdleStreamLiveBeyondThirtySeconds() = runTest {
+        val transport = FakeEventTransport { testScheduler.currentTime }
+        transport.stream = {
+            flow {
+                emit(RawServerEvent.opened())
+                while (true) {
+                    delay(15_000)
+                    emit(RawServerEvent.activity())
+                }
+            }
+        }
+        val received = mutableListOf<ServerEvent>()
+        val processor = EventProcessor(transport)
+        backgroundScope.launch { processor.events.collect { received += it } }
+        processor.start(backgroundScope)
+        runCurrent()
+        advanceTimeBy(90_001)
+        runCurrent()
+
+        assertEquals(ConnectionPhase.Live, processor.state.value.phase)
+        assertEquals(listOf(0L), transport.streamAt, "no reconnect during six heartbeats")
+        assertTrue(transport.pollAt.isEmpty())
+        assertTrue(received.isEmpty(), "internal signals never reach business consumers")
+        assertEquals(0L, processor.state.value.eventCount)
+        assertEquals(null, processor.state.value.lastEventId)
+
+        processor.stop()
+    }
+
+    @Test
+    fun liveIsPublishedOnlyAfterStreamOpening() = runTest {
+        val opened = CompletableDeferred<Unit>()
+        val transport = FakeEventTransport { testScheduler.currentTime }
+        transport.stream = {
+            flow {
+                opened.await()
+                emit(RawServerEvent.opened())
+                awaitCancellation()
+            }
+        }
+        val processor = EventProcessor(transport)
+        val phases = mutableListOf<ConnectionPhase>()
+        backgroundScope.launch { processor.state.collect { phases += it.phase } }
+        processor.start(backgroundScope)
+        runCurrent()
+        advanceTimeBy(5_000)
+        runCurrent()
+        assertEquals(ConnectionPhase.Reconciling, processor.state.value.phase)
+        assertTrue(ConnectionPhase.Live !in phases)
+
+        opened.complete(Unit)
+        runCurrent()
+        assertEquals(ConnectionPhase.Live, processor.state.value.phase)
+        assertEquals(0L, processor.state.value.eventCount)
+        processor.stop()
     }
 
     @Test
@@ -324,6 +384,30 @@ class EventProcessorTest {
         assertEquals(2, polled.attempt)
         assertEquals("rate limited", polled.message)
 
+        processor.stop()
+    }
+
+    @Test
+    fun sseSessionStatusUpdatesDomainStatusKeepingRetryDetails() = runTest {
+        val transport = FakeEventTransport { testScheduler.currentTime }
+        transport.snapshot = RealtimeSnapshot(listOf(session), mapOf(session.id to SessionStatus("busy")))
+        val retry = """{"id":"evt_1","type":"session.status","data":{"sessionID":"${session.id}",""" +
+            """"status":{"type":"retry","attempt":3,"message":"rate limited","next":9000}}}"""
+        transport.stream = {
+            flow {
+                emit(RawServerEvent("evt_1", "session.status", retry))
+                awaitCancellation()
+            }
+        }
+
+        val processor = EventProcessor(transport)
+        processor.start(backgroundScope)
+        runCurrent()
+
+        assertEquals(
+            SessionStatus("retry", attempt = 3, message = "rate limited", next = 9_000L),
+            processor.state.value.statuses.getValue(session.id),
+        )
         processor.stop()
     }
 

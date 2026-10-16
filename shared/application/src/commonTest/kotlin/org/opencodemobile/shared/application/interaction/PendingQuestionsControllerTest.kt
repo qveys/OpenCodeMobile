@@ -7,8 +7,11 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import org.opencodemobile.shared.domain.cache.ConnectionState
 import org.opencodemobile.shared.domain.interaction.PendingQuestion
-import org.opencodemobile.shared.domain.interaction.QuestionItem
-import org.opencodemobile.shared.domain.interaction.QuestionOption
+import org.opencodemobile.shared.domain.interaction.FormAnswer
+import org.opencodemobile.shared.domain.interaction.FormField
+import org.opencodemobile.shared.domain.interaction.FormFieldType
+import org.opencodemobile.shared.domain.interaction.FormValue
+import org.opencodemobile.shared.domain.interaction.FormOption
 import org.opencodemobile.shared.domain.cache.ConnectivityMutationGate
 
 class PendingQuestionsControllerTest {
@@ -16,11 +19,13 @@ class PendingQuestionsControllerTest {
     private val question = PendingQuestion(
         id = "que_1",
         sessionId = "ses_1",
-        questions = listOf(
-            QuestionItem(
-                question = "Which branch?",
-                header = "Rebase target",
-                options = listOf(QuestionOption("main"), QuestionOption("release")),
+        title = "Rebase target",
+        fields = listOf(
+            FormField(
+                key = "branch",
+                type = FormFieldType.Multiselect,
+                title = "Which branch?",
+                options = listOf(FormOption("main", "main"), FormOption("release", "release")),
             ),
         ),
     )
@@ -44,10 +49,11 @@ class PendingQuestionsControllerTest {
         val controller = PendingQuestionsController(gateway, onlineGate())
         controller.refresh()
 
-        val outcome = controller.answer("que_1", listOf(listOf("main")))
+        val answer: FormAnswer = mapOf("branch" to FormValue.Choices(listOf("main")))
+        val outcome = controller.answer("ses_1", "que_1", answer)
 
         assertTrue(outcome.isSuccess)
-        assertEquals(listOf("que_1" to listOf(listOf("main"))), gateway.answered)
+        assertEquals(listOf(Triple("ses_1", "que_1", answer)), gateway.answered)
         assertTrue(controller.state.value.questions.isEmpty(), "the answered question is gone")
         assertFalse(controller.state.value.blocksTurn)
     }
@@ -58,10 +64,10 @@ class PendingQuestionsControllerTest {
         val controller = PendingQuestionsController(gateway, onlineGate())
         controller.refresh()
 
-        val outcome = controller.reject("que_1")
+        val outcome = controller.reject("ses_1", "que_1")
 
         assertTrue(outcome.isSuccess)
-        assertEquals(listOf("que_1"), gateway.rejected)
+        assertEquals(listOf("ses_1" to "que_1"), gateway.rejected)
         assertTrue(controller.state.value.questions.isEmpty())
     }
 
@@ -70,8 +76,8 @@ class PendingQuestionsControllerTest {
         val gateway = FakeInteractionGateway(questions = listOf(question))
         val controller = PendingQuestionsController(gateway, offlineGate())
 
-        val answerOutcome = controller.answer("que_1", listOf(listOf("main")))
-        val rejectOutcome = controller.reject("que_1")
+        val answerOutcome = controller.answer("ses_1", "que_1", mapOf("branch" to FormValue.Choices(listOf("main"))))
+        val rejectOutcome = controller.reject("ses_1", "que_1")
 
         assertTrue(answerOutcome.isFailure, "offline answer must fail (D8)")
         assertTrue(rejectOutcome.isFailure, "offline reject must fail (D8)")

@@ -15,7 +15,8 @@ package org.opencodemobile.shared.domain.interaction
  */
 public interface OpenCodeInteractionGateway {
     /**
-     * Lists the questions the server is currently waiting on (`GET /question`).
+     * Lists the questions (forms) the server is currently waiting on
+     * (`GET /api/form`).
      *
      * [directory] scopes the request to the active project root so a question
      * from another workspace on the same server cannot leak in (ADR-0002 §3.3).
@@ -23,22 +24,27 @@ public interface OpenCodeInteractionGateway {
     public suspend fun pendingQuestions(directory: String? = null): List<PendingQuestion>
 
     /**
-     * Answers a pending question (`POST /question/{requestID}/reply`).
+     * Answers a pending question (`POST /api/session/{sessionID}/form/{formID}/reply`).
      *
-     * [answers] is one list of selected labels per asked question, matching the
-     * server contract `{ answers: [[label, ...]] }`.
+     * [answer] maps each [FormField.key] to its [FormValue], matching the server
+     * contract `{ answer: { key: value } }`. [sessionId] is the owning session
+     * ([PendingQuestion.sessionId]); the form route is session-scoped.
      */
     public suspend fun answerQuestion(
+        sessionId: String,
         requestId: String,
-        answers: List<List<String>>,
+        answer: FormAnswer,
         directory: String? = null,
     )
 
-    /** Rejects a pending question (`POST /question/{requestID}/reject`). */
-    public suspend fun rejectQuestion(requestId: String, directory: String? = null)
+    /**
+     * Rejects a pending question by cancelling its form
+     * (`DELETE /api/session/{sessionID}/form/{formID}`).
+     */
+    public suspend fun rejectQuestion(sessionId: String, requestId: String, directory: String? = null)
 
     /**
-     * Aborts the active turn of [sessionId] (`POST /session/{sessionID}/abort`).
+     * Aborts the active turn of [sessionId] (`POST /api/session/{sessionID}/interrupt`).
      *
      * Abort is an explicit user action and is never automatic (V1-08). It is
      * sent exactly once; the client does not patch any local turn state and
@@ -51,8 +57,8 @@ public interface OpenCodeInteractionGateway {
     public suspend fun abortTurn(sessionId: String, directory: String? = null)
 
     /**
-     * Reads what the server exposes: providers/models (`GET /provider`) and
-     * agents (`GET /agent`). Never falls back to a built-in catalog.
+     * Reads what the server exposes: providers/models (`GET /api/provider`) and
+     * agents (`GET /api/agent`). Never falls back to a built-in catalog.
      */
     public suspend fun serverCatalog(directory: String? = null): ServerCatalog
 }

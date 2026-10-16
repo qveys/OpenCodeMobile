@@ -16,6 +16,10 @@ import org.opencodemobile.shared.domain.connection.ServerProfile
 public data class ConnectionSetupUiState(
     public val address: String = "",
     public val label: String = "",
+    /** Optional reverse-proxy Basic Auth username (Traefik/Dokploy gate), not the server's own credential. */
+    public val username: String = "",
+    /** Optional reverse-proxy Basic Auth password; never logged or persisted when blank. */
+    public val password: String = "",
     public val manualError: DomainError.InvalidServerAddress? = null,
     public val scanFailed: Boolean = false,
     public val review: ServerSetupPlan? = null,

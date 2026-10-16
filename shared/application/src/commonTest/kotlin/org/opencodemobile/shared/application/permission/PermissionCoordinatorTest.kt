@@ -43,13 +43,16 @@ private open class RecordingPermissionPort(
     var outcome: PermissionReplyOutcome = PermissionReplyOutcome.Accepted,
 ) : PermissionPort {
     val replies: MutableList<Pair<String, PermissionDecision>> = mutableListOf()
+    val replySessionIds: MutableList<String> = mutableListOf()
 
     override suspend fun pendingPermissions(): List<PermissionRequest> = serverPending
 
     override suspend fun reply(
+        sessionId: String,
         requestId: String,
         decision: PermissionDecision,
     ): PermissionReplyOutcome {
+        replySessionIds += sessionId
         replies += requestId to decision
         return outcome
     }
@@ -60,9 +63,11 @@ private class GatedPermissionPort : RecordingPermissionPort() {
     val gate: CompletableDeferred<PermissionReplyOutcome> = CompletableDeferred()
 
     override suspend fun reply(
+        sessionId: String,
         requestId: String,
         decision: PermissionDecision,
     ): PermissionReplyOutcome {
+        replySessionIds += sessionId
         replies += requestId to decision
         return gate.await()
     }
@@ -137,6 +142,7 @@ class PermissionCoordinatorTest {
 
         assertEquals(PermissionSubmitResult.Accepted, result)
         assertEquals(listOf(bashRequest.id to PermissionDecision.Once), port.replies)
+        assertEquals(listOf(bashRequest.sessionId), port.replySessionIds)
         assertEquals(1, biometric.calls, "the biometric gate must run once per approval")
         assertTrue(coordinator.state.value.pending.isEmpty())
     }
@@ -156,6 +162,7 @@ class PermissionCoordinatorTest {
 
         assertEquals(PermissionSubmitResult.Accepted, result)
         assertEquals(listOf(bashRequest.id to PermissionDecision.Deny), port.replies)
+        assertEquals(listOf(bashRequest.sessionId), port.replySessionIds)
         assertEquals(0, biometric.calls, "denying grants no capability and needs no biometric")
     }
 

@@ -28,8 +28,6 @@ import org.opencodemobile.features.permissions.PermissionDecisionUi
 import org.opencodemobile.features.permissions.PermissionEmphasis
 import org.opencodemobile.features.questions.PendingQuestionUi
 import org.opencodemobile.features.questions.PendingQuestionsScreen
-import org.opencodemobile.features.questions.QuestionItemUi
-import org.opencodemobile.features.questions.QuestionOptionUi
 import org.opencodemobile.features.questions.QuestionsUiState
 import org.opencodemobile.features.settings.EraseEverythingActions
 import org.opencodemobile.features.settings.EraseEverythingScreen
@@ -48,6 +46,9 @@ import org.opencodemobile.shared.domain.chat.TranscriptRole
 import org.opencodemobile.shared.domain.connection.DomainError
 import org.opencodemobile.shared.domain.connection.ServerInputProblem
 import org.opencodemobile.shared.domain.connection.ServerProfile
+import org.opencodemobile.shared.domain.interaction.FormField
+import org.opencodemobile.shared.domain.interaction.FormFieldType
+import org.opencodemobile.shared.domain.interaction.FormOption
 import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
 import org.opencodemobile.shared.domain.permission.PermissionDecision
 import platform.UIKit.UIViewController
@@ -94,14 +95,14 @@ private fun message(id: String, role: TranscriptRole, text: String) =
 
 private val debugScreens: Map<String, DebugScreen> = mapOf(
     "manual-entry" to DebugScreen {
-        ConnectionSetupContent(ConnectionSetupUiState(), {}, {}, {}, {}, {}, {}, {})
+        ConnectionSetupContent(ConnectionSetupUiState(), {}, {}, {}, {}, {}, {}, {}, {}, {})
     },
     "invalid-address" to DebugScreen {
         val state = ConnectionSetupUiState(
             address = "http://",
             manualError = DomainError.InvalidServerAddress(ServerInputProblem.MISSING_HOST, "http://"),
         )
-        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {})
+        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {}, {}, {})
     },
     "review" to DebugScreen {
         val profile = ServerProfile("s1", "192.168.1.20", 4096, "MacBook", ServerProfile.TlsMode.PlaintextHttp)
@@ -144,18 +145,21 @@ private val debugScreens: Map<String, DebugScreen> = mapOf(
                     PendingQuestionUi(
                         "q1",
                         "s1",
-                        listOf(
-                            QuestionItemUi(
-                                header = loc("Branch", "Branche"),
-                                question = loc("Which branch should the fix target?", "Sur quelle branche appliquer le correctif ?"),
-                                options = listOf(QuestionOptionUi("main"), QuestionOptionUi("release", loc("Release branch", "Branche de publication"))),
+                        title = loc("Branch", "Branche"),
+                        fields = listOf(
+                            FormField(
+                                key = "branch",
+                                type = FormFieldType.Multiselect,
+                                title = loc("Branch", "Branche"),
+                                description = loc("Which branch should the fix target?", "Sur quelle branche appliquer le correctif ?"),
+                                options = listOf(FormOption("main", "main"), FormOption("release", loc("Release branch", "Branche de publication"))),
                             ),
                         ),
                     ),
                 ),
             ),
-            onReply = { _, _ -> },
-            onReject = {},
+            onReply = { _, _, _ -> },
+            onReject = { _, _ -> },
         )
     },
     "local-access" to DebugScreen {

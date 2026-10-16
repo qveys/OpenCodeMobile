@@ -9,12 +9,12 @@ class DomainErrorMessagesTest {
 
     @Test
     fun incompatibleServerShowsVersionAndSupportedRange() {
-        val error = DomainError.ServerIncompatible(ServerVersion(2, 3, 0), "1.x (>= 1.18.0)")
+        val error = DomainError.ServerIncompatible(ServerVersion(3, 3, 0), "2.x (>= 2.0.0)")
 
         val presentation = DomainErrorMessages.present(error)
 
-        assertTrue(presentation.message.contains("2.3.0"), presentation.message)
-        assertTrue(presentation.message.contains("1.x (>= 1.18.0)"), presentation.message)
+        assertTrue(presentation.message.contains("3.3.0"), presentation.message)
+        assertTrue(presentation.message.contains("2.x (>= 2.0.0)"), presentation.message)
         assertFalse(presentation.retryable)
     }
 
@@ -60,9 +60,8 @@ class DomainErrorMessagesTest {
     fun everyErrorProducesKeysAndConsistentRetryability() {
         val samples = listOf(
             DomainError.Unreachable(null),
-            DomainError.ServerUnhealthy(),
             DomainError.HandshakeIncomplete("detail"),
-            DomainError.ServerIncompatible(ServerVersion(2, 0, 0), "1.x (>= 1.18.0)"),
+            DomainError.ServerIncompatible(ServerVersion(3, 0, 0), "2.x (>= 2.0.0)"),
             DomainError.CredentialRejected(),
             DomainError.AuthenticationRequired(),
             DomainError.IdentityUnconfirmed(ServerFingerprint.of(ByteArray(32))),

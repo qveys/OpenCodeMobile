@@ -21,37 +21,24 @@ package org.opencodemobile.shared.domain.session
  * (ADR-0002 §3.3).
  */
 public interface SessionGateway {
-    /** Lists the sessions the server exposes (`GET /session`), newest activity first. */
+    /** Lists the sessions the server exposes (`GET /api/session`), newest activity first.
+     *
+     * The server paginates by cursor; the adapter follows the cursor internally
+     * and returns the full list, so the port stays cursor-free. */
     public suspend fun listSessions(directory: String? = null): List<SessionSummary>
 
-    /** Reads one session (`GET /session/{id}`), used by "resume"/open. */
+    /** Reads one session (`GET /api/session/{id}`), used by "resume"/open. */
     public suspend fun getSession(sessionId: String): SessionSummary
 
-    /** Creates a session (`POST /session`). [title] may be null to let the server name it. */
+    /** Creates a session (`POST /api/session`). [title] may be null to let the server name it. */
     public suspend fun createSession(directory: String? = null, title: String? = null): SessionSummary
 
-    /** Renames a session (`PATCH /session/{id}`). [title] must be normalized by the caller. */
+    /** Renames a session (`PATCH /api/session/{id}`). [title] must be normalized by the caller. */
     public suspend fun renameSession(sessionId: String, title: String): SessionSummary
 
-    /** Deletes a session (`DELETE /session/{id}`). */
+    /** Deletes a session (`DELETE /api/session/{id}`). */
     public suspend fun deleteSession(sessionId: String)
 
-    /**
-     * Forks a session (`POST /session/{id}/fork`).
-     *
-     * Callers must check [sessionCapabilities] first: on a server that does not
-     * publish the fork route the action stays disabled and this method is never
-     * called (V1-04 acceptance).
-     */
+    /** Forks a session (`POST /api/session/{id}/fork`). */
     public suspend fun forkSession(sessionId: String): SessionSummary
-
-    /**
-     * Reads the session capability surface from the server itself.
-     *
-     * A server whose surface cannot be read reports
-     * [SessionCapabilities.Unknown] (fork unavailable); this call never throws
-     * for that reason, so an unreadable surface degrades to a hidden action
-     * rather than an error screen.
-     */
-    public suspend fun sessionCapabilities(directory: String? = null): SessionCapabilities
 }

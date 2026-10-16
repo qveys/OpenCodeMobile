@@ -14,19 +14,12 @@ class DomainErrorTest {
     private val previous = ServerFingerprint.of(ByteArray(32) { (it + 2).toByte() })
 
     @Test
-    fun unreachableMapsFromHealthUnavailable() {
-        val mapped = HandshakeException.HealthUnavailable(IllegalStateException("refused")).toDomainError()
+    fun unreachableMapsFromInfoUnavailable() {
+        val mapped = HandshakeException.InfoUnavailable(IllegalStateException("refused")).toDomainError()
 
         val error = assertIs<DomainError.Unreachable>(mapped)
         assertEquals(DomainErrorCode.CONNECTION_UNREACHABLE, error.code)
         assertEquals(DomainErrorCategory.CONNECTION, error.category)
-        assertTrue(error.isRetryable)
-    }
-
-    @Test
-    fun unhealthyMapsFromServerUnhealthy() {
-        val error = assertIs<DomainError.ServerUnhealthy>(HandshakeException.ServerUnhealthy().toDomainError())
-        assertEquals(DomainErrorCode.CONNECTION_SERVER_UNHEALTHY, error.code)
         assertTrue(error.isRetryable)
     }
 
@@ -41,13 +34,13 @@ class DomainErrorTest {
 
     @Test
     fun incompatibleMapsWithVersionAndSupportedRange() {
-        val source = HandshakeException.Incompatible(ServerVersion(2, 0, 0), profile)
+        val source = HandshakeException.Incompatible(ServerVersion(3, 0, 0), profile)
 
         val error = assertIs<DomainError.ServerIncompatible>(source.toDomainError())
 
         assertEquals(DomainErrorCode.COMPATIBILITY_SERVER_INCOMPATIBLE, error.code)
         assertEquals(DomainErrorCategory.COMPATIBILITY, error.category)
-        assertEquals(ServerVersion(2, 0, 0), error.serverVersion)
+        assertEquals(ServerVersion(3, 0, 0), error.serverVersion)
         assertEquals(profile.supportedRange, error.supportedRange)
         assertFalse(error.isRetryable)
     }

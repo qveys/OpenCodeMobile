@@ -48,10 +48,10 @@ public data class PermissionCapabilities(
             PermissionCapabilities(setOf(PermissionDecision.Once))
 
         /**
-         * Derives the decision set from a pinned OpenCode Server v2 root-surface
-         * request.
+         * Derives the decision set from a pinned OpenCode Server v2 `/api`
+         * permission request.
          *
-         * The root surface exposes the reply enum `once` / `reject` / `always`:
+         * The `/api` surface exposes the reply decision `once` / `always` / `reject`:
          * `once` is always available, `reject` (Deny) is always expressible, and
          * `always` (Remember) is only meaningful when the server offered at least
          * one persistable scope. [supportsDeny] lets a restricted server variant
@@ -84,8 +84,8 @@ public data class PermissionCapabilities(
 public data class PermissionRequest(
     /** Server-issued, single-use request id (`^per`). */
     public val id: String,
-    /** Session that triggered the request, when the server reports one. */
-    public val sessionId: String?,
+    /** Session that triggered the request; the reply route is scoped to it. */
+    public val sessionId: String,
     /** The requested tool, verbatim (for example `bash`). */
     public val tool: String,
     /** The exact targets the tool would touch, verbatim. */
@@ -264,7 +264,7 @@ public object PermissionPolicy {
 @Suppress("LongParameterList")
 public fun permissionContentFingerprint(
     id: String,
-    sessionId: String?,
+    sessionId: String,
     tool: String,
     patterns: List<String>,
     rawArguments: String,
@@ -273,7 +273,7 @@ public fun permissionContentFingerprint(
 ): String {
     val payload = buildString {
         appendField(id)
-        appendField(sessionId.orEmpty())
+        appendField(sessionId)
         appendField(tool)
         appendField(patterns.joinToString("\u0000"))
         appendField(rawArguments)

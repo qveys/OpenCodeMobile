@@ -38,23 +38,24 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
-/** A decision sent to `POST /permission/{requestID}/reply`, captured for assertions. */
+/** A decision sent to `POST /api/session/{sessionID}/permission/{requestID}/reply`, captured for assertions. */
 public data class MockPermissionReply(
     public val requestID: String,
     public val reply: String?,
     public val message: String? = null,
+    public val sessionId: String,
 )
 
-/** A decision sent to `POST /question/{requestID}/reply` or `/reject`, captured for assertions. */
-public data class MockQuestionReply(
+/** A session-scoped form answer or cancellation captured for assertions. */
+public data class MockFormReply(
+    public val sessionId: String,
     public val requestID: String,
     public val decision: String,
-    /** The `answers` array parsed off the reply body, when the request was a reply. */
-    public val answers: List<List<String>>? = null,
+    public val answer: JsonObject? = null,
 )
 
 /**
- * A prompt received on `POST /session/{sessionID}/prompt_async`, captured for assertions.
+ * A prompt received on `POST /api/session/{sessionID}/prompt`, captured for assertions.
  *
  * The count per session is the D9 proof: a reconnecting client must never send
  * the same prompt twice.
@@ -65,7 +66,7 @@ public data class MockPrompt(
 )
 
 /**
- * An abort received on `POST /session/{sessionID}/abort`, captured for assertions.
+ * An abort received on `POST /api/session/{sessionID}/interrupt`, captured for assertions.
  *
  * [directory] is the optional `directory` query parameter (ADR-0002 §3.3); a
  * test asserts the adapter forwards the active project root.
@@ -79,14 +80,14 @@ public data class MockAbort(
  * A deterministic, in-process fake of the OpenCode Server v2 HTTP surface.
  *
  * It is backed by a small custom Ktor [io.ktor.client.engine.HttpClientEngine] — not
- * `MockEngine` — so that `GET /event` can write its body **incrementally** into a
+ * `MockEngine` — so that `GET /api/event` can write its body **incrementally** into a
  * [io.ktor.utils.io.ByteWriteChannel]: one event at a time, with a flush after each event,
  * an optional inter-event delay, and a configurable early end of the body. This is what
  * makes the `streaming`, `slow-network`, `disconnect`, `reconnect` and
  * `permission-request` scenarios expressible; `MockEngine` returned a single concatenated
  * body with no point of observation or interruption while the body was read.
  *
- * Request/response routes (health, sessions, permissions, questions, the failure
+ * Request/response routes (info, sessions, permissions, forms, the failure
  * scenarios) share the same engine so every fixture comes from one place.
  *
  * Usage:
@@ -129,7 +130,7 @@ public class MockOpenCodeServer(
     private val deletedSessionIds: MutableSet<String> = mutableSetOf()
     private val requestLog: MutableList<String> = mutableListOf()
     private val permissionReplyLog: MutableList<MockPermissionReply> = mutableListOf()
-    private val questionReplyLog: MutableList<MockQuestionReply> = mutableListOf()
+    private val formReplyLog: MutableList<MockFormReply> = mutableListOf()
     private val promptLog: MutableList<MockPrompt> = mutableListOf()
     private val abortLog: MutableList<MockAbort> = mutableListOf()
 
@@ -137,13 +138,13 @@ public class MockOpenCodeServer(
      * Sessions whose active turn was aborted; their turn is never replayed.
      *
      * A `StateFlow` (not a plain set) because the abort is recorded on the abort
-     * request's thread while the `/event` writer polls it on another, so the
+     * request's thread while the `/api/event` writer polls it on another, so the
      * update must cross threads with a visibility guarantee.
      */
     private val abortedSessionIds: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     /**
-     * Part ids whose `message.part.updated` was written **before** an abort, i.e.
+     * Part ids whose `session.text.ended` was written **before** an abort, i.e.
      * the server committed them to the authoritative transcript. A part written
      * after the abort (the in-flight orphan) is deliberately not committed.
      * A `StateFlow` for the same cross-thread visibility reason.
@@ -163,22 +164,22 @@ public class MockOpenCodeServer(
     public val requests: List<String>
         get() = requestLog.toList()
 
-    /** Decisions received on `POST /permission/{requestID}/reply`, in arrival order. */
+    /** Decisions received on `POST /api/session/{sessionID}/permission/{requestID}/reply`, in arrival order. */
     public val permissionReplies: List<MockPermissionReply>
         get() = permissionReplyLog.toList()
 
-    /** Decisions received on the question reply/reject routes, in arrival order. */
-    public val questionReplies: List<MockQuestionReply>
-        get() = questionReplyLog.toList()
+    /** Decisions received on the form reply/cancel routes, in arrival order. */
+    public val formReplies: List<MockFormReply>
+        get() = formReplyLog.toList()
 
     /**
-     * Prompts received on `POST /session/{id}/prompt_async`, in arrival order.
+     * Prompts received on `POST /api/session/{id}/prompt`, in arrival order.
      * The count is the D9 proof: a reconnect must not replay a prompt.
      */
     public val prompts: List<MockPrompt>
         get() = promptLog.toList()
 
-    /** Aborts received on `POST /session/{id}/abort`, in arrival order, with their `directory`. */
+    /** Aborts received on `POST /api/session/{id}/interrupt`, in arrival order, with their `directory`. */
     public val aborts: List<MockAbort>
         get() = abortLog.toList()
 
@@ -187,14 +188,14 @@ public class MockOpenCodeServer(
         get() = abortedSessionIds.value
 
     /**
-     * Part ids the mock has actually emitted on `/event` (`message.part.updated`)
+     * Part ids the mock has actually emitted on `/api/event` (`session.text.ended`)
      * and that are therefore part of the authoritative transcript. A part written
      * after an abort (the in-flight orphan) is never added.
      */
     public val deliveredParts: Set<String>
         get() = committedPartIds.value
 
-    /** Number of `GET /event` connections served since the last [start]. */
+    /** Number of `GET /api/event` connections served since the last [start]. */
     public val eventStreamConnections: Int
         get() = eventStreamConnectionCount
 
@@ -221,7 +222,7 @@ public class MockOpenCodeServer(
         deletedSessionIds.clear()
         requestLog.clear()
         permissionReplyLog.clear()
-        questionReplyLog.clear()
+        formReplyLog.clear()
         promptLog.clear()
         abortLog.clear()
         abortedSessionIds.value = emptySet()
@@ -245,7 +246,7 @@ public class MockOpenCodeServer(
 
     /**
      * The custom engine replacing `MockEngine`. It runs on the caller's `HttpClient` and
-     * streams `/event` bodies through a [io.ktor.utils.io.ByteWriteChannel].
+     * streams `/api/event` bodies through a [io.ktor.utils.io.ByteWriteChannel].
      */
     private inner class Engine : HttpClientEngineBase("mock-opencode") {
         override val config: HttpClientEngineConfig = HttpClientEngineConfig()
@@ -272,35 +273,24 @@ public class MockOpenCodeServer(
         }
 
         return when {
-            method == HttpMethod.Get && path == HEALTH_PATH -> {
+            method == HttpMethod.Get && path == INFO_PATH -> {
                 val version = if (scenario == MockOpenCodeScenario.UnsupportedVersion) {
                     OpenCodeFixtures.UNSUPPORTED_SERVER_VERSION
                 } else {
                     OpenCodeFixtures.SERVER_VERSION
                 }
-                jsonResponse(OpenCodeFixtures.healthJson(version), HttpStatusCode.OK, callContext)
+                jsonResponse(OpenCodeFixtures.infoJson(version), HttpStatusCode.OK, callContext)
             }
 
-            // The server's own published surface: capability detection reads this
-            // instead of assuming a feature set (V1-04).
-            method == HttpMethod.Get && path == DOC_PATH ->
-                jsonResponse(
-                    OpenCodeFixtures.serverDocumentJson(
-                        forkAvailable = scenario != MockOpenCodeScenario.NoFork,
-                    ),
-                    HttpStatusCode.OK,
-                    callContext,
-                )
-
             method == HttpMethod.Get && path == SESSION_PATH ->
-                jsonResponse(sessionsJson(), HttpStatusCode.OK, callContext)
+                jsonResponse(sessionPageJson(request), HttpStatusCode.OK, callContext)
 
             method == HttpMethod.Get && path == SESSION_STATUS_PATH ->
                 jsonResponse(sessionStatusJson(), HttpStatusCode.OK, callContext)
 
             // --- V1-05: transcript + async prompt ---
 
-            // Declared before the generic `GET /session/{id}` route: `/message` is
+            // Declared before the generic `GET /api/session/{id}` route: `/message` is
             // a sub-resource, not a session id.
             method == HttpMethod.Get && path.startsWith("$SESSION_PATH/") && path.endsWith("/message") -> {
                 val id = path.removePrefix("$SESSION_PATH/").removeSuffix("/message")
@@ -308,30 +298,34 @@ public class MockOpenCodeServer(
             }
 
             // The async prompt is recorded and answered immediately; the reply is
-            // streamed on `GET /event`, exactly like a real server.
-            method == HttpMethod.Post && path.startsWith("$SESSION_PATH/") && path.endsWith("/prompt_async") -> {
-                val id = path.removePrefix("$SESSION_PATH/").removeSuffix("/prompt_async")
+            // streamed on `GET /api/event`, exactly like a real server.
+            method == HttpMethod.Post && path.startsWith("$SESSION_PATH/") && path.endsWith("/prompt") -> {
+                val id = path.removePrefix("$SESSION_PATH/").removeSuffix("/prompt")
                 val text = parsePromptText(readBodyText(request.body))
+                    ?: return badRequestJson(callContext)
                 promptLog += MockPrompt(sessionId = id, text = text.orEmpty())
-                // Pinned spec: `POST /session/{id}/prompt_async` answers `204 No Content`.
-                noContentResponse(callContext)
+                jsonResponse(OpenCodeFixtures.envelope(buildJsonObject {
+                    put("id", "msg_user_${promptLog.size.toString().padStart(4, '0')}")
+                    put("sessionID", id); put("type", "user")
+                    put("delivery", "queue")
+                    put("time", buildJsonObject { put("created", OpenCodeFixtures.BASE_TIME) })
+                    put("payload", buildJsonObject { put("text", text.orEmpty()) })
+                }).toString(), HttpStatusCode.OK, callContext)
             }
 
             method == HttpMethod.Post && path == SESSION_PATH -> {
                 val body = readBodyText(request.body)
                 if (bodyContainsKey(body, "directory")) {
-                    // The pinned spec's POST /session body is additionalProperties:false
-                    // and has no `directory`; it is a query parameter. Reject it here so a
-                    // regression in the create path is caught by the harness.
+                    // v2 uses location.directory, never a top-level directory.
                     badRequestJson(callContext)
                 } else {
                     val created = nextSession(
                         title = parseTitle(body),
-                        // `directory` is a query parameter on POST /session in the
-                        // pinned spec; the mock reads it there, like a real server.
-                        directory = request.url.parameters["directory"],
+                        directory = (body?.let { runCatching { json.parseToJsonElement(it) }.getOrNull() } as? JsonObject)
+                            ?.get("location")?.let { it as? JsonObject }
+                            ?.get("directory")?.let { it as? JsonPrimitive }?.contentOrNull,
                     )
-                    jsonResponse(OpenCodeFixtures.sessionJson(created), HttpStatusCode.Created, callContext)
+                    jsonResponse(OpenCodeFixtures.sessionJson(created), HttpStatusCode.OK, callContext)
                 }
             }
 
@@ -345,12 +339,39 @@ public class MockOpenCodeServer(
                         notFoundJson(callContext)
                     } else {
                         val forked = nextForkedSession(parent)
-                        jsonResponse(OpenCodeFixtures.sessionJson(forked), HttpStatusCode.Created, callContext)
+                        jsonResponse(OpenCodeFixtures.sessionJson(forked), HttpStatusCode.OK, callContext)
                     }
                 }
             }
 
-            method == HttpMethod.Patch && path.startsWith("$SESSION_PATH/") -> {
+            method == HttpMethod.Post && Regex("$SESSION_PATH/[^/]+/permission/[^/]+/reply").matches(path) -> {
+                val segments = path.removePrefix("$SESSION_PATH/").split("/")
+                val decision = parsePermissionReply(readBodyText(request.body))
+                if (decision == null || decision.first !in setOf("once", "always", "reject")) {
+                    badRequestJson(callContext)
+                } else if (segments[0] != OpenCodeFixtures.sessions.first().id || segments[2] != OpenCodeFixtures.PERMISSION_REQUEST_ID) {
+                    notFoundJson(callContext)
+                } else {
+                    permissionReplyLog += MockPermissionReply(segments[2], decision.first, decision.second, segments[0])
+                    noContentResponse(callContext)
+                }
+            }
+
+            (method == HttpMethod.Post && Regex("$SESSION_PATH/[^/]+/form/[^/]+/reply").matches(path)) ||
+                (method == HttpMethod.Delete && Regex("$SESSION_PATH/[^/]+/form/[^/]+").matches(path)) -> {
+                val segments = path.removePrefix("$SESSION_PATH/").split("/")
+                val answer = if (method == HttpMethod.Post) parseFormAnswer(readBodyText(request.body)) else null
+                when {
+                    segments[0] != OpenCodeFixtures.sessions.first().id || segments[2] != OpenCodeFixtures.FORM_REQUEST_ID -> notFoundJson(callContext)
+                    method == HttpMethod.Post && answer == null -> badRequestJson(callContext)
+                    else -> {
+                        formReplyLog += MockFormReply(segments[0], segments[2], if (method == HttpMethod.Post) "reply" else "cancel", answer)
+                        noContentResponse(callContext)
+                    }
+                }
+            }
+
+            method == HttpMethod.Patch && Regex("$SESSION_PATH/[^/]+").matches(path) -> {
                 val id = path.removePrefix("$SESSION_PATH/")
                 val existing = allSessions().firstOrNull { it.id == id }
                 val title = parseTitle(readBodyText(request.body))
@@ -360,18 +381,18 @@ public class MockOpenCodeServer(
                     else -> {
                         val renamed = existing.copy(title = title, updated = existing.updated + 1L)
                         sessionOverrides[id] = renamed
-                        jsonResponse(OpenCodeFixtures.sessionJson(renamed), HttpStatusCode.OK, callContext)
+                        noContentResponse(callContext)
                     }
                 }
             }
 
-            method == HttpMethod.Delete && path.startsWith("$SESSION_PATH/") -> {
+            method == HttpMethod.Delete && Regex("$SESSION_PATH/[^/]+").matches(path) -> {
                 val id = path.removePrefix("$SESSION_PATH/")
                 deletedSessionIds += id
-                jsonResponse("true", HttpStatusCode.OK, callContext)
+                noContentResponse(callContext)
             }
 
-            method == HttpMethod.Get && path.startsWith("$SESSION_PATH/") -> {
+            method == HttpMethod.Get && Regex("$SESSION_PATH/[^/]+").matches(path) -> {
                 val id = path.removePrefix("$SESSION_PATH/")
                 val session = allSessions().firstOrNull { it.id == id }
                 if (session != null) {
@@ -384,11 +405,11 @@ public class MockOpenCodeServer(
             // Abort the active turn (V1-08). The mock records the exact request,
             // including the optional `directory` query parameter (ADR-0002 §3.3),
             // and marks the session so its aborted turn is never replayed.
-            method == HttpMethod.Post && path.startsWith("$SESSION_PATH/") && path.endsWith("/abort") -> {
-                val id = path.removePrefix("$SESSION_PATH/").removeSuffix("/abort")
+            method == HttpMethod.Post && path.startsWith("$SESSION_PATH/") && path.endsWith("/interrupt") -> {
+                val id = path.removePrefix("$SESSION_PATH/").removeSuffix("/interrupt")
                 abortLog += MockAbort(sessionId = id, directory = request.url.parameters["directory"])
                 abortedSessionIds.value = abortedSessionIds.value + id
-                jsonResponse("""{"aborted":true}""", HttpStatusCode.OK, callContext)
+                jsonResponse("""{"interrupted":true}""", HttpStatusCode.OK, callContext)
             }
 
             method == HttpMethod.Get && path == EVENT_PATH -> eventStreamResponse(callContext)
@@ -396,40 +417,21 @@ public class MockOpenCodeServer(
             method == HttpMethod.Get && path == PERMISSION_PATH ->
                 jsonResponse(permissionsJson(), HttpStatusCode.OK, callContext)
 
-            method == HttpMethod.Post && path.startsWith("$PERMISSION_PATH/") && path.endsWith("/reply") -> {
-                val requestID = path.removePrefix("$PERMISSION_PATH/").removeSuffix("/reply")
-                val decision = parsePermissionReply(readBodyText(request.body))
-                permissionReplyLog += MockPermissionReply(
-                    requestID = requestID,
-                    reply = decision?.first,
-                    message = decision?.second,
-                )
-                jsonResponse("true", HttpStatusCode.OK, callContext)
-            }
-
-            method == HttpMethod.Get && path == QUESTION_PATH ->
-                jsonResponse(questionsJson(), HttpStatusCode.OK, callContext)
-
-            method == HttpMethod.Post && path.startsWith("$QUESTION_PATH/") && path.endsWith("/reply") -> {
-                val requestID = path.removePrefix("$QUESTION_PATH/").removeSuffix("/reply")
-                questionReplyLog += MockQuestionReply(
-                    requestID = requestID,
-                    decision = "reply",
-                    answers = parseQuestionAnswers(readBodyText(request.body)),
-                )
-                jsonResponse("true", HttpStatusCode.OK, callContext)
-            }
-
-            method == HttpMethod.Post && path.startsWith("$QUESTION_PATH/") && path.endsWith("/reject") -> {
-                val requestID = path.removePrefix("$QUESTION_PATH/").removeSuffix("/reject")
-                questionReplyLog += MockQuestionReply(requestID, decision = "reject")
-                jsonResponse("true", HttpStatusCode.OK, callContext)
-            }
+            method == HttpMethod.Get && path == FORM_PATH ->
+                jsonResponse(formsJson(), HttpStatusCode.OK, callContext)
 
             // --- V1-09: server-exposed models and agents ---
 
             method == HttpMethod.Get && path == PROVIDER_PATH ->
                 catalogProvidersResponse(callContext)
+
+            method == HttpMethod.Get && path == MODEL_PATH ->
+                when (scenario) {
+                    MockOpenCodeScenario.NoCatalogRoutes -> notFoundJson(callContext)
+                    MockOpenCodeScenario.CatalogUnavailable -> jsonResponse(ERROR_JSON, HttpStatusCode.ServiceUnavailable, callContext)
+                    MockOpenCodeScenario.NoCatalog -> jsonResponse(OpenCodeFixtures.envelope(buildJsonArray {}, location = true).toString(), HttpStatusCode.OK, callContext)
+                    else -> jsonResponse(OpenCodeFixtures.modelsJson(), HttpStatusCode.OK, callContext)
+                }
 
             method == HttpMethod.Get && path == AGENT_PATH ->
                 catalogAgentsResponse(callContext)
@@ -443,22 +445,36 @@ public class MockOpenCodeServer(
             .map { session -> sessionOverrides[session.id] ?: session }
             .filterNot { session -> session.id in deletedSessionIds }
 
-    private fun sessionsJson(): String = OpenCodeFixtures.sessionsJson(allSessions())
+    /** Opaque mock cursors exercise the adapter's internal pagination loop. */
+    private fun sessionPageJson(request: HttpRequestData): String {
+        val directory = request.url.parameters["directory"]
+        val sessions = allSessions().filter { directory == null || it.directory == directory }
+        val limit = request.url.parameters["limit"]?.toIntOrNull()?.coerceAtLeast(1) ?: 50
+        val offset = request.url.parameters["cursor"]?.removePrefix("mock_")?.toIntOrNull() ?: 0
+        val page = sessions.drop(offset).take(limit)
+        return buildJsonObject {
+            put("data", buildJsonArray { page.forEach { add(OpenCodeFixtures.sessionObject(it)) } })
+            put("cursor", buildJsonObject {
+                put("previous", if (offset > 0) JsonPrimitive("mock_${(offset - limit).coerceAtLeast(0)}") else kotlinx.serialization.json.JsonNull)
+                put("next", if (offset + page.size < sessions.size) JsonPrimitive("mock_${offset + page.size}") else kotlinx.serialization.json.JsonNull)
+            })
+        }.toString()
+    }
 
     private fun sessionStatusJson(): String = OpenCodeFixtures.sessionStatusJson(allSessions())
 
     private fun permissionsJson(): String =
-        if (scenario == MockOpenCodeScenario.PermissionRequest) {
+        if (scenario == MockOpenCodeScenario.PermissionRequest && permissionReplyLog.isEmpty()) {
             OpenCodeFixtures.permissionsJson()
         } else {
-            "[]"
+            OpenCodeFixtures.envelope(buildJsonArray {}, location = true).toString()
         }
 
-    private fun questionsJson(): String =
-        if (scenario == MockOpenCodeScenario.PermissionRequest) {
-            OpenCodeFixtures.questionsJson()
+    private fun formsJson(): String =
+        if (scenario == MockOpenCodeScenario.PermissionRequest && formReplyLog.isEmpty()) {
+            OpenCodeFixtures.formsJson()
         } else {
-            "[]"
+            OpenCodeFixtures.envelope(buildJsonArray {}, location = true).toString()
         }
 
     /**
@@ -484,7 +500,7 @@ public class MockOpenCodeServer(
             MockOpenCodeScenario.NoCatalogRoutes -> notFoundJson(callContext)
             MockOpenCodeScenario.CatalogUnavailable ->
                 jsonResponse(ERROR_JSON, HttpStatusCode.ServiceUnavailable, callContext)
-            MockOpenCodeScenario.NoCatalog -> jsonResponse("[]", HttpStatusCode.OK, callContext)
+            MockOpenCodeScenario.NoCatalog -> jsonResponse(OpenCodeFixtures.envelope(buildJsonArray {}, location = true).toString(), HttpStatusCode.OK, callContext)
             else -> jsonResponse(OpenCodeFixtures.agentsJson(), HttpStatusCode.OK, callContext)
         }
 
@@ -506,7 +522,7 @@ public class MockOpenCodeServer(
     }
 
     /**
-     * A session created by `POST /session/{id}/fork`: a new id, the parent id
+     * A session created by `POST /api/session/{id}/fork`: a new id, the parent id
      * carried in `parentID`, and a title derived from the parent so the list
      * shows the relationship.
      */
@@ -531,7 +547,7 @@ public class MockOpenCodeServer(
     }
 
     /**
-     * Serves `GET /event`.
+     * Serves `GET /api/event`.
      *
      * The scripted event list advances monotonically across connections ([eventCursor]) so a
      * reconnecting client normally receives only events that occur after it reconnects.
@@ -542,9 +558,8 @@ public class MockOpenCodeServer(
      * script. A flush is issued after every event so the body is readable progressively.
      *
      * Three extra knobs make the harder lines of `docs/ARCHITECTURE.md` §3.2 expressible:
-     * [MockOpenCodeStreamConfig.disconnectConnections] > 1 models a server that stays down for
-     * several attempts; [MockOpenCodeStreamConfig.replayFromEventId] re-delivers already
-     * consumed ids so dedup by server id can be asserted; [MockOpenCodeStreamConfig.tailEvents]
+     * [MockOpenCodeStreamConfig.disconnectConnections] > 1 models repeated disconnects;
+     * [MockOpenCodeStreamConfig.tailEvents]
      * (with `tailDelayMillis` / `keepOpenMillis`) emits activity later on a connection that
      * stays open ("resume live") instead of ending the body as soon as the script is empty.
      */
@@ -561,10 +576,9 @@ public class MockOpenCodeServer(
             remaining.size
         }
         val fresh = remaining.take(take)
-        val replayed = replayPrefix(script, start)
         // V1-08: an aborted turn is never replayed. The cursor still advances past
         // its events (they were consumed), and any replay of them is suppressed.
-        val slice = (replayed + fresh).filterNot { isAbortedTurnEvent(it) }
+        val slice = fresh.filterNot { isAbortedTurnEvent(it) }
         eventCursor = start + fresh.size
         eventStreamConnectionCount += 1
 
@@ -581,7 +595,11 @@ public class MockOpenCodeServer(
             else -> 0L
         }
 
+        val connection = eventStreamConnectionCount
         val writerJob = CoroutineScope(callContext).writer(autoFlush = true) {
+            channel.writeStringUtf8(OpenCodeFixtures.connectedEvent(connection).encode())
+            channel.writeStringUtf8(": heartbeat\n\n")
+            channel.flush()
             if (scenario == MockOpenCodeScenario.Abort) {
                 writeAbortAware(channel, slice, abortedSessionId, delayMillis)
             } else {
@@ -591,20 +609,17 @@ public class MockOpenCodeServer(
                     channel.flush()
                 }
             }
-            if (tails.isNotEmpty()) {
-                if (streamConfig.tailDelayMillis > 0L) delay(streamConfig.tailDelayMillis)
-                tails.forEach { event ->
-                    channel.writeStringUtf8(event.encode())
-                    channel.flush()
-                }
-            }
-            if (streamConfig.keepOpenMillis > 0L) delay(streamConfig.keepOpenMillis)
+            writeTailAndKeepOpen(channel, tails)
         }
 
         return HttpResponseData(
             statusCode = HttpStatusCode.OK,
             requestTime = GMTDate(),
-            headers = headersOf(HttpHeaders.ContentType, ContentType.Text.EventStream.toString()),
+            headers = headersOf(
+                HttpHeaders.ContentType to listOf(ContentType.Text.EventStream.toString()),
+                HttpHeaders.CacheControl to listOf("no-cache, no-transform"),
+                "X-Accel-Buffering" to listOf("no"),
+            ),
             version = HttpProtocolVersion.HTTP_1_1,
             body = writerJob.channel,
             callContext = callContext,
@@ -618,11 +633,29 @@ public class MockOpenCodeServer(
     private val abortedSessionId: String
         get() = OpenCodeFixtures.sessions.first().id
 
+    /** Emits late "resume live" activity, then holds the connection open with heartbeats. */
+    private suspend fun writeTailAndKeepOpen(channel: ByteWriteChannel, tails: List<MockSseEvent>) {
+        if (tails.isNotEmpty()) {
+            if (streamConfig.tailDelayMillis > 0L) delay(streamConfig.tailDelayMillis)
+            tails.forEach { event ->
+                channel.writeStringUtf8(event.encode())
+                channel.flush()
+            }
+        }
+        var keepOpen = streamConfig.keepOpenMillis
+        while (keepOpen > 0L) {
+            val pause = minOf(keepOpen, 15_000L)
+            delay(pause)
+            keepOpen -= pause
+            if (pause == 15_000L) { channel.writeStringUtf8(": heartbeat\n\n"); channel.flush() }
+        }
+    }
+
     /**
      * Writes the [MockOpenCodeScenario.Abort] stream.
      *
      * The turn is held open at [MockOpenCodeStreamConfig.abortHoldAfterEvents]
-     * until `POST /session/{id}/abort` lands; the event already in flight is then
+     * until `POST /api/session/{id}/interrupt` lands; the event already in flight is then
      * written (it crossed the abort and is deliberately **not** committed to the
      * authoritative transcript), and the stream stops. Nothing after it is
      * delivered, so a reconnecting client never replays the aborted turn.
@@ -658,36 +691,23 @@ public class MockOpenCodeServer(
         return sessionID in abortedSessionIds.value
     }
 
-    /** The `properties.sessionID` of [event], or null when the payload has none. */
+    /** The `data.sessionID` of [event], or null when the payload has none. */
     private fun eventSessionId(event: MockSseEvent): String? {
         val root = runCatching { json.parseToJsonElement(event.data) }.getOrNull() as? JsonObject
             ?: return null
-        val properties = root["properties"] as? JsonObject ?: return null
+        val properties = root["data"] as? JsonObject ?: return null
         return (properties["sessionID"] as? JsonPrimitive)?.contentOrNull
     }
 
-    /** Records a written `message.part.updated` as committed to the server transcript. */
+    /** Records a written `session.text.ended` as committed to the server transcript. */
     private fun commitPartEvent(event: MockSseEvent) {
-        if (event.type != "message.part.updated") return
+        if (event.type != "session.text.ended") return
         val root = runCatching { json.parseToJsonElement(event.data) }.getOrNull() as? JsonObject
             ?: return
-        val properties = root["properties"] as? JsonObject ?: return
-        val part = properties["part"] as? JsonObject ?: return
-        val partId = (part["id"] as? JsonPrimitive)?.contentOrNull ?: return
-        committedPartIds.value = committedPartIds.value + partId
-    }
-
-    /**
-     * The already-consumed tail of the script that
-     * [MockOpenCodeStreamConfig.replayFromEventId] asks the server to replay on resubscribe.
-     * Empty unless the configured id was delivered before the current cursor.
-     */
-    private fun replayPrefix(script: List<MockSseEvent>, cursor: Int): List<MockSseEvent> {
-        val fromId = streamConfig.replayFromEventId ?: return emptyList()
-        if (cursor <= 0) return emptyList()
-        val from = script.indexOfFirst { it.id == fromId }
-        if (from < 0 || from >= cursor) return emptyList()
-        return script.subList(from, cursor)
+        val properties = root["data"] as? JsonObject ?: return
+        val messageId = (properties["assistantMessageID"] as? JsonPrimitive)?.contentOrNull ?: return
+        val ordinal = (properties["ordinal"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: return
+        committedPartIds.value = committedPartIds.value + messageId + "$messageId:text:$ordinal"
     }
 
     private fun scriptFor(scenario: MockOpenCodeScenario): List<MockSseEvent> = when (scenario) {
@@ -704,62 +724,39 @@ public class MockOpenCodeServer(
     }
 
     /**
-     * `GET /session/{id}/message`: the user prompts recorded on `prompt_async`,
+     * `GET /api/session/{id}/message`: the user prompts recorded on `prompt`,
      * followed by the assistant messages derived from the scenario's SSE script,
      * so the stream and the reconciling transcript cannot drift apart.
      */
     private fun transcriptJson(sessionId: String): String {
         val assistant = assistantMessages(sessionId)
         val users = promptLog.filter { it.sessionId == sessionId }
-        return buildJsonArray {
-            users.forEachIndexed { index, prompt ->
-                add(OpenCodeFixtures.userMessageObject(index + 1, prompt.text, sessionId))
-            }
+        return OpenCodeFixtures.envelope(buildJsonArray {
+            users.forEachIndexed { index, prompt -> add(OpenCodeFixtures.userMessageObject(index + 1, prompt.text, sessionId)) }
             assistant.forEach { add(it) }
-        }.toString()
+        }, cursor = true).toString()
     }
 
-    /** Groups the scenario's `message.part.updated` parts into assistant messages. */
-    private fun assistantMessages(sessionId: String): List<JsonObject> {
-        val partsByMessage = linkedMapOf<String, MutableList<JsonElement>>()
-        scriptFor(scenario)
-            .filter { it.type == "message.part.updated" }
-            .forEach { event ->
-                val root = runCatching { json.parseToJsonElement(event.data) }.getOrNull() as? JsonObject
-                    ?: return@forEach
-                val properties = root["properties"] as? JsonObject ?: return@forEach
-                if ((properties["sessionID"] as? JsonPrimitive)?.contentOrNull != sessionId) return@forEach
-                val part = properties["part"] as? JsonObject ?: return@forEach
-                // V1-08: after an abort only the parts the server committed
-                // before the abort are authoritative; the in-flight orphan is not.
-                if (scenario == MockOpenCodeScenario.Abort) {
-                    val partId = (part["id"] as? JsonPrimitive)?.contentOrNull
-                    if (partId == null || partId !in committedPartIds.value) return@forEach
-                }
-                // The spec carries the messageID on the part, not on `properties`.
-                val messageId = (part["messageID"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
-                partsByMessage.getOrPut(messageId) { mutableListOf() }.add(part)
-            }
-        return partsByMessage.map { (messageId, parts) ->
-            // Spec shape: `{ info: Message, parts: Part[] }`.
-            OpenCodeFixtures.messageEnvelopeObject(
-                messageId = messageId,
-                role = "assistant",
-                parts = parts.map { it as JsonObject },
-                sessionID = sessionId,
-            )
+    /** Projects complete public text blocks into v2 assistant messages. */
+    private fun assistantMessages(sessionId: String): List<JsonObject> = scriptFor(scenario)
+        .filter { it.type == "session.text.ended" }
+        .mapNotNull { event ->
+            val root = runCatching { json.parseToJsonElement(event.data) }.getOrNull() as? JsonObject
+            val data = root?.get("data") as? JsonObject ?: return@mapNotNull null
+            if ((data["sessionID"] as? JsonPrimitive)?.contentOrNull != sessionId) return@mapNotNull null
+            val messageId = (data["assistantMessageID"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+            if (scenario == MockOpenCodeScenario.Abort && messageId !in committedPartIds.value) return@mapNotNull null
+            val text = (data["text"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+            OpenCodeFixtures.messageEnvelopeObject(messageId, "assistant", listOf(buildJsonObject {
+                put("type", "text"); put("text", text)
+            }), sessionId)
         }
-    }
 
-    /** Joins the `text` of every part of a `prompt_async` body. */
+    /** Reads the `text` field of a `prompt` body. */
     private fun parsePromptText(text: String?): String? {
         if (text.isNullOrBlank()) return null
         val obj = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject ?: return null
-        val parts = obj["parts"] as? JsonArray ?: return null
-        return parts
-            .mapNotNull { part -> ((part as? JsonObject)?.get("text") as? JsonPrimitive)?.contentOrNull }
-            .joinToString(separator = "")
-            .ifBlank { null }
+        return (obj["text"] as? JsonPrimitive)?.contentOrNull
     }
 
     private suspend fun readBodyText(content: OutgoingContent): String? = when (content) {
@@ -779,12 +776,12 @@ public class MockOpenCodeServer(
     private fun parsePermissionReply(text: String?): Pair<String, String?>? {
         if (text.isNullOrBlank()) return null
         val obj = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject ?: return null
-        val reply = (obj["reply"] as? JsonPrimitive)?.content ?: return null
+        val reply = (obj["decision"] as? JsonPrimitive)?.content ?: return null
         val message = (obj["message"] as? JsonPrimitive)?.content
         return reply to message
     }
 
-    /** Parses `{ "title": "..." }` off a `PATCH /session/{id}` body, or null. */
+    /** Parses `{ "title": "..." }` off a `PATCH /api/session/{id}` body, or null. */
     private fun parseTitle(text: String?): String? {
         if (text.isNullOrBlank()) return null
         val obj = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject ?: return null
@@ -798,14 +795,9 @@ public class MockOpenCodeServer(
         return obj.containsKey(key)
     }
 
-    /** Parses `{ "answers": [[label, ...], ...] }`, or null when the body is not a reply. */
-    private fun parseQuestionAnswers(text: String?): List<List<String>>? {
-        if (text.isNullOrBlank()) return null
-        val obj = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject ?: return null
-        val answers = obj["answers"] as? JsonArray ?: return null
-        return answers.map { question ->
-            (question as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }
-        }
+    private fun parseFormAnswer(text: String?): JsonObject? {
+        val obj = text?.let { runCatching { json.parseToJsonElement(it) }.getOrNull() } as? JsonObject
+        return obj?.get("answer") as? JsonObject
     }
 
     private fun jsonResponse(
@@ -846,15 +838,15 @@ public class MockOpenCodeServer(
 
     public companion object {
         public const val BASE_URL: String = "http://mock.opencode.test"
-        public const val HEALTH_PATH: String = "/global/health"
-        public const val DOC_PATH: String = "/doc"
-        public const val SESSION_PATH: String = "/session"
-        public const val SESSION_STATUS_PATH: String = "/session/status"
-        public const val EVENT_PATH: String = "/event"
-        public const val PERMISSION_PATH: String = "/permission"
-        public const val QUESTION_PATH: String = "/question"
-        public const val PROVIDER_PATH: String = "/provider"
-        public const val AGENT_PATH: String = "/agent"
+        public const val INFO_PATH: String = "/api/info"
+        public const val SESSION_PATH: String = "/api/session"
+        public const val SESSION_STATUS_PATH: String = "/api/session/active"
+        public const val EVENT_PATH: String = "/api/event"
+        public const val PERMISSION_PATH: String = "/api/permission/request"
+        public const val FORM_PATH: String = "/api/form"
+        public const val PROVIDER_PATH: String = "/api/provider"
+        public const val MODEL_PATH: String = "/api/model"
+        public const val AGENT_PATH: String = "/api/agent"
 
         private const val ERROR_JSON: String =
             """{"error":{"type":"server_error","message":"scripted mock server failure"}}"""

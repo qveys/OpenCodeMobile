@@ -300,7 +300,6 @@ private fun SessionsBody(
             items(state.sessions, key = { it.id }) { session ->
                 SessionItem(
                     session = session,
-                    forkAvailable = state.forkAvailable,
                     busy = state.pendingSessionId == session.id,
                     mutationsEnabled = !state.offline,
                     onOpen = { onOpen(session) },
@@ -320,7 +319,6 @@ private fun SessionsBody(
 @Composable
 private fun SessionItem(
     session: SessionSummary,
-    forkAvailable: Boolean,
     busy: Boolean,
     mutationsEnabled: Boolean,
     onOpen: () -> Unit,
@@ -363,13 +361,11 @@ private fun SessionItem(
                     enabled = mutationsEnabled,
                     onClick = { menuOpen = false; onRename() },
                 )
-                if (forkAvailable) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(Res.string.session_action_fork), style = OpenCodeType.control) },
-                        enabled = mutationsEnabled,
-                        onClick = { menuOpen = false; onFork() },
-                    )
-                }
+                DropdownMenuItem(
+                    text = { Text(stringResource(Res.string.session_action_fork), style = OpenCodeType.control) },
+                    enabled = mutationsEnabled,
+                    onClick = { menuOpen = false; onFork() },
+                )
                 DropdownMenuItem(
                     text = { Text(stringResource(Res.string.session_action_delete), style = OpenCodeType.control) },
                     enabled = mutationsEnabled,

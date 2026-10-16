@@ -26,9 +26,4 @@ class SessionTitlePolicyTest {
         assertFalse(SessionTitlePolicy.isValid(tooLong))
         assertTrue(SessionTitlePolicy.isValid("a".repeat(SessionTitlePolicy.MAX_LENGTH)))
     }
-
-    @Test
-    fun forkUnavailableIsTheFailClosedDefault() {
-        assertFalse(SessionCapabilities.Unknown.forkAvailable)
-    }
 }

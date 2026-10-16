@@ -1,8 +1,8 @@
 package org.opencodemobile.shared.domain.permission
 
 /**
- * Port over the server's permission surface (`GET /permission`,
- * `POST /permission/{requestID}/reply`).
+ * Port over the server's permission surface (`GET /api/permission/request`,
+ * `POST /api/session/{sessionID}/permission/{requestID}/reply`).
  *
  * Implemented in `shared/networking`, the only layer allowed to know the wire
  * encoding. [reply] takes the app's [PermissionDecision]; the adapter maps it to
@@ -20,7 +20,7 @@ public interface PermissionPort {
     public suspend fun pendingPermissions(): List<PermissionRequest>
 
     /**
-     * Sends [decision] for [requestId] to the server, at most once (D9: no
+     * Sends [decision] for [requestId] of [sessionId] to the server, at most once (D9: no
      * queue, no retry, no replay). Throws on a transport failure.
      *
      * The content binding required by `docs/ARCHITECTURE.md` is enforced
@@ -29,6 +29,7 @@ public interface PermissionPort {
      * `docs/ARCHITECTURE.md` §"Permission approval confirmation".
      */
     public suspend fun reply(
+        sessionId: String,
         requestId: String,
         decision: PermissionDecision,
     ): PermissionReplyOutcome

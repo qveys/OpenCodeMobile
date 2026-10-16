@@ -30,7 +30,8 @@ public class ServerUnavailableException(
  */
 public class SessionNotConnectedException(
     message: String = "No active OpenCode Server connection",
-) : SessionFailure(message)
+    cause: Throwable? = null,
+) : SessionFailure(message, cause)
 
 /** The server answered 404 for the session (already deleted, or a stale row). */
 public class SessionNotFoundException(

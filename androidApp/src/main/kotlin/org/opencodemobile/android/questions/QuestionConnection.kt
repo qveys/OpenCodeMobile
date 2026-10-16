@@ -1,6 +1,7 @@
 package org.opencodemobile.android.questions
 
 import org.opencodemobile.shared.domain.event.EventSource
+import org.opencodemobile.shared.domain.interaction.FormAnswer
 import org.opencodemobile.shared.domain.interaction.InteractionNotConnectedException
 import org.opencodemobile.shared.domain.interaction.OpenCodeInteractionGateway
 import org.opencodemobile.shared.domain.interaction.PendingQuestion
@@ -47,12 +48,13 @@ internal object UnavailableInteractionGateway : OpenCodeInteractionGateway {
     override suspend fun pendingQuestions(directory: String?): List<PendingQuestion> = noConnection()
 
     override suspend fun answerQuestion(
+        sessionId: String,
         requestId: String,
-        answers: List<List<String>>,
+        answer: FormAnswer,
         directory: String?,
     ): Unit = noConnection()
 
-    override suspend fun rejectQuestion(requestId: String, directory: String?): Unit = noConnection()
+    override suspend fun rejectQuestion(sessionId: String, requestId: String, directory: String?): Unit = noConnection()
 
     override suspend fun abortTurn(sessionId: String, directory: String?): Unit = noConnection()
 
@@ -79,13 +81,14 @@ internal class DeferredInteractionGateway(
         gateway().pendingQuestions(directory)
 
     override suspend fun answerQuestion(
+        sessionId: String,
         requestId: String,
-        answers: List<List<String>>,
+        answer: FormAnswer,
         directory: String?,
-    ): Unit = gateway().answerQuestion(requestId, answers, directory)
+    ): Unit = gateway().answerQuestion(sessionId, requestId, answer, directory)
 
-    override suspend fun rejectQuestion(requestId: String, directory: String?): Unit =
-        gateway().rejectQuestion(requestId, directory)
+    override suspend fun rejectQuestion(sessionId: String, requestId: String, directory: String?): Unit =
+        gateway().rejectQuestion(sessionId, requestId, directory)
 
     override suspend fun abortTurn(sessionId: String, directory: String?): Unit =
         gateway().abortTurn(sessionId, directory)

@@ -9,12 +9,24 @@
 /* Begin PBXBuildFile section */
 		307C2654CD5972A25FB7FD87 /* iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668CECA83ACC03A83C85A623 /* iOSApp.swift */; };
 		56B0305B5D3847FC6B326502 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8509E5A49E4A5CAAEB3ADB /* ContentView.swift */; };
+		DB42A19F80414D99F5ACFA8C /* ConnectionScreenUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0E1131EDBD693D7AF9C8A3 /* ConnectionScreenUITests.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		AF7B34C8ADC44424B579AC0A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 242FB5348943441C388468CE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 78B53CC79860CBFC2F5543C6;
+			remoteInfo = iosApp;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		323906AFB18147ABEDEBDB38 /* iosAppUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = iosAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		668CECA83ACC03A83C85A623 /* iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iOSApp.swift; sourceTree = "<group>"; };
-		86038AE1032E284E79B32AD6 /* iosApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = iosApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		C117AD187833E2513BD2F553 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		86038AE1032E284E79B32AD6 /* iosApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iosApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC0E1131EDBD693D7AF9C8A3 /* ConnectionScreenUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionScreenUITests.swift; sourceTree = "<group>"; };
 		CE8509E5A49E4A5CAAEB3ADB /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -23,7 +35,6 @@
 			isa = PBXGroup;
 			children = (
 				CE8509E5A49E4A5CAAEB3ADB /* ContentView.swift */,
-				C117AD187833E2513BD2F553 /* Info.plist */,
 				668CECA83ACC03A83C85A623 /* iOSApp.swift */,
 			);
 			path = iosApp;
@@ -33,6 +44,7 @@
 			isa = PBXGroup;
 			children = (
 				1DB4B685CAEE8BEFEBBAEF94 /* iosApp */,
+				FC16215C5E8EEAF655CB992F /* iosAppUITests */,
 				94C98B8B3A2BFC1966447269 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,8 +53,17 @@
 			isa = PBXGroup;
 			children = (
 				86038AE1032E284E79B32AD6 /* iosApp.app */,
+				323906AFB18147ABEDEBDB38 /* iosAppUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		FC16215C5E8EEAF655CB992F /* iosAppUITests */ = {
+			isa = PBXGroup;
+			children = (
+				CC0E1131EDBD693D7AF9C8A3 /* ConnectionScreenUITests.swift */,
+			);
+			path = iosAppUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -52,7 +73,9 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 29DCA9F0B3A40325067EB163 /* Build configuration list for PBXNativeTarget "iosApp" */;
 			buildPhases = (
+				80829C78A007C2795A08CA15 /* Build Kotlin frameworks */,
 				297B59D9CE634556D6007C40 /* Sources */,
+				63B596C0F42DA54670428EA8 /* Sync Compose resources */,
 			);
 			buildRules = (
 			);
@@ -65,6 +88,24 @@
 			productReference = 86038AE1032E284E79B32AD6 /* iosApp.app */;
 			productType = "com.apple.product-type.application";
 		};
+		C6FCE5742C7A4D59A165E213 /* iosAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 23A9D56B778ED352702A9EC4 /* Build configuration list for PBXNativeTarget "iosAppUITests" */;
+			buildPhases = (
+				230C1ACAE727061B7F5FBD3D /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1155A4D5B3A0F847BB943AC1 /* PBXTargetDependency */,
+			);
+			name = iosAppUITests;
+			packageProductDependencies = (
+			);
+			productName = iosAppUITests;
+			productReference = 323906AFB18147ABEDEBDB38 /* iosAppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -74,9 +115,8 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
-					78B53CC79860CBFC2F5543C6 = {
-						DevelopmentTeam = 7B53F9RT2R;
-						ProvisioningStyle = Automatic;
+					C6FCE5742C7A4D59A165E213 = {
+						TestTargetID = 78B53CC79860CBFC2F5543C6;
 					};
 				};
 			};
@@ -95,11 +135,61 @@
 			projectRoot = "";
 			targets = (
 				78B53CC79860CBFC2F5543C6 /* iosApp */,
+				C6FCE5742C7A4D59A165E213 /* iosAppUITests */,
 			);
 		};
 /* End PBXProject section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		63B596C0F42DA54670428EA8 /* Sync Compose resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Sync Compose resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "set -euo pipefail\nROOT=\"$SRCROOT/..\"\nif [ -z \"${JAVA_HOME:-}\" ] && [ -f \"$ROOT/scripts/ci/runner-toolchain-env.sh\" ]; then\n  . \"$ROOT/scripts/ci/runner-toolchain-env.sh\"\nfi\ncd \"$ROOT\"\nbash ./gradlew :iosAppHost:syncComposeResourcesForIos --no-daemon --stacktrace\n";
+		};
+		80829C78A007C2795A08CA15 /* Build Kotlin frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Kotlin frameworks";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "set -euo pipefail\nbash \"$SRCROOT/../scripts/ios/build-frameworks.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
+		230C1ACAE727061B7F5FBD3D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DB42A19F80414D99F5ACFA8C /* ConnectionScreenUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		297B59D9CE634556D6007C40 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -110,6 +200,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		1155A4D5B3A0F847BB943AC1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 78B53CC79860CBFC2F5543C6 /* iosApp */;
+			targetProxy = AF7B34C8ADC44424B579AC0A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		11814011E7D6EC822BFBC66D /* Release */ = {
@@ -149,6 +247,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -157,6 +256,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -164,6 +264,23 @@
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		68B872497F35811E133D4018 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.opencodemobile.ios.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = iosApp;
 			};
 			name = Release;
 		};
@@ -204,6 +321,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -218,6 +336,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -229,61 +348,91 @@
 			};
 			name = Debug;
 		};
+		87B17B5399C9FFE987AA9050 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.opencodemobile.ios.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = iosApp;
+			};
+			name = Debug;
+		};
 		9221A1FDC06803E8A2FC6E61 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "-";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
 				DEVELOPMENT_TEAM = 7B53F9RT2R;
-				ENABLE_PREVIEWS = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/build/frameworks",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iosApp/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					iosAppHost,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.opencodemobile.ios;
 				PRODUCT_NAME = iosApp;
 				SDKROOT = iphoneos;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
 		AF835BFF1220CA5AB5B867E4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "-";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
 				DEVELOPMENT_TEAM = 7B53F9RT2R;
-				ENABLE_PREVIEWS = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/build/frameworks",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iosApp/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					iosAppHost,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.opencodemobile.ios;
 				PRODUCT_NAME = iosApp;
 				SDKROOT = iphoneos;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		23A9D56B778ED352702A9EC4 /* Build configuration list for PBXNativeTarget "iosAppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				87B17B5399C9FFE987AA9050 /* Debug */,
+				68B872497F35811E133D4018 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		29DCA9F0B3A40325067EB163 /* Build configuration list for PBXNativeTarget "iosApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

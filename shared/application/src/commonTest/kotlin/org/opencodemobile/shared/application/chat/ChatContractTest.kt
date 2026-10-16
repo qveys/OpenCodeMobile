@@ -21,15 +21,9 @@ import org.opencodemobile.shared.security.identity.ServerIdentityPinController
 import org.opencodemobile.shared.security.identity.TofuServerIdentityCoordinator
 import org.opencodemobile.shared.testsupport.MockOpenCodeServer
 
-/**
- * Contract tests for the V1-05 chat surface, pinning the exact payload shapes of
- * the pinned OpenCode Server v2 spec so the mock can never mask a drift again
- * (review findings on OPE-109):
- *
- * - `EventMessagePartUpdated.properties = {sessionID, part, time}` and the
- *   `messageID` lives on the **part**;
- * - `EventMessageUpdated.properties = {sessionID, info}` with **no** `parts`;
- * - `EventMessagePartRemoved.properties = {sessionID, messageID, partID}`.
+/** Contracts for public OpenCode v2 assistant text and reasoning events.
+ * Legacy message identity/removal decoder contracts are replaced because v2
+ * exposes neither event; controller-level identity/removal coverage remains below.
  */
 class ChatContractTest {
 
@@ -53,55 +47,60 @@ class ChatContractTest {
     }
 
     @Test
-    fun specPartUpdatedCarriesTheMessageIdOnThePart() {
+    fun specTextEndedCarriesTheAssistantMessageIdAndOrdinal() {
         val payload = """
-            {"id":"evt_1","type":"message.part.updated","properties":{
-              "sessionID":"$sessionId",
-              "part":{"id":"prt_1","sessionID":"$sessionId","messageID":"msg_1",
-                      "type":"text","text":"hello","time":{"start":1}},
-              "time":2}}
+            {"id":"evt_1","type":"session.text.ended","data":{
+              "sessionID":"$sessionId","assistantMessageID":"msg_1",
+              "ordinal":0,"text":"hello"}}
         """.trimIndent()
 
-        val event = decoder().decode("message.part.updated", payload)
+        val event = decoder().decode("session.text.ended", payload)
 
         assertTrue(event is ChatEvent.PartUpdated, "expected a PartUpdated, got $event")
-        event as ChatEvent.PartUpdated
-        assertEquals("msg_1", event.messageId, "the messageID must be read from the part")
-        assertEquals("prt_1", event.part.id)
+        assertEquals("msg_1", event.messageId)
+        assertEquals("msg_1:text:0", event.part.id)
+        assertEquals("text", event.part.type)
         assertEquals("hello", event.part.text)
         assertEquals(sessionId, event.sessionId)
     }
 
     @Test
-    fun specMessageUpdatedDecodesTheIdentityWithoutParts() {
+    fun specReasoningStartedDecodesTheIdentityWithoutText() {
         val payload = """
-            {"id":"evt_2","type":"message.updated","properties":{
-              "sessionID":"$sessionId",
-              "info":{"id":"msg_1","sessionID":"$sessionId","role":"assistant"}}}
+            {"id":"evt_2","type":"session.reasoning.started","data":{
+              "sessionID":"$sessionId","assistantMessageID":"msg_1","ordinal":1}}
         """.trimIndent()
 
-        val event = decoder().decode("message.updated", payload)
+        val event = decoder().decode("session.reasoning.started", payload)
 
-        assertTrue(event is ChatEvent.MessageUpdated, "expected a MessageUpdated, got $event")
-        event as ChatEvent.MessageUpdated
-        assertEquals("msg_1", event.message.id)
-        assertEquals(TranscriptRole.Assistant, event.message.role)
-        assertTrue(event.message.parts.isEmpty(), "the spec has no parts on message.updated")
+        assertTrue(event is ChatEvent.PartUpdated, "expected a PartUpdated, got $event")
+        assertEquals("msg_1", event.messageId)
+        assertEquals(sessionId, event.sessionId)
+        assertEquals("msg_1:reasoning:1", event.part.id)
+        assertEquals("reasoning", event.part.type)
+        assertEquals("", event.part.text)
     }
 
     @Test
-    fun specPartRemovedDecodes() {
-        val payload = """
-            {"id":"evt_3","type":"message.part.removed","properties":{
-              "sessionID":"$sessionId","messageID":"msg_1","partID":"prt_1"}}
-        """.trimIndent()
-
-        val event = decoder().decode("message.part.removed", payload)
-
-        assertTrue(event is ChatEvent.PartRemoved, "expected a PartRemoved, got $event")
-        event as ChatEvent.PartRemoved
-        assertEquals("msg_1", event.messageId)
-        assertEquals("prt_1", event.partId)
+    fun specReasoningDeltasAccumulateAndEndedReplacesOnlyThatBlock() {
+        val decoder = decoder()
+        fun decode(type: String, content: String): ChatEvent.PartUpdated {
+            val event = decoder.decode(type, """
+                {"id":"evt_3","type":"$type","data":{
+                  "sessionID":"$sessionId","assistantMessageID":"msg_1",
+                  "ordinal":1,$content}}
+            """.trimIndent())
+            assertTrue(event is ChatEvent.PartUpdated, "expected a PartUpdated, got $event")
+            assertEquals("msg_1", event.messageId)
+            assertEquals(sessionId, event.sessionId)
+            assertEquals("msg_1:reasoning:1", event.part.id)
+            assertEquals("reasoning", event.part.type)
+            return event
+        }
+        assertEquals("think", decode("session.reasoning.delta", "\"delta\":\"think\"").part.text)
+        assertEquals("thinking", decode("session.reasoning.delta", "\"delta\":\"ing\"").part.text)
+        assertEquals("done", decode("session.reasoning.ended", "\"text\":\"done\"").part.text)
+        assertEquals("fresh", decode("session.reasoning.delta", "\"delta\":\"fresh\"").part.text)
     }
 
     @Test

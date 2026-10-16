@@ -21,6 +21,7 @@ internal object UnavailablePermissionPort : PermissionPort {
         throw IllegalStateException("no server connection is wired to the permission surface")
 
     override suspend fun reply(
+        sessionId: String,
         requestId: String,
         decision: PermissionDecision,
     ): PermissionReplyOutcome =
@@ -66,10 +67,11 @@ internal class DeferredPermissionPort(
         (resolveConnection()?.port ?: UnavailablePermissionPort).pendingPermissions()
 
     override suspend fun reply(
+        sessionId: String,
         requestId: String,
         decision: PermissionDecision,
     ): PermissionReplyOutcome =
-        (resolveConnection()?.port ?: UnavailablePermissionPort).reply(requestId, decision)
+        (resolveConnection()?.port ?: UnavailablePermissionPort).reply(sessionId, requestId, decision)
 }
 
 /** A [PermissionEventDecoder] that resolves the active connection at call time (N6). */

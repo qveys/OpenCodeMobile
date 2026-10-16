@@ -57,16 +57,6 @@ public object DomainErrorMessages {
             retryable = true,
         )
 
-        is DomainError.ServerUnhealthy -> DomainErrorPresentation(
-            titleKey = "domain_error.server_unhealthy.title",
-            messageKey = "domain_error.server_unhealthy.message",
-            title = "Server is unhealthy",
-            message = "The server answered but reports that it is not healthy. Restart the " +
-                "OpenCode Server and try again.",
-            actionHint = "Restart the server and try again.",
-            retryable = true,
-        )
-
         is DomainError.HandshakeIncomplete -> DomainErrorPresentation(
             titleKey = "domain_error.handshake_incomplete.title",
             messageKey = "domain_error.handshake_incomplete.message",

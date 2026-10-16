@@ -6,16 +6,15 @@ This directory vendors the pinned OpenAPI specification for **OpenCode Server v2
 
 - **Target Server Version**: `2.0.6`
 - **OpenAPI Version**: `3.1.0`
-- **Spec Title**: `opencode` (version `1.0.0`)
-- **Extracted From**: `1.18.32`, on 2026-09-24, via `GET /doc` on a live `opencode serve` instance
-- **Source Endpoint**: `GET /doc` on live `opencode serve` instance
+- **Spec Title**: `opencode HttpApi` (version `0.0.1`)
+- **Extracted From**: upstream `sst/opencode` tag `v2.0.6`, file `packages/protocol/openapi.json` (112 paths, all under `/api`), on 2026-10-16
+- **Source**: upstream repository file (the 2.0.6 server serves no `/doc`; the root surface is gone)
 - **File**: [`opencode-server-v2.json`](opencode-server-v2.json)
-- **SHA-256 Checksum**: `46db986090aae41846cd6dbe16225a1d883f0bbcb4c48814008d3f6ce140aa5c`
+- **SHA-256 Checksum**: `fd96c818f4d26e822664d4401c7fc115973c41db8dbd79aac1a3ea1840a64cd8`
 
-> [!IMPORTANT]
-> The supported server version is `2.0.6`, but the vendored spec was extracted
-> from `1.18.32`. The checksum above covers only those bytes. Re-vendor against a
-> `2.0.6` instance and update the checksum when re-vendoring.
+> [!NOTE]
+> The generator (`scripts/generate-openapi-client.py`) emits a hand-maintained
+> subset of routes and fails if one is missing from this spec.
 
 ## Architecture Rules & Boundary Contracts
 
@@ -38,26 +37,18 @@ Code generation is wired into the Gradle build:
 
 ## Updating / Re-vendoring Procedure
 
-1. Run the target OpenCode Server instance:
+1. Fetch the contract for the target tag:
    ```bash
-   opencode serve --port 45678
+   gh api -H 'Accept: application/vnd.github.raw' 'repos/sst/opencode/contents/packages/protocol/openapi.json?ref=v<version>' > shared/networking/openapi/opencode-server-v2.json
    ```
-2. Verify version:
-   ```bash
-   curl -s http://127.0.0.1:45678/global/health
-   ```
-3. Fetch new specification:
-   ```bash
-   curl -s http://127.0.0.1:45678/doc > shared/networking/openapi/opencode-server-v2.json
-   ```
-4. Update SHA-256 and metadata in this README.
-5. Re-run client generation:
+2. Update SHA-256 and metadata in this README.
+3. Re-run client generation:
    ```bash
    ./scripts/generate-openapi-client.sh
    ```
-6. Update `OpenCodeV2Adapter` to accommodate any contract additions or breaking changes.
-7. Verify architecture boundary rules:
+4. Update `OpenCodeV2Adapter` to accommodate any contract additions or breaking changes.
+5. Verify architecture boundary rules:
    ```bash
    ./scripts/verify-r3-generated-types.sh
    ```
-8. Record any endpoint differences in an Architectural Decision Record (ADR).
+6. Record any endpoint differences in an Architectural Decision Record (ADR).

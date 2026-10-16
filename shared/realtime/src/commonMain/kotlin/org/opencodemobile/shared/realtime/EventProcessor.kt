@@ -21,6 +21,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import org.opencodemobile.shared.domain.event.ConnectionPhase
 import org.opencodemobile.shared.domain.event.EventSource
 import org.opencodemobile.shared.domain.event.EventTransport
@@ -28,6 +33,8 @@ import org.opencodemobile.shared.domain.event.MutationSender
 import org.opencodemobile.shared.domain.event.RawServerEvent
 import org.opencodemobile.shared.domain.event.RealtimeSnapshot
 import org.opencodemobile.shared.domain.event.RealtimeState
+import org.opencodemobile.shared.domain.event.SessionStatus
+import org.opencodemobile.shared.domain.event.StreamSignal
 import org.opencodemobile.shared.domain.event.ServerEvent
 import org.opencodemobile.shared.domain.event.UserMutation
 
@@ -87,10 +94,14 @@ public data class EventProcessorConfig(
  * 2. **Stream**: open the SSE stream and apply normalized events on top of the
  *    snapshot. Events are ordered and deduplicated by the server-issued id.
  * 3. **Fallback**: if the stream ends early, is idle past the configured timeout, or
- *    fails, degrade to the mandatory polling transport (`GET /session/status`) with
+ *    fails, degrade to the mandatory polling transport (`GET /api/session/active`) with
  *    bounded exponential backoff, then go back to SSE once the transport is healthy.
  * 4. **Backoff**: a bounded delay sits between two SSE attempts so a server that
  *    keeps closing the stream cannot hot-loop.
+ *
+ * The v2 server (`GET /api/event`) is volatile and ignores `Last-Event-ID`: events
+ * sent while disconnected are lost. Every reconnect therefore refetches the snapshot
+ * (step 1) instead of resuming; the dedup ids are the `evt_…` envelope ids.
  *
  * Invariants:
  * - A malformed payload is dropped without ending the pipeline.
@@ -155,7 +166,6 @@ public class EventProcessor(
             }
 
             applySnapshot(snapshot)
-            mutableState.value = mutableState.value.copy(phase = ConnectionPhase.Live)
 
             val healthyStream = runSseSession()
 
@@ -164,7 +174,7 @@ public class EventProcessor(
             pollUntilHealthy()
 
             // Reset the backoff only after a stream that actually delivered events. A
-            // server that answers the snapshot but closes /event immediately (zero events)
+            // server that answers the snapshot but closes /api/event immediately (zero events)
             // keeps growing the backoff instead of flapping at a fixed interval.
             backoff = if (healthyStream) {
                 config.reconnectInitialBackoffMillis
@@ -202,7 +212,7 @@ public class EventProcessor(
      * Consumes one SSE session until it ends, times out, or fails. Never throws:
      * every ending is handled by the caller as "degrade to polling".
      *
-     * @return true when the session delivered at least one normalized event, i.e. the
+     * @return true when the session delivered activity or at least one normalized event, i.e. the
      *   transport was demonstrably healthy. The caller uses it to decide whether the
      *   reconnect backoff resets or keeps growing.
      */
@@ -233,7 +243,17 @@ public class EventProcessor(
                     break
                 }
                 if (raw == null) break // inactivity timeout -> polling fallback
-                if (handleRawEvent(raw)) acceptedAny = true
+                when (raw.signal) {
+                    StreamSignal.Opened -> {
+                        mutableState.value = mutableState.value.copy(phase = ConnectionPhase.Live)
+                    }
+                    StreamSignal.Activity -> acceptedAny = true
+                    null -> {
+                        // Receiving a business record also proves that the subscription is open.
+                        mutableState.value = mutableState.value.copy(phase = ConnectionPhase.Live)
+                        if (handleRawEvent(raw)) acceptedAny = true
+                    }
+                }
             }
         } finally {
             producer.cancel()
@@ -265,8 +285,27 @@ public class EventProcessor(
             eventCount = sequence,
             lastEventId = id ?: mutableState.value.lastEventId,
         )
+        if (raw.type == SESSION_STATUS) applySessionStatus(raw.data)
         mutableEvents.emit(accepted)
         return true
+    }
+
+    /**
+     * `session.status` `{sessionID, status:{type:idle|busy|retry, attempt?, message?, next?}}`
+     * replaces that session's entry, so `retry` details survive until the next status.
+     */
+    private fun applySessionStatus(payload: String) {
+        val data = (json.parseToJsonElement(payload) as? JsonObject)?.get("data") as? JsonObject ?: return
+        val sessionId = (data["sessionID"] as? JsonPrimitive)?.contentOrNull ?: return
+        val status = data["status"] as? JsonObject ?: return
+        val type = (status["type"] as? JsonPrimitive)?.contentOrNull ?: return
+        val parsed = SessionStatus(
+            type = type,
+            attempt = (status["attempt"] as? JsonPrimitive)?.intOrNull,
+            message = (status["message"] as? JsonPrimitive)?.contentOrNull,
+            next = (status["next"] as? JsonPrimitive)?.longOrNull,
+        )
+        mutableState.value = mutableState.value.copy(statuses = mutableState.value.statuses + (sessionId to parsed))
     }
 
     // A malformed payload is expected and dropped, not reported; the json parser
@@ -295,7 +334,7 @@ public class EventProcessor(
     }
 
     /**
-     * Polls `GET /session/status` with bounded exponential backoff until one poll
+     * Polls `GET /api/session/active` with bounded exponential backoff until one poll
      * succeeds, then returns so the caller can retry SSE. Server data wins: the
      * statuses are replaced by the polled map.
      */
@@ -344,3 +383,5 @@ public class FailFastMutationSender : MutationSender {
             Result.failure(failure)
         }
 }
+
+private const val SESSION_STATUS = "session.status"

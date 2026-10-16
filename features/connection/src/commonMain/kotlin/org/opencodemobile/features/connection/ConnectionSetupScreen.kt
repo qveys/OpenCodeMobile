@@ -27,6 +27,8 @@ public fun ConnectionSetupScreen(
         state = state,
         onAddressChange = controller::onAddressChange,
         onLabelChange = controller::onLabelChange,
+        onUsernameChange = controller::onUsernameChange,
+        onPasswordChange = controller::onPasswordChange,
         onSubmit = controller::submitManualEntry,
         onScanRequest = scanner?.let { codeScanner ->
             {
@@ -49,6 +51,8 @@ public fun ConnectionSetupContent(
     state: ConnectionSetupUiState,
     onAddressChange: (String) -> Unit,
     onLabelChange: (String) -> Unit,
+    onUsernameChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
     onSubmit: () -> Unit,
     onScanRequest: (() -> Unit)?,
     onConfirm: () -> Unit,
@@ -69,6 +73,8 @@ public fun ConnectionSetupContent(
             state = state,
             onAddressChange = onAddressChange,
             onLabelChange = onLabelChange,
+            onUsernameChange = onUsernameChange,
+            onPasswordChange = onPasswordChange,
             onSubmit = onSubmit,
             onScanRequest = onScanRequest,
             modifier = modifier,

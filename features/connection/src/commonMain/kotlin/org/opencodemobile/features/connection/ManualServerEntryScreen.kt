@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -29,8 +30,10 @@ import org.opencodemobile.design.system.resources.connection_manual_address_labe
 import org.opencodemobile.design.system.resources.connection_manual_address_placeholder
 import org.opencodemobile.design.system.resources.connection_manual_connect
 import org.opencodemobile.design.system.resources.connection_manual_label
+import org.opencodemobile.design.system.resources.connection_manual_password_label
 import org.opencodemobile.design.system.resources.connection_manual_scan_failed
 import org.opencodemobile.design.system.resources.connection_manual_scan_qr
+import org.opencodemobile.design.system.resources.connection_manual_username_label
 
 /**
  * Manual server address entry (`docs/ARCHITECTURE.md` §"Server profile import"
@@ -47,6 +50,8 @@ public fun ManualServerEntryScreen(
     state: ConnectionSetupUiState,
     onAddressChange: (String) -> Unit,
     onLabelChange: (String) -> Unit,
+    onUsernameChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
     onSubmit: () -> Unit,
     onScanRequest: (() -> Unit)?,
     modifier: Modifier = Modifier,
@@ -75,6 +80,27 @@ public fun ManualServerEntryScreen(
             singleLine = true,
             enabled = !state.busy,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        )
+
+        OutlinedTextField(
+            value = state.username,
+            onValueChange = onUsernameChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(Res.string.connection_manual_username_label), style = OpenCodeType.meta) },
+            singleLine = true,
+            enabled = !state.busy,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+        )
+
+        OutlinedTextField(
+            value = state.password,
+            onValueChange = onPasswordChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(Res.string.connection_manual_password_label), style = OpenCodeType.meta) },
+            singleLine = true,
+            enabled = !state.busy,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
         )
 
         state.manualError?.let {

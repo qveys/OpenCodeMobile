@@ -124,11 +124,11 @@ public object NotificationPolicy {
      * the turn forward.
      */
     public fun questionFor(question: PendingQuestion): AppNotification {
-        val header = question.questions.firstOrNull()?.header?.let(PermissionDisplay::sanitizeForDisplay)
+        val header = question.title.let(PermissionDisplay::sanitizeForDisplay)
         return AppNotification(
             id = notificationId(NotificationKind.QuestionPending, question.id),
             kind = NotificationKind.QuestionPending,
-            title = if (header.isNullOrBlank()) QUESTION_TITLE else "$QUESTION_TITLE · $header",
+            title = if (header.isBlank()) QUESTION_TITLE else "$QUESTION_TITLE · $header",
             body = "Open the app to answer.",
             tapRoute = QUESTION_ROUTE_PREFIX + question.id,
             actions = listOf(NotificationAction.Open),

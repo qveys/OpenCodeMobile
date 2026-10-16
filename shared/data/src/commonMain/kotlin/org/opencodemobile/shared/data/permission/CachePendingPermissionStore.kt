@@ -68,7 +68,7 @@ public class CachePendingPermissionStore(
 @Serializable
 internal data class StoredPermission(
     val id: String,
-    val sessionId: String? = null,
+    val sessionId: String,
     val tool: String,
     val patterns: List<String> = emptyList(),
     val rawArguments: String = "",

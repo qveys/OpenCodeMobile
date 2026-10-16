@@ -11,18 +11,14 @@ public sealed class HandshakeException(message: String, cause: Throwable? = null
     Exception(message, cause) {
 
     /**
-     * The health probe (`GET /global/health`) could not be completed because of
-     * a transport or HTTP failure. The server is unreachable, not incompatible.
+     * The info probe (`GET /api/info`) could not be completed because of a
+     * transport or HTTP failure. The server is unreachable, not incompatible.
      */
-    public class HealthUnavailable(failure: Throwable) :
-        HandshakeException("The server health check could not be completed", failure)
-
-    /** The health probe answered but reported the server as unhealthy. */
-    public class ServerUnhealthy :
-        HandshakeException("The server reported itself unhealthy; refusing to continue the handshake")
+    public class InfoUnavailable(failure: Throwable) :
+        HandshakeException("The server info probe could not be completed", failure)
 
     /**
-     * The health probe answered but the version was missing, blank, or not a
+     * The info probe answered but the version was missing, blank, or not a
      * parseable `major.minor.patch` string, so compatibility cannot be
      * established.
      */

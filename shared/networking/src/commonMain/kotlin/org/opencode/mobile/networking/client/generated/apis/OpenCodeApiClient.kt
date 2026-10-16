@@ -1,7 +1,7 @@
 // ==============================================================================
 // AUTO-GENERATED CODE - DO NOT MODIFY BY HAND
 //
-// Generated from OpenCode Server v2 OpenAPI Specification (v1.18.32, OpenAPI 3.1.0)
+// Generated from OpenCode Server v2 OpenAPI Specification (opencode 2.0.6 HttpApi, OpenAPI 3.1.0)
 // Architectural Rules:
 // - Rule R12: Generated code is never manually edited.
 // - Rule R3: Generated types must NOT be imported outside shared/networking.
@@ -18,17 +18,19 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import org.opencode.mobile.networking.client.generated.models.*
 
 /**
- * OpenCode Server v2 API Client.
+ * OpenCode Server v2 API Client (HttpApi surface under /api).
  *
  * Generated against pinned OpenCode Server v2 OpenAPI specification.
  * Per Rule R3, this client and its generated models MUST NOT be imported
  * outside shared/networking. All application access goes through OpenCodeV2Adapter.
+ *
+ * Directory scoping: the server resolves the working directory from the request
+ * location (`directory` query parameter on list routes, `location` on create).
  */
 class OpenCodeApiClient(
     val baseUrl: String,
@@ -42,69 +44,49 @@ class OpenCodeApiClient(
         }
     }
 
-    // --- Health & Compatibility ---
+    // --- Server info & Compatibility ---
 
     /**
-     * Handshake health check (GET /global/health).
+     * Handshake probe and version source (GET /api/info). There is no /api/health.
      */
-    suspend fun getHealth(): ApiHealthResponse {
-        return httpClient.get("$baseUrl/global/health") {
+    suspend fun getInfo(): ApiServerInfo {
+        return httpClient.get("$baseUrl/api/info") {
             applyAuth()
         }.body()
     }
-
-    /**
-     * Fetch the server's published API document (GET /doc).
-     *
-     * This is the server's own description of the surface it exposes. The
-     * adapter reads it to detect optional capabilities (for example session
-     * forking) at runtime instead of assuming a hard-coded feature set.
-     */
-    suspend fun getServerDocument(): String =
-        httpClient.get("$baseUrl/doc") {
-            applyAuth()
-        }.bodyAsText()
 
     // --- Sessions ---
 
     /**
-     * List all sessions (GET /session).
+     * List sessions (GET /api/session).
      */
-    suspend fun listSessions(directory: String? = null): List<ApiSession> {
-        return httpClient.get("$baseUrl/session") {
+    suspend fun listSessions(
+        directory: String? = null,
+        limit: Int? = null,
+        cursor: String? = null
+    ): ApiSessionsResponse {
+        return httpClient.get("$baseUrl/api/session") {
             applyAuth()
             if (directory != null) parameter("directory", directory)
+            if (limit != null) parameter("limit", limit)
+            if (cursor != null) parameter("cursor", cursor)
         }.body()
     }
 
     /**
-     * Get session details (GET /session/{sessionID}).
+     * Get session details (GET /api/session/{sessionID}).
      */
-    suspend fun getSession(sessionID: String): ApiSession {
-        return httpClient.get("$baseUrl/session/$sessionID") {
+    suspend fun getSession(sessionID: String): ApiSessionResponse {
+        return httpClient.get("$baseUrl/api/session/$sessionID") {
             applyAuth()
         }.body()
     }
 
     /**
-     * Create a new session (POST /session).
-     *
-     * `directory` is a query parameter in the pinned spec, not a body field.
+     * Create a new session (POST /api/session).
      */
-    suspend fun createSession(request: ApiCreateSessionRequest, directory: String? = null): ApiSession {
-        return httpClient.post("$baseUrl/session") {
-            applyAuth()
-            contentType(ContentType.Application.Json)
-            if (directory != null) parameter("directory", directory)
-            setBody(request)
-        }.body()
-    }
-
-    /**
-     * Fork an existing session (POST /session/{sessionID}/fork).
-     */
-    suspend fun forkSession(sessionID: String, request: ApiForkSessionRequest = ApiForkSessionRequest()): ApiSession {
-        return httpClient.post("$baseUrl/session/$sessionID/fork") {
+    suspend fun createSession(request: ApiCreateSessionRequest = ApiCreateSessionRequest()): ApiSessionResponse {
+        return httpClient.post("$baseUrl/api/session") {
             applyAuth()
             contentType(ContentType.Application.Json)
             setBody(request)
@@ -112,10 +94,10 @@ class OpenCodeApiClient(
     }
 
     /**
-     * Update session properties, e.g. the title (PATCH /session/{sessionID}).
+     * Fork an existing session (POST /api/session/{sessionID}/fork).
      */
-    suspend fun updateSession(sessionID: String, request: ApiUpdateSessionRequest): ApiSession {
-        return httpClient.patch("$baseUrl/session/$sessionID") {
+    suspend fun forkSession(sessionID: String, request: ApiForkSessionRequest = ApiForkSessionRequest()): ApiSessionResponse {
+        return httpClient.post("$baseUrl/api/session/$sessionID/fork") {
             applyAuth()
             contentType(ContentType.Application.Json)
             setBody(request)
@@ -123,165 +105,207 @@ class OpenCodeApiClient(
     }
 
     /**
-     * Abort the active turn in a session (POST /session/{sessionID}/abort).
-     *
-     * The pinned spec exposes an optional `directory` query parameter; the
-     * adapter passes the active project root so an abort cannot cross into
-     * another workspace on the same server (ADR-0002 §3.3).
+     * Interrupt the active turn in a session (POST /api/session/{sessionID}/interrupt).
      */
-    suspend fun abortSession(sessionID: String, directory: String? = null): Boolean {
-        httpClient.post("$baseUrl/session/$sessionID/abort") {
+    suspend fun interruptSession(sessionID: String): ApiInterruptResponse {
+        return httpClient.post("$baseUrl/api/session/$sessionID/interrupt") {
             applyAuth()
-            if (directory != null) parameter("directory", directory)
+        }.body()
+    }
+
+    /**
+     * Update mutable session properties, e.g. rename (PATCH /api/session/{sessionID}, 204).
+     */
+    suspend fun updateSession(sessionID: String, request: ApiUpdateSessionRequest) {
+        httpClient.patch("$baseUrl/api/session/$sessionID") {
+            applyAuth()
+            contentType(ContentType.Application.Json)
+            setBody(request)
         }
-        return true
+    }
+
+    /** Switch the session agent for subsequent turns (204). */
+    suspend fun switchSessionAgent(sessionID: String, request: ApiSwitchSessionAgentRequest) {
+        httpClient.post("$baseUrl/api/session/$sessionID/agent") {
+            applyAuth()
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
+    }
+
+    /** Switch the session model for subsequent turns (204). */
+    suspend fun switchSessionModel(sessionID: String, request: ApiSwitchSessionModelRequest) {
+        httpClient.post("$baseUrl/api/session/$sessionID/model") {
+            applyAuth()
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
     }
 
     /**
-     * Delete a session (DELETE /session/{sessionID}).
+     * Delete a session (DELETE /api/session/{sessionID}, 204).
      */
-    suspend fun deleteSession(sessionID: String): Boolean {
-        httpClient.delete("$baseUrl/session/$sessionID") {
+    suspend fun deleteSession(sessionID: String) {
+        httpClient.delete("$baseUrl/api/session/$sessionID") {
             applyAuth()
         }
-        return true
     }
 
     /**
-     * Get status of all active sessions (GET /session/status).
+     * Running sessions keyed by session id (GET /api/session/active).
      */
-    suspend fun getSessionStatus(): Map<String, ApiSessionStatus> {
-        return httpClient.get("$baseUrl/session/status") {
+    suspend fun getActiveSessions(): ApiActiveSessionsResponse {
+        return httpClient.get("$baseUrl/api/session/active") {
             applyAuth()
         }.body()
     }
 
-    // --- Messages & Async Prompt ---
+    // --- Messages & Prompt ---
 
     /**
-     * List messages for a session (GET /session/{sessionID}/message).
+     * List messages for a session (GET /api/session/{sessionID}/message).
      */
-    suspend fun listMessages(sessionID: String): List<ApiMessageEnvelope> {
-        return httpClient.get("$baseUrl/session/$sessionID/message") {
-            applyAuth()
-        }.body()
-    }
-
-    /**
-     * Send async prompt (POST /session/{sessionID}/prompt_async).
-     * Non-blocking: returns immediately; output streamed via /event SSE.
-     */
-    suspend fun sendPromptAsync(
+    suspend fun listMessages(
         sessionID: String,
-        request: ApiPromptAsyncRequest,
-        directory: String? = null
-    ) {
-        httpClient.post("$baseUrl/session/$sessionID/prompt_async") {
+        limit: Int? = null,
+        cursor: String? = null
+    ): ApiMessagesResponse {
+        return httpClient.get("$baseUrl/api/session/$sessionID/message") {
+            applyAuth()
+            if (limit != null) parameter("limit", limit)
+            if (cursor != null) parameter("cursor", cursor)
+        }.body()
+    }
+
+    /**
+     * Send a prompt (POST /api/session/{sessionID}/prompt).
+     * Returns once the message is queued; output streams via GET /api/event.
+     */
+    suspend fun sendPrompt(
+        sessionID: String,
+        request: ApiPromptRequest
+    ): ApiPromptResponse {
+        return httpClient.post("$baseUrl/api/session/$sessionID/prompt") {
             applyAuth()
             contentType(ContentType.Application.Json)
-            if (directory != null) parameter("directory", directory)
             setBody(request)
-        }
+        }.body()
     }
 
     // --- Permissions ---
 
     /**
-     * List pending permissions (GET /permission).
+     * Pending permission requests across the location (GET /api/permission/request).
      */
-    suspend fun listPermissions(directory: String? = null): List<ApiPermissionRequest> {
-        return httpClient.get("$baseUrl/permission") {
+    suspend fun listPermissionRequests(): ApiPermissionListResponse {
+        return httpClient.get("$baseUrl/api/permission/request") {
             applyAuth()
-            if (directory != null) parameter("directory", directory)
         }.body()
     }
 
     /**
-     * Respond to a permission request (POST /permission/{requestID}/reply).
+     * Pending permission requests of one session (GET /api/session/{sessionID}/permission).
+     */
+    suspend fun listSessionPermissions(sessionID: String): ApiPermissionListResponse {
+        return httpClient.get("$baseUrl/api/session/$sessionID/permission") {
+            applyAuth()
+        }.body()
+    }
+
+    /**
+     * Respond to a permission request (POST /api/session/{sessionID}/permission/{requestID}/reply, 204).
      */
     suspend fun replyPermission(
+        sessionID: String,
         requestID: String,
-        request: ApiPermissionReplyRequest,
-        directory: String? = null
-    ): Boolean {
-        return httpClient.post("$baseUrl/permission/$requestID/reply") {
+        request: ApiPermissionReplyRequest
+    ) {
+        httpClient.post("$baseUrl/api/session/$sessionID/permission/$requestID/reply") {
             applyAuth()
             contentType(ContentType.Application.Json)
-            if (directory != null) parameter("directory", directory)
             setBody(request)
-        }.body()
+        }
     }
 
-    // --- Questions ---
+    // --- Forms (replace the legacy question flow) ---
 
     /**
-     * List pending questions (GET /question).
+     * Pending forms across the location (GET /api/form).
      */
-    suspend fun listQuestions(directory: String? = null): List<ApiQuestionRequest> {
-        return httpClient.get("$baseUrl/question") {
+    suspend fun listForms(): ApiFormListResponse {
+        return httpClient.get("$baseUrl/api/form") {
             applyAuth()
-            if (directory != null) parameter("directory", directory)
         }.body()
     }
 
     /**
-     * Reply to a question request (POST /question/{requestID}/reply).
+     * Pending forms of one session (GET /api/session/{sessionID}/form).
      */
-    suspend fun replyQuestion(
-        requestID: String,
-        request: ApiQuestionReplyRequest,
-        directory: String? = null
-    ): Boolean {
-        return httpClient.post("$baseUrl/question/$requestID/reply") {
+    suspend fun listSessionForms(sessionID: String): ApiFormListResponse {
+        return httpClient.get("$baseUrl/api/session/$sessionID/form") {
+            applyAuth()
+        }.body()
+    }
+
+    /**
+     * Answer a form (POST /api/session/{sessionID}/form/{formID}/reply, 204).
+     */
+    suspend fun replyForm(
+        sessionID: String,
+        formID: String,
+        request: ApiFormReplyRequest
+    ) {
+        httpClient.post("$baseUrl/api/session/$sessionID/form/$formID/reply") {
             applyAuth()
             contentType(ContentType.Application.Json)
-            if (directory != null) parameter("directory", directory)
             setBody(request)
-        }.body()
+        }
     }
 
     /**
-     * Reject a question request (POST /question/{requestID}/reject).
+     * Cancel a form (DELETE /api/session/{sessionID}/form/{formID}, 204).
      */
-    suspend fun rejectQuestion(
-        requestID: String,
-        directory: String? = null
-    ): Boolean {
-        return httpClient.post("$baseUrl/question/$requestID/reject") {
+    suspend fun cancelForm(sessionID: String, formID: String) {
+        httpClient.delete("$baseUrl/api/session/$sessionID/form/$formID") {
             applyAuth()
-            if (directory != null) parameter("directory", directory)
-        }.body()
+        }
     }
 
-    // --- Projects & Providers ---
+    // --- Projects, Providers, Agents, Models ---
 
     /**
-     * List projects (GET /project).
+     * List projects (GET /api/project).
      */
     suspend fun listProjects(): List<ApiProject> {
-        return httpClient.get("$baseUrl/project") {
+        return httpClient.get("$baseUrl/api/project") {
             applyAuth()
         }.body()
     }
 
     /**
-     * List providers and their models (GET /provider).
-     * Returns the spec object holding all providers, default model ids and connected ids.
+     * List providers (GET /api/provider).
      */
-    suspend fun listProviders(directory: String? = null): ApiProviderList {
-        return httpClient.get("$baseUrl/provider") {
+    suspend fun listProviders(): ApiProviderListResponse {
+        return httpClient.get("$baseUrl/api/provider") {
             applyAuth()
-            if (directory != null) parameter("directory", directory)
         }.body()
     }
 
     /**
-     * List the available agents (GET /agent).
+     * List agents (GET /api/agent).
      */
-    suspend fun listAgents(directory: String? = null): List<ApiAgent> {
-        return httpClient.get("$baseUrl/agent") {
+    suspend fun listAgents(): ApiAgentListResponse {
+        return httpClient.get("$baseUrl/api/agent") {
             applyAuth()
-            if (directory != null) parameter("directory", directory)
+        }.body()
+    }
+
+    /**
+     * List models (GET /api/model).
+     */
+    suspend fun listModels(): ApiModelListResponse {
+        return httpClient.get("$baseUrl/api/model") {
+            applyAuth()
         }.body()
     }
 }
