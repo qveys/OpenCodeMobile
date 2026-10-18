@@ -8,7 +8,6 @@ import kotlinx.coroutines.test.runTest
 import org.opencodemobile.shared.domain.event.SessionSnapshot
 import org.opencodemobile.shared.domain.event.SessionStatus
 import org.opencodemobile.shared.domain.interaction.PendingQuestion
-import org.opencodemobile.shared.domain.interaction.QuestionItem
 import org.opencodemobile.shared.domain.notification.AppNotification
 import org.opencodemobile.shared.domain.notification.LocalNotificationSink
 import org.opencodemobile.shared.domain.notification.NotificationKind
@@ -36,7 +35,7 @@ class LocalNotificationCoordinatorTest {
     private val question = PendingQuestion(
         id = "q_mock_0001",
         sessionId = "ses_mock_0001",
-        questions = listOf(QuestionItem(question = "Which branch?", header = "Branch")),
+        title = "Branch",
     )
 
     @Test

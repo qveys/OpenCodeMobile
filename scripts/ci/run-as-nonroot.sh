@@ -102,9 +102,10 @@ trap restore_ownership EXIT
 
 chown -R "$user:$user" "$GITHUB_WORKSPACE" "$GRADLE_USER_HOME" 2>/dev/null || true
 
-# `su` resets the environment, so re-export the toolchain variables and cd to
-# the checkout inside a script that is passed through safely (handles spaces
-# and newlines in the command).
+# Preserve step environment variables explicitly across su (including deploy
+# credentials). Values stay in the environment, never in argv or this generated
+# script. Override HOME/PATH/toolchain paths below for the builder account and
+# cd to the checkout safely (handles spaces and newlines in the command).
 script="$(mktemp)"
 {
   printf '#!/usr/bin/env bash\n'
@@ -128,7 +129,7 @@ chmod 0755 "$script"
 chown "$user:$user" "$script"
 
 status=0
-su -s /bin/bash "$user" -c "bash '$script'" || status=$?
+su --preserve-environment -s /bin/bash "$user" -c "bash '$script'" || status=$?
 rm -f "$script"
 # The EXIT trap restores the mount ownership before the step ends.
 exit "$status"

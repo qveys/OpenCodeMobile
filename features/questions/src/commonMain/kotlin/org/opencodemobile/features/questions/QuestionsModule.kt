@@ -1,7 +1,7 @@
 package org.opencodemobile.features.questions
 
 // V1-07 pending-question surface: the non-dismissable question banner, the
-// option selection, and the only two allowed actions (reply / reject). There is
+// typed form fields, and the only two allowed actions (reply / reject). There is
 // no dismiss affordance and no swipe-to-dismiss wrapper: a question disappears
 // only when the server stops listing it. All state and gates (server is the
 // source of truth, offline read-only, answer/reject exactly as captured) live in

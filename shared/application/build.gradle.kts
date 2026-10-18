@@ -32,6 +32,7 @@ kotlin {
             implementation(project(":shared:networking"))
             implementation(project(":shared:test-support"))
             implementation(libs.ktor.client.core)
+            implementation(libs.kotlinx.serialization.json)
         }
 
         // OPE-180 / D8: the cache write-path integration test composes the real

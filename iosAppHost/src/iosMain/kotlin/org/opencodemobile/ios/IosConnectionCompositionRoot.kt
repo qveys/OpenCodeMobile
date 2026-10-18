@@ -43,6 +43,7 @@ import org.opencodemobile.shared.security.identity.ServerIdentityPinController
 import org.opencodemobile.shared.security.identity.TofuServerIdentityCoordinator
 import org.opencodemobile.shared.security.localaccess.IosLocalAccessSettingsStore
 import org.opencodemobile.shared.security.store.IosKeychainSecureStore
+import org.opencodemobile.shared.security.store.SecureBasicAuthCredentialStore
 import org.opencodemobile.shared.security.store.SecureServerCredentialStore
 import org.opencodemobile.shared.security.store.SecureServerProfileStore
 import platform.UIKit.UIViewController
@@ -69,6 +70,9 @@ internal val iosConnectionCompositionModule: Module = module {
     // its own service namespace so sibling secrets cannot be read across stores.
     single { SecureServerProfileStore(IosKeychainSecureStore("server-profile")) }
     single { SecureServerCredentialStore(IosKeychainSecureStore("server-credential")) }
+    // The Traefik/Dokploy reverse-proxy Basic Auth gate credential, separate
+    // from the OpenCode server's own bearer token above.
+    single { SecureBasicAuthCredentialStore(IosKeychainSecureStore("server-basic-auth")) }
     single<ServerIdentityStore> { IosKeychainServerIdentityStore() }
     single<ServerIdentityVerifier> { IosServerIdentityVerifier() }
 
@@ -93,6 +97,7 @@ internal val iosConnectionCompositionModule: Module = module {
         val profileStore: SecureServerProfileStore = get()
         val credentialStore: SecureServerCredentialStore = get()
         val identityStore: ServerIdentityStore = get()
+        val basicAuthStore: SecureBasicAuthCredentialStore = get()
         ConnectionSetupController(
             setup = get(),
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
@@ -102,6 +107,8 @@ internal val iosConnectionCompositionModule: Module = module {
             identityConfirmer = { profile, fingerprint ->
                 identityStore.storePinnedFingerprint(profile.id, fingerprint)
             },
+            basicAuthProvider = { profile -> basicAuthStore.credential(profile.id) },
+            basicAuthPersister = { profile, credential -> basicAuthStore.storeCredential(profile.id, credential) },
         )
     }
 }

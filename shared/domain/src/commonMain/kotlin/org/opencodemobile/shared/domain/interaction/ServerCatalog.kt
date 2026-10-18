@@ -3,8 +3,8 @@ package org.opencodemobile.shared.domain.interaction
 /**
  * Server-exposed model/agent catalog (V1-09; `docs/ARCHITECTURE.md` §3.3).
  *
- * The catalog is **always sourced from the server** — `GET /provider` for
- * models and `GET /agent` for agents. There is deliberately no built-in list
+ * The catalog is **always sourced from the server** — `GET /api/provider` for
+ * models and `GET /api/agent` for agents. There is deliberately no built-in list
  * anywhere in the app: a server that exposes nothing yields an empty
  * [ServerCatalog] and the screen explains why, instead of falling back to a
  * hard-coded catalog (V1-09 acceptance).
@@ -25,7 +25,7 @@ public data class ProviderModels(
     public val models: List<ModelDescriptor> = emptyList(),
 )
 
-/** One agent offered by the server (`GET /agent`). */
+/** One agent offered by the server (`GET /api/agent`). */
 public data class AgentDescriptor(
     public val name: String,
     public val description: String? = null,
@@ -45,7 +45,7 @@ public data class AgentDescriptor(
  */
 public data class ServerCatalog(
     public val providers: List<ProviderModels> = emptyList(),
-    /** The server's default model id per provider (`default` map of `GET /provider`). */
+    /** The server's default model id per provider (when the server reports one). */
     public val defaultModelByProvider: Map<String, String> = emptyMap(),
     public val agents: List<AgentDescriptor> = emptyList(),
     public val providersAvailable: Boolean = true,

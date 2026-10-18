@@ -4,7 +4,7 @@ package org.opencodemobile.shared.domain.connection
  * A parsed OpenCode Server version string (`major.minor.patch`).
  *
  * The server reports its version as a string in the handshake
- * (`GET /global/health` → `version`); this type is the parsed form used by the
+ * (`GET /api/info` → `version`); this type is the parsed form used by the
  * [CompatibilityProfile] gate (`docs/ARCHITECTURE.md` §4.4). Parsing is
  * deliberately strict: [parseOrNull] returns null for anything that is not a
  * dotted numeric version, which the handshake maps to an incomplete-handshake
@@ -35,7 +35,7 @@ public data class ServerVersion(
     public companion object {
         /**
          * Parses `major`, `major.minor`, or `major.minor.patch`, ignoring
-         * surrounding whitespace. Missing components default to `0`.
+         * surrounding whitespace and any `-prerelease` / `+build` suffix. Missing components default to `0`.
          *
          * Returns null when [raw] is blank, has more than three components,
          * or has a non-numeric component. A null result is an incomplete
@@ -45,7 +45,10 @@ public data class ServerVersion(
             val trimmed = raw.trim()
             if (trimmed.isEmpty()) return null
 
-            val parts = trimmed.split('.')
+            // A prerelease/build suffix (`2.0.6-beta.1`, `2.0.6+sha`) is ignored:
+            // the gate compares the release triple only.
+            val core = trimmed.substringBefore('-').substringBefore('+')
+            val parts = core.split('.')
             if (parts.size > 3) return null
 
             val numbers = ArrayList<Int>(parts.size)

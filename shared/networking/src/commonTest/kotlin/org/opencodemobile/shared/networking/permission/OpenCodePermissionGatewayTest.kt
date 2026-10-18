@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.runTest
 import org.opencodemobile.shared.domain.permission.PermissionDecision
 import org.opencodemobile.shared.domain.permission.PermissionEvent
 import org.opencodemobile.shared.domain.permission.PermissionPolicy
+import org.opencodemobile.shared.domain.permission.PermissionReplyOutcome
 import org.opencodemobile.shared.testsupport.MockOpenCodeScenario
 import org.opencodemobile.shared.testsupport.MockOpenCodeServer
 import org.opencodemobile.shared.testsupport.OpenCodeFixtures
@@ -58,10 +59,15 @@ class OpenCodePermissionGatewayTest {
         val server = MockOpenCodeServer(MockOpenCodeScenario.PermissionRequest).start()
         try {
             val gateway = OpenCodePermissionGateway(server.client, server.baseUrl)
+            val sessionId = OpenCodeFixtures.sessions.first().id
 
-            gateway.reply(OpenCodeFixtures.PERMISSION_REQUEST_ID, PermissionDecision.Once)
-            gateway.reply(OpenCodeFixtures.PERMISSION_REQUEST_ID, PermissionDecision.Deny)
-            gateway.reply(OpenCodeFixtures.PERMISSION_REQUEST_ID, PermissionDecision.Remember)
+            val outcome1 = gateway.reply(sessionId, OpenCodeFixtures.PERMISSION_REQUEST_ID, PermissionDecision.Once)
+            val outcome2 = gateway.reply(sessionId, OpenCodeFixtures.PERMISSION_REQUEST_ID, PermissionDecision.Deny)
+            val outcome3 = gateway.reply(sessionId, OpenCodeFixtures.PERMISSION_REQUEST_ID, PermissionDecision.Remember)
+
+            assertEquals(PermissionReplyOutcome.Accepted, outcome1)
+            assertEquals(PermissionReplyOutcome.Accepted, outcome2)
+            assertEquals(PermissionReplyOutcome.Accepted, outcome3)
 
             assertEquals(
                 listOf("once", "reject", "always"),
@@ -69,7 +75,7 @@ class OpenCodePermissionGatewayTest {
             )
             assertTrue(
                 server.requests.contains(
-                    "POST /permission/${OpenCodeFixtures.PERMISSION_REQUEST_ID}/reply",
+                    "POST /api/session/$sessionId/permission/${OpenCodeFixtures.PERMISSION_REQUEST_ID}/reply",
                 ),
             )
         } finally {
@@ -84,14 +90,60 @@ class OpenCodePermissionGatewayTest {
             baseUrl = "http://unused.invalid",
         )
 
-        val replied = gateway.decode(
+        // SSE envelope with object data
+        val repliedObject = gateway.decode(
             "permission.replied",
-            """{"type":"permission.replied","properties":{"sessionID":"ses_1","requestID":"per_1","reply":"once"}}""",
+            """{"id":"evt_1","created":12345,"type":"permission.replied","data":{"sessionID":"ses_1","requestID":"per_1","reply":"once"}}""",
         )
-        assertEquals(PermissionEvent.Replied("per_1"), replied)
+        assertEquals(PermissionEvent.Replied("per_1"), repliedObject)
+
+        // SSE envelope with JSON string data
+        val repliedString = gateway.decode(
+            "permission.replied",
+            """{"id":"evt_1","created":12345,"type":"permission.replied","data":"{\"sessionID\":\"ses_1\",\"requestID\":\"per_1\",\"reply\":\"once\"}"}""",
+        )
+        assertEquals(PermissionEvent.Replied("per_1"), repliedString)
 
         assertNull(gateway.decode("permission.asked", "not-json"))
-        assertNull(gateway.decode("session.updated", """{"type":"session.updated","properties":{}}"""))
+        assertNull(gateway.decode("permission.asked", """{"id":"evt_2","type":"permission.asked","data":"not-json"}"""))
+        assertNull(gateway.decode("session.updated", """{"id":"evt_3","type":"session.updated","data":{}}"""))
+        assertNull(gateway.decode("server.connected", """{"id":"evt_4","type":"server.connected","data":{}}"""))
+        assertNull(gateway.decode("unknown.event", """{"id":"evt_5","type":"unknown.event","data":{"id":"per_1"}}"""))
+    }
+
+    @Test
+    fun askedEventWithJsonStringDataIsDecodedFaithfully() {
+        val gateway = OpenCodePermissionGateway(
+            httpClient = io.ktor.client.HttpClient(),
+            baseUrl = "http://unused.invalid",
+        )
+
+        val askedString = gateway.decode(
+            "permission.asked",
+            """{"id":"evt_1","created":12345,"type":"permission.asked","data":"{\"id\":\"per_2\",\"sessionID\":\"ses_2\",\"action\":\"bash\",\"resources\":[\"echo test\"],\"save\":[\"bash:echo\"],\"metadata\":{\"cmd\":\"echo test\"}}"}""",
+        )
+        val request = (askedString as? PermissionEvent.Asked)?.request
+        assertEquals("per_2", request?.id)
+        assertEquals("ses_2", request?.sessionId)
+        assertEquals("bash", request?.tool)
+        assertEquals(listOf("echo test"), request?.patterns)
+        assertEquals(listOf("bash:echo"), request?.rememberScopes)
+        assertTrue(request?.rawArguments.orEmpty().contains("echo test"))
+    }
+
+    @Test
+    fun askedEventWithoutSessionIdIsDropped() {
+        val gateway = OpenCodePermissionGateway(
+            httpClient = io.ktor.client.HttpClient(),
+            baseUrl = "http://unused.invalid",
+        )
+
+        assertNull(
+            gateway.decode(
+                "permission.asked",
+                """{"id":"evt_1","type":"permission.asked","data":{"id":"per_1","action":"bash","resources":["echo 1"]}}""",
+            ),
+        )
     }
 
     @Test
@@ -101,12 +153,12 @@ class OpenCodePermissionGatewayTest {
             baseUrl = "http://unused.invalid",
         )
 
-        // A non-primitive element inside `patterns` used to throw out of decode,
+        // A non-primitive element inside `resources` used to throw out of decode,
         // which would kill the SSE pipeline. It must be ignored instead.
         val decoded = gateway.decode(
             "permission.asked",
-            """{"type":"permission.asked","properties":{"id":"per_1","sessionID":"ses_1",""" +
-                """"permission":"bash","patterns":[{"a":1}],"always":[],"metadata":{}}}""",
+            """{"id":"evt_1","type":"permission.asked","data":{"id":"per_1","sessionID":"ses_1",""" +
+                """"action":"bash","resources":[{"a":1}],"save":[],"metadata":{}}}""",
         )
 
         val request = (decoded as? PermissionEvent.Asked)?.request
@@ -115,25 +167,22 @@ class OpenCodePermissionGatewayTest {
     }
 
     @Test
-    fun v2EventsAreNotConflatedWithTheRootSurface() {
+    fun legacyV2PrefixEventsAreIgnored() {
         val gateway = OpenCodePermissionGateway(
             httpClient = io.ktor.client.HttpClient(),
             baseUrl = "http://unused.invalid",
         )
 
-        // The app standardizes on the canonical root surface (ADR-0002). The v2
-        // protocol has a different reply route/body; it must not be decoded into
-        // the same pending type only to be un-reconcilable and un-repliable.
         assertNull(
             gateway.decode(
                 "permission.v2.asked",
-                """{"type":"permission.v2.asked","properties":{"id":"per_1","sessionID":"ses_1","action":"bash","resources":["rm -rf build"]}}""",
+                """{"id":"evt_1","type":"permission.v2.asked","data":{"id":"per_1","sessionID":"ses_1","action":"bash","resources":["rm -rf build"]}}""",
             ),
         )
         assertNull(
             gateway.decode(
                 "permission.v2.replied",
-                """{"type":"permission.v2.replied","properties":{"sessionID":"ses_1","requestID":"per_1","reply":"once"}}""",
+                """{"id":"evt_2","type":"permission.v2.replied","data":{"sessionID":"ses_1","requestID":"per_1","reply":"once"}}""",
             ),
         )
     }

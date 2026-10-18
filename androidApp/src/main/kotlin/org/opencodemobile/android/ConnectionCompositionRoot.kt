@@ -28,6 +28,7 @@ import org.opencodemobile.shared.security.identity.ServerIdentityGate
 import org.opencodemobile.shared.security.identity.ServerIdentityPinController
 import org.opencodemobile.shared.security.identity.TofuServerIdentityCoordinator
 import org.opencodemobile.shared.security.store.AndroidKeystoreSecureStore
+import org.opencodemobile.shared.security.store.SecureBasicAuthCredentialStore
 import org.opencodemobile.shared.security.store.SecureServerCredentialStore
 import org.opencodemobile.shared.security.store.SecureServerProfileStore
 
@@ -60,6 +61,9 @@ public val connectionCompositionModule: Module = module {
     // its own namespace so sibling secrets cannot be read across stores.
     single { SecureServerProfileStore(AndroidKeystoreSecureStore(androidContext(), "server-profile")) }
     single { SecureServerCredentialStore(AndroidKeystoreSecureStore(androidContext(), "server-credential")) }
+    // The Traefik/Dokploy reverse-proxy Basic Auth gate credential, separate
+    // from the OpenCode server's own bearer token above.
+    single { SecureBasicAuthCredentialStore(AndroidKeystoreSecureStore(androidContext(), "server-basic-auth")) }
     single<ServerIdentityStore> { AndroidKeystoreServerIdentityStore(androidContext()) }
     single<ServerIdentityVerifier> { AndroidServerIdentityVerifier() }
 
@@ -105,6 +109,7 @@ public val connectionCompositionModule: Module = module {
         val profileStore: SecureServerProfileStore = get()
         val credentialStore: SecureServerCredentialStore = get()
         val identityStore: ServerIdentityStore = get()
+        val basicAuthStore: SecureBasicAuthCredentialStore = get()
         val binding = get<ConnectionBindingController>()
         ConnectionSetupController(
             setup = get(),
@@ -115,6 +120,8 @@ public val connectionCompositionModule: Module = module {
             identityConfirmer = { profile, fingerprint ->
                 identityStore.storePinnedFingerprint(profile.id, fingerprint)
             },
+            basicAuthProvider = { profile -> basicAuthStore.credential(profile.id) },
+            basicAuthPersister = { profile, credential -> basicAuthStore.storeCredential(profile.id, credential) },
             onConnected = { profile, _ -> binding.onConnected(profile) },
         )
     }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ExperimentalComposeApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.AccessibilitySyncOptions
@@ -20,14 +21,13 @@ import org.opencodemobile.features.catalog.CatalogUiState
 import org.opencodemobile.features.catalog.ServerCatalogScreen
 import org.opencodemobile.features.connection.ConnectionSetupContent
 import org.opencodemobile.features.connection.ConnectionSetupUiState
+import org.opencodemobile.features.connection.ServerImportReviewScreen
 import org.opencodemobile.features.permissions.PermissionBannerModel
 import org.opencodemobile.features.permissions.PermissionConfirmationScreen
 import org.opencodemobile.features.permissions.PermissionDecisionUi
 import org.opencodemobile.features.permissions.PermissionEmphasis
 import org.opencodemobile.features.questions.PendingQuestionUi
 import org.opencodemobile.features.questions.PendingQuestionsScreen
-import org.opencodemobile.features.questions.QuestionItemUi
-import org.opencodemobile.features.questions.QuestionOptionUi
 import org.opencodemobile.features.questions.QuestionsUiState
 import org.opencodemobile.features.settings.EraseEverythingActions
 import org.opencodemobile.features.settings.EraseEverythingScreen
@@ -35,13 +35,20 @@ import org.opencodemobile.features.settings.EraseEverythingUiState
 import org.opencodemobile.features.settings.LocalAccessSettingsActions
 import org.opencodemobile.features.settings.LocalAccessSettingsScreen
 import org.opencodemobile.features.settings.localAccessStrings
+import org.opencodemobile.features.transcript.LocalMarkdownImmediate
 import org.opencodemobile.features.transcript.TranscriptScreen
 import org.opencodemobile.shared.application.chat.TranscriptState
+import org.opencodemobile.shared.application.connection.ServerSetupPlan
+import org.opencodemobile.shared.application.connection.ServerSetupSource
 import org.opencodemobile.shared.domain.chat.TranscriptMessage
 import org.opencodemobile.shared.domain.chat.TranscriptPart
 import org.opencodemobile.shared.domain.chat.TranscriptRole
 import org.opencodemobile.shared.domain.connection.DomainError
 import org.opencodemobile.shared.domain.connection.ServerInputProblem
+import org.opencodemobile.shared.domain.connection.ServerProfile
+import org.opencodemobile.shared.domain.interaction.FormField
+import org.opencodemobile.shared.domain.interaction.FormFieldType
+import org.opencodemobile.shared.domain.interaction.FormOption
 import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
 import org.opencodemobile.shared.domain.permission.PermissionDecision
 import platform.UIKit.UIViewController
@@ -70,7 +77,7 @@ public fun debugScreenViewController(name: String, accessibilitySyncAlways: Bool
             },
         ) {
             Surface(Modifier.fillMaxSize(), color = LocalOpenCodeColors.current.bg) {
-                Box(Modifier.fillMaxSize().safeDrawingPadding()) { screen.content() }
+                Box(Modifier.fillMaxSize().safeDrawingPadding()) { CompositionLocalProvider(LocalMarkdownImmediate provides true) { screen.content() } }
             }
         }
     }
@@ -88,14 +95,18 @@ private fun message(id: String, role: TranscriptRole, text: String) =
 
 private val debugScreens: Map<String, DebugScreen> = mapOf(
     "manual-entry" to DebugScreen {
-        ConnectionSetupContent(ConnectionSetupUiState(), {}, {}, {}, {}, {}, {}, {})
+        ConnectionSetupContent(ConnectionSetupUiState(), {}, {}, {}, {}, {}, {}, {}, {}, {})
     },
     "invalid-address" to DebugScreen {
         val state = ConnectionSetupUiState(
             address = "http://",
             manualError = DomainError.InvalidServerAddress(ServerInputProblem.MISSING_HOST, "http://"),
         )
-        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {})
+        ConnectionSetupContent(state, {}, {}, {}, {}, {}, {}, {}, {}, {})
+    },
+    "review" to DebugScreen {
+        val profile = ServerProfile("s1", "192.168.1.20", 4096, "MacBook", ServerProfile.TlsMode.PlaintextHttp)
+        ServerImportReviewScreen(ConnectionSetupUiState(review = ServerSetupPlan(profile, ServerSetupSource.QrCode)), {}, {}, {})
     },
     "sessions" to DebugScreen {
         SessionRow(loc("Networking module rework", "Refonte du module réseau"), loc("2 min ago · mobile", "il y a 2 min · mobile"), SessionRowStatus.Running, {})
@@ -134,18 +145,21 @@ private val debugScreens: Map<String, DebugScreen> = mapOf(
                     PendingQuestionUi(
                         "q1",
                         "s1",
-                        listOf(
-                            QuestionItemUi(
-                                header = loc("Branch", "Branche"),
-                                question = loc("Which branch should the fix target?", "Sur quelle branche appliquer le correctif ?"),
-                                options = listOf(QuestionOptionUi("main"), QuestionOptionUi("release", loc("Release branch", "Branche de publication"))),
+                        title = loc("Branch", "Branche"),
+                        fields = listOf(
+                            FormField(
+                                key = "branch",
+                                type = FormFieldType.Multiselect,
+                                title = loc("Branch", "Branche"),
+                                description = loc("Which branch should the fix target?", "Sur quelle branche appliquer le correctif ?"),
+                                options = listOf(FormOption("main", "main"), FormOption("release", loc("Release branch", "Branche de publication"))),
                             ),
                         ),
                     ),
                 ),
             ),
-            onReply = { _, _ -> },
-            onReject = {},
+            onReply = { _, _, _ -> },
+            onReject = { _, _ -> },
         )
     },
     "local-access" to DebugScreen {

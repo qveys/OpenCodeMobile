@@ -199,6 +199,7 @@ class PermissionIngressMockServerTest {
             )
             assertEquals(2, harness.biometric.calls)
             assertEquals(listOf("once"), server.permissionReplies.map { it.reply })
+            assertEquals(listOf(OpenCodeFixtures.sessions.first().id), server.permissionReplies.map { it.sessionId })
             assertEquals(emptyList(), harness.coordinator.state.value.pending)
         }
         harness.processor.stop()

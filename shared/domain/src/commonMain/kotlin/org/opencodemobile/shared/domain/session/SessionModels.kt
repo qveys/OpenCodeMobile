@@ -21,29 +21,6 @@ public data class SessionSummary(
 )
 
 /**
- * The session surface the *connected* server actually exposes.
- *
- * It is derived at runtime from the server's published API document (the OpenAPI
- * document at `GET /doc`), never from a hard-coded catalog: a server that does
- * not publish the fork route reports [forkAvailable] as `false`, and the UI
- * disables the action instead of sending a call the server would reject
- * (V1-04 acceptance).
- */
-public data class SessionCapabilities(
-    /** True only when the server's published surface includes `POST /session/{id}/fork`. */
-    public val forkAvailable: Boolean,
-) {
-    public companion object {
-        /**
-         * The fail-closed default. When the server surface cannot be read, the
-         * app does not assume a capability it has not verified: fork stays
-         * hidden rather than rejected at the wire.
-         */
-        public val Unknown: SessionCapabilities = SessionCapabilities(forkAvailable = false)
-    }
-}
-
-/**
  * Title rules shared by the list UI and the gateway, so the exact same
  * normalization is applied before a title is validated or sent.
  *

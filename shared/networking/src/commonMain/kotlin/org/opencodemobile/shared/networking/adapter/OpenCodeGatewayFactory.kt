@@ -19,9 +19,15 @@ public fun createOpenCodeGateway(
     identityPin: ServerIdentityPinController,
     identityGate: ServerIdentityGate,
     compatibilityProfile: CompatibilityProfile = CompatibilityProfile.OpenCodeServerV2,
-): OpenCodeV2Adapter = OpenCodeV2Adapter(
-    httpClient = OpenCodeHttpClient.create(identityPin),
-    identityGate = identityGate,
-    identityPin = identityPin,
-    compatibilityProfile = compatibilityProfile,
-)
+): OpenCodeV2Adapter {
+    // Shared with the adapter below, so the credential it releases after the
+    // T1 check is the one [installBasicAuthHeader] reads on the wire.
+    val basicAuthController = BasicAuthCredentialController()
+    return OpenCodeV2Adapter(
+        httpClient = OpenCodeHttpClient.create(identityPin, basicAuthController),
+        identityGate = identityGate,
+        identityPin = identityPin,
+        basicAuthController = basicAuthController,
+        compatibilityProfile = compatibilityProfile,
+    )
+}

@@ -6,7 +6,7 @@ package org.opencodemobile.shared.domain.connection
  * kind of screen* to show, without matching on message strings.
  */
 public enum class DomainErrorCategory {
-    /** The server could not be reached or did not answer a health probe. */
+    /** The server could not be reached or did not answer the info probe. */
     CONNECTION,
 
     /** The server answered but its version is not supported by this client. */
@@ -42,7 +42,6 @@ public enum class DomainErrorCategory {
  */
 public enum class DomainErrorCode {
     CONNECTION_UNREACHABLE,
-    CONNECTION_SERVER_UNHEALTHY,
     CONNECTION_HANDSHAKE_INCOMPLETE,
     COMPATIBILITY_SERVER_INCOMPATIBLE,
     AUTHENTICATION_CREDENTIAL_REJECTED,
@@ -62,7 +61,6 @@ public enum class DomainErrorCode {
     public val category: DomainErrorCategory
         get() = when (this) {
             CONNECTION_UNREACHABLE,
-            CONNECTION_SERVER_UNHEALTHY,
             CONNECTION_HANDSHAKE_INCOMPLETE,
             -> DomainErrorCategory.CONNECTION
 
@@ -136,15 +134,7 @@ public sealed class DomainError(
         override val isRetryable: Boolean get() = true
     }
 
-    /** The health probe answered, but reported the server as unhealthy. */
-    public class ServerUnhealthy : DomainError(
-        code = DomainErrorCode.CONNECTION_SERVER_UNHEALTHY,
-        message = "The server reported that it is unhealthy",
-    ) {
-        override val isRetryable: Boolean get() = true
-    }
-
-    /** The health probe answered but the handshake could not be completed. */
+    /** The info probe answered but the handshake could not be completed. */
     public class HandshakeIncomplete(public val detail: String) : DomainError(
         code = DomainErrorCode.CONNECTION_HANDSHAKE_INCOMPLETE,
         message = "The handshake with the server was incomplete: $detail",
@@ -335,8 +325,7 @@ public enum class ServerInputProblem {
  */
 public fun Throwable.toDomainError(): DomainError = when (this) {
     is DomainError -> this
-    is HandshakeException.HealthUnavailable -> DomainError.Unreachable(cause)
-    is HandshakeException.ServerUnhealthy -> DomainError.ServerUnhealthy()
+    is HandshakeException.InfoUnavailable -> DomainError.Unreachable(cause)
     is HandshakeException.Incomplete -> DomainError.HandshakeIncomplete(detail)
     is HandshakeException.Incompatible -> DomainError.ServerIncompatible(serverVersion, profile.supportedRange)
     is ConnectionPolicyException.Rejected -> DomainError.PolicyRejected(decision.scope, decision.violation)

@@ -20,7 +20,7 @@ public enum class ConnectionPhase {
     /**
      * The SSE stream ended early, was idle past the configured timeout, or failed.
      * The pipeline is reconciling through the mandatory polling fallback
-     * (`GET /session/status`) with bounded exponential backoff until the transport
+     * (`GET /api/session/active`) with bounded exponential backoff until the transport
      * becomes healthy again.
      */
     Polling,
@@ -29,7 +29,7 @@ public enum class ConnectionPhase {
     Stopped,
 }
 
-/** One session as reported by the server snapshot (`GET /session`). */
+/** One session as reported by the server snapshot (`GET /api/session`). */
 public data class SessionSnapshot(
     public val id: String,
     public val title: String?,
@@ -38,7 +38,7 @@ public data class SessionSnapshot(
 )
 
 /**
- * Server-reported status of one session (`GET /session/status`).
+ * Server-reported status of one session (`GET /api/session/active`).
  *
  * The shape mirrors the pinned spec: `type` is `idle`, `busy` or `retry`, and the
  * `retry` case additionally carries `attempt` / `message` / `next`. Reconciliation
@@ -63,20 +63,25 @@ public data class RealtimeSnapshot(
     public val statuses: Map<String, SessionStatus>,
 )
 
+/** Internal transport lifecycle signals; never exposed as business events. */
+public enum class StreamSignal { Opened, Activity }
+
 /**
- * One SSE record as read off the wire, before normalization.
- *
- * [id] is the server-issued event id (`id:` field) or `null` when the server did not
- * send one. [data] is the raw `data:` payload, which the pipeline validates as JSON
- * before accepting it. [type] is the `event:` field, defaulting to `message`.
- *
- * Transport code (SSE framing) produces these; it never interprets the payload.
+ * One raw SSE envelope, or an internal [signal] emitted by the transport.
+ * [id] and [type] come from the JSON envelope; [data] holds its complete JSON.
+ * Signals bypass JSON validation, ordering and deduplication in the processor.
  */
 public data class RawServerEvent(
     public val id: String?,
     public val type: String,
     public val data: String,
-)
+    public val signal: StreamSignal? = null,
+) {
+    public companion object {
+        public fun opened(): RawServerEvent = RawServerEvent(null, "", "", StreamSignal.Opened)
+        public fun activity(): RawServerEvent = RawServerEvent(null, "", "", StreamSignal.Activity)
+    }
+}
 
 /**
  * One normalized event, ordered by the pipeline and safe to apply to the live model.

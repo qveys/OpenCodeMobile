@@ -29,7 +29,7 @@ import java.io.File
 class DictationOnDeviceContractTest : StringSpec({
 
     val repoRoot = File(".")
-    val ignoredSegments = setOf("build", ".git", ".gradle", ".kotlin", ".paperclip", "architecture-tests")
+    val ignoredSegments = setOf("build", ".git", ".gradle", ".kotlin", ".paperclip", ".worktrees", "architecture-tests")
 
     fun relative(file: File): String = file.invariantSeparatorsPath.removePrefix("./")
 

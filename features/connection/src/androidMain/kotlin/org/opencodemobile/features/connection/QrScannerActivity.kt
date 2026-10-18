@@ -201,6 +201,7 @@ private fun QrScannerContent(
  * Runs one ML Kit pass over [imageProxy] and reports the first decoded QR
  * payload. The proxy is always closed, including when ML Kit fails.
  */
+@androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
 private fun decodeQrCode(
     imageProxy: ImageProxy,
     scanner: BarcodeScanner,

@@ -37,6 +37,13 @@ class ServerVersionTest {
     }
 
     @Test
+    fun ignoresPrereleaseAndBuildSuffix() {
+        assertEquals(ServerVersion(2, 0, 6), ServerVersion.parseOrNull("2.0.6-beta.1"))
+        assertEquals(ServerVersion(2, 0, 6), ServerVersion.parseOrNull("2.0.6+sha.abc"))
+        assertNull(ServerVersion.parseOrNull("-beta"))
+    }
+
+    @Test
     fun comparesNumericallyNotLexically() {
         assertTrue(ServerVersion(1, 18, 32) > ServerVersion(1, 9, 9))
         assertTrue(ServerVersion(1, 18, 32) > ServerVersion(1, 18, 9))

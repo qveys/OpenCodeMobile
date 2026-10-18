@@ -14,6 +14,8 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.json.*
+import org.opencodemobile.shared.domain.chat.TranscriptRole
 import kotlinx.coroutines.test.runTest
 import org.opencodemobile.shared.domain.connection.ServerCredential
 import org.opencodemobile.shared.domain.connection.ServerFingerprint
@@ -45,8 +47,8 @@ private class SessionNeverProbedVerifier : ServerIdentityVerifier {
  * `normal` [MockOpenCodeServer] scenario, proves list/create/open/rename/delete/
  * fork and that each mutation is reflected in the list at reload.
  *
- * The `ForksIfAndOnlyIfTheServerExposesIt` test proves the fork capability comes
- * from the server's published surface rather than a hard-coded catalog.
+ * Fork is attempted directly: v2 publishes no capability document; a missing route
+ * must produce a typed failure while session listing remains available.
  */
 class SessionGatewayAdapterTest {
 
@@ -74,7 +76,6 @@ class SessionGatewayAdapterTest {
 
             val initial = adapter.listSessions()
             assertEquals(OpenCodeFixtures.sessions.size, initial.size)
-            assertTrue(adapter.sessionCapabilities().forkAvailable)
 
             // create
             val created = adapter.createSession(title = "Created by V1-04")
@@ -113,7 +114,7 @@ class SessionGatewayAdapterTest {
     }
 
     @Test
-    fun forksIfAndOnlyIfTheServerExposesIt() = runTest {
+    fun anUnsupportedForkSurfacesNotFoundWithoutBreakingSessionListing() = runTest {
         val server = MockOpenCodeServer(
             scenario = MockOpenCodeScenario.NoFork,
             expectSuccess = true,
@@ -122,23 +123,19 @@ class SessionGatewayAdapterTest {
             val adapter = adapterFor(server)
             adapter.connect(profile, ServerCredential("s3cr3t"))
 
-            assertFalse(
-                adapter.sessionCapabilities().forkAvailable,
-                "a server whose published surface omits fork must report it unavailable",
-            )
-            // The list itself still works: no capability is conflated with availability.
             assertEquals(OpenCodeFixtures.sessions.size, adapter.listSessions().size)
-            assertFalse(
-                server.requests.any { it.endsWith("/fork") },
-                "no fork call may be sent to a server that does not expose it",
-            )
+            assertFailsWith<SessionNotFoundException> {
+                adapter.forkSession(OpenCodeFixtures.sessions.first().id)
+            }
+            assertTrue(server.requests.contains("POST /api/session/${OpenCodeFixtures.sessions.first().id}/fork"))
+
         } finally {
             server.stop()
         }
     }
 
     @Test
-    fun createSendsTheDirectoryAsAQueryParameter() = runTest {
+    fun createSendsTheDirectoryInTheLocationBody() = runTest {
         val server = MockOpenCodeServer(expectSuccess = true).start()
         try {
             val adapter = adapterFor(server)
@@ -147,9 +144,7 @@ class SessionGatewayAdapterTest {
             val created = adapter.createSession(directory = "/home/dev/scoped", title = "Scoped session")
 
             assertEquals("Scoped session", created.title)
-            // The mock reads `directory` from the query string and rejects a body
-            // that carries it (additionalProperties:false in the pinned spec), so
-            // this proves the create path scopes through the query parameter.
+            // v2 creation scopes the session through location.directory in the body.
             assertEquals("/home/dev/scoped", created.directory)
         } finally {
             server.stop()
@@ -174,9 +169,9 @@ class SessionGatewayAdapterTest {
     @Test
     fun aServerFailureSurfacesServerUnavailable() = runTest {
         val engine = MockEngine { request ->
-            if (request.url.encodedPath == "/global/health") {
+            if (request.url.encodedPath == "/api/info") {
                 respond(
-                    content = """{"healthy":true,"version":"1.18.32"}""",
+                    content = """{"version":"2.0.6","pid":6,"urls":[],"paths":{"tmp":"/tmp"}}""",
                     status = HttpStatusCode.OK,
                     headers = jsonHeaders(),
                 )
@@ -201,6 +196,64 @@ class SessionGatewayAdapterTest {
 
         assertFailsWith<ServerUnavailableException> {
             adapter.listSessions()
+        }
+    }
+
+    @Test
+    fun sessionsFollowOpaqueCursorsAndPreserveDirectoryScoping() = runTest {
+        val server = MockOpenCodeServer(expectSuccess = true).start()
+        try {
+            val adapter = adapterFor(server)
+            adapter.connect(profile, ServerCredential("s3cr3t"))
+            repeat(51) { adapter.createSession(directory = "/scoped", title = "Session $it") }
+            val sessions = adapter.listSessions("/scoped")
+            assertEquals(51, sessions.size)
+            assertEquals(51, sessions.map { it.id }.toSet().size)
+            assertTrue(sessions.all { it.directory == "/scoped" })
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun transcriptFollowsCursorsDeduplicatesAndSortsChronologically() = runTest {
+        val cursors = mutableListOf<String?>()
+        fun message(id: String, role: String, time: Long) = buildJsonObject {
+            put("id", id)
+            put("type", role)
+            putJsonObject("time") { put("created", time) }
+            if (role == "user") put("text", id) else {
+                put("agent", "build")
+                putJsonObject("model") { put("id", OpenCodeFixtures.MODEL_ID); put("providerID", "anthropic") }
+                putJsonArray("content") { add(buildJsonObject { put("type", "text"); put("text", id) }) }
+            }
+        }
+        val older = message("msg_older", "user", 1)
+        val newer = message("msg_newer", "assistant", 2)
+        val engine = MockEngine { request ->
+            val content = if (request.url.encodedPath == "/api/info") OpenCodeFixtures.infoJson() else {
+                assertEquals("/api/session/ses_mock_0001/message", request.url.encodedPath)
+                val cursor = request.url.parameters["cursor"]
+                cursors += cursor
+                buildJsonObject {
+                    put("data", if (cursor == null) JsonArray(listOf(newer)) else JsonArray(listOf(newer, older)))
+                    putJsonObject("cursor") { put("next", if (cursor == null) JsonPrimitive("opaque-next") else JsonNull) }
+                }.toString()
+            }
+            respond(content, HttpStatusCode.OK, jsonHeaders())
+        }
+        val client = HttpClient(engine) { install(ContentNegotiation) { json() } }
+        try {
+            val gate = ServerIdentityGate(TofuServerIdentityCoordinator(SessionEmptyIdentityStore(), SessionNeverProbedVerifier()))
+            val adapter = OpenCodeV2Adapter(client, gate, ServerIdentityPinController())
+            adapter.connect(profile, ServerCredential("s3cr3t"))
+            val messages = adapter.transcript("ses_mock_0001")
+            assertEquals(listOf(null, "opaque-next"), cursors)
+            assertEquals(listOf("msg_older", "msg_newer"), messages.map { it.id })
+            assertEquals(listOf(TranscriptRole.User, TranscriptRole.Assistant), messages.map { it.role })
+            assertEquals(listOf("msg_older", "msg_newer"), messages.map { it.parts.single().text })
+        } finally {
+            client.close()
         }
     }
 

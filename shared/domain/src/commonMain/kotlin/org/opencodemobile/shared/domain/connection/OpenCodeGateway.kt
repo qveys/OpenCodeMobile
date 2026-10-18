@@ -21,12 +21,22 @@ public interface OpenCodeGateway {
      *    [ServerIdentityCheck.Changed].
      * 3. The credential is released to the transport only after the identity
      *    check has passed (or the profile is plaintext HTTP on an allowed
-     *    scope, which is surfaced with a warning).
-     * 4. `GET /global/health` is read and its version is gated by the
-     *    [CompatibilityProfile]; an unreachable, unhealthy, incomplete, or
-     *    incompatible server throws [HandshakeException].
+     *    scope, which is surfaced with a warning). [basicAuth], if present, is
+     *    released at the same point, never before: a connection that fails the
+     *    identity check must not leak the reverse-proxy credential either.
+     * 4. `GET /api/info` is read and its version is gated by the
+     *    [CompatibilityProfile]; an unreachable, incomplete, or incompatible
+     *    server throws [HandshakeException].
+     *
+     * @param basicAuth the optional HTTP Basic Auth credential for a
+     *   Traefik/Dokploy reverse-proxy gate in front of the server. It is
+     *   unrelated to [credential] (the server's own bearer token).
      */
-    public suspend fun connect(profile: ServerProfile, credential: ServerCredential?): ConnectionHandshake
+    public suspend fun connect(
+        profile: ServerProfile,
+        credential: ServerCredential?,
+        basicAuth: BasicAuthCredential? = null,
+    ): ConnectionHandshake
 
     /** Tears down the current connection, if any, and drops the credential permit. */
     public fun disconnect()
@@ -47,16 +57,9 @@ public class ServerCredential(
     override fun toString(): String = "ServerCredential(***)"
 }
 
-/** Result of `GET /global/health`. */
-public data class ServerHealth(
-    public val healthy: Boolean,
-    public val version: String?,
-)
-
 /** Result of a successful connection handshake. */
 public data class ConnectionHandshake(
     public val profileId: String,
-    public val health: ServerHealth,
     public val identity: ServerIdentityCheck,
     /** The parsed server version that passed the [CompatibilityProfile] gate. */
     public val version: ServerVersion,

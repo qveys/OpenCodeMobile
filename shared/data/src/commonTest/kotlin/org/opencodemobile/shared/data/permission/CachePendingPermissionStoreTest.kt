@@ -65,6 +65,20 @@ class CachePendingPermissionStoreTest {
     }
 
     @Test
+    fun legacyRequestsWithoutASessionAreNotRestored() = runTest {
+        val cache = InMemoryKeyValueCache()
+        val store = CachePendingPermissionStore(cache, cache, serverId = "srv_1")
+
+        for (stored in listOf(
+            """[{"id":"per_legacy","tool":"bash"}]""",
+            """[{"id":"per_legacy","sessionId":null,"tool":"bash"}]""",
+        )) {
+            cache.preferences["srv_1" to PENDING_PERMISSION_PREFERENCE_KEY] = stored
+            assertTrue(store.load().isEmpty(), "a request without a session cannot be replied to")
+        }
+    }
+
+    @Test
     fun savingAnEmptySetClearsThePendingList() = runTest {
         val cache = InMemoryKeyValueCache()
         val store = CachePendingPermissionStore(cache, cache, serverId = "srv_1")

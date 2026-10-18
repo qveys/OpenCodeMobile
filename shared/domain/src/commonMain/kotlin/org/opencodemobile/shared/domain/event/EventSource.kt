@@ -44,9 +44,9 @@ public interface EventSource {
  *
  * Responsibilities are deliberately split:
  * - [fetchSnapshot] is the full (re)connect snapshot: sessions + statuses.
- * - [openEventStream] is the SSE stream (`GET /event`); it emits raw records and
+ * - [openEventStream] is the SSE stream (`GET /api/event`); it emits raw records and
  *   completes (or throws) when the stream ends prematurely.
- * - [pollStatuses] is the mandatory polling fallback (`GET /session/status`).
+ * - [pollStatuses] is the mandatory polling fallback (`GET /api/session/active`).
  */
 public interface EventTransport {
     /**
@@ -56,7 +56,7 @@ public interface EventTransport {
     public suspend fun fetchSnapshot(): RealtimeSnapshot
 
     /**
-     * Reads the polling fallback (`GET /session/status`). Throws on any failure; the
+     * Reads the polling fallback (`GET /api/session/active`). Throws on any failure; the
      * pipeline treats a failed poll as the transport still being unhealthy.
      */
     public suspend fun pollStatuses(): Map<String, SessionStatus>
@@ -66,6 +66,9 @@ public interface EventTransport {
      * progressively and completes when the server closes the body. A transport-level
      * failure surfaces as an exception on the flow.
      *
+     * Emit [RawServerEvent.opened] once the server subscription is established, and
+     * [RawServerEvent.activity] for received heartbeat/comment lines. These internal
+     * records keep an idle stream healthy and never reach [EventSource.events].
      * The flow must be cold per collection so a reconnect opens a fresh connection.
      */
     public fun openEventStream(): Flow<RawServerEvent>

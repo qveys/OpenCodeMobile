@@ -2,6 +2,7 @@ package org.opencodemobile.features.transcript
 
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import com.mikepenz.markdown.compose.components.MarkdownComponents
 import com.mikepenz.markdown.compose.components.markdownComponents
@@ -37,9 +38,10 @@ public fun AssistantMarkdown(
 ) {
     SelectionContainer(modifier = modifier) {
         // immediate: first frame parses synchronously, so the body is never blank (and
-        // screenshots capture it); later updates re-parse off-thread.
+        // screenshots capture it); later updates re-parse off-thread. Off by default in
+        // production; debug fixtures (iOS screenshots) opt in via the local below.
         Markdown(
-            markdownState = rememberMarkdownState(content, immediate = true),
+            markdownState = rememberMarkdownState(content, immediate = LocalMarkdownImmediate.current),
             components = transcriptMarkdownComponents(),
         )
     }
@@ -51,3 +53,6 @@ public fun transcriptMarkdownComponents(): MarkdownComponents =
     markdownComponents(
         codeFence = highlightedCodeFence,
     )
+
+/** Debug fixtures (iOS screenshots) set this so the first frame already holds the parsed Markdown. */
+public val LocalMarkdownImmediate = staticCompositionLocalOf { false }

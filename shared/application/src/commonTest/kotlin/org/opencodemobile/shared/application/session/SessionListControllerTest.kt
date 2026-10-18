@@ -17,7 +17,6 @@ import org.opencodemobile.shared.domain.cache.ConnectivityMutationGate
 import org.opencodemobile.shared.domain.cache.ConnectionState
 import org.opencodemobile.shared.domain.cache.SessionCache
 import org.opencodemobile.shared.domain.session.ServerUnavailableException
-import org.opencodemobile.shared.domain.session.SessionCapabilities
 import org.opencodemobile.shared.domain.session.SessionGateway
 import org.opencodemobile.shared.domain.session.SessionSummary
 import org.opencodemobile.shared.domain.session.SessionTitlePolicy
@@ -32,7 +31,6 @@ private fun summary(id: String, title: String, updatedAt: Long) = SessionSummary
 )
 
 private class FakeSessionGateway(
-    var capabilities: SessionCapabilities = SessionCapabilities(forkAvailable = true),
     var listFailure: Throwable? = null,
     var mutationFailure: Throwable? = null,
 ) : SessionGateway {
@@ -80,11 +78,6 @@ private class FakeSessionGateway(
         val forked = summary("ses_forked", "Fork of $sessionId", 30L).copy(parentSessionId = sessionId)
         sessions += forked
         return forked
-    }
-
-    override suspend fun sessionCapabilities(directory: String?): SessionCapabilities {
-        calls += "capabilities"
-        return capabilities
     }
 }
 
@@ -154,10 +147,8 @@ class SessionListControllerTest {
         assertEquals(SessionListSource.Live, state.source)
         assertTrue(state.online)
         assertFalse(state.offline)
-        assertTrue(state.forkAvailable)
         assertNull(state.error)
         assertTrue(fixture.gateway.calls.contains("list"))
-        assertTrue(fixture.gateway.calls.contains("capabilities"))
     }
 
     @Test
@@ -173,7 +164,6 @@ class SessionListControllerTest {
         assertEquals(2, state.sessions.size)
         assertEquals(SessionListSource.Cache, state.source)
         assertTrue(state.offline)
-        assertFalse(state.forkAvailable)
         assertTrue(fixture.gateway.calls.isEmpty(), "offline must touch no server route")
 
         controller.createSession("New")
@@ -239,34 +229,14 @@ class SessionListControllerTest {
     }
 
     @Test
-    fun recoveredMutationRereadsTheCapabilitySurface() = runTest {
+    fun forkReachesTheServerWithoutACapabilityProbe() = runTest {
         val fixture = Fixture()
-        fixture.gateway.listFailure = IllegalStateException("down")
-        fixture.controller.refresh()
-        assertFalse(fixture.controller.state.value.forkAvailable)
-        fixture.gateway.listFailure = null
-
-        fixture.controller.createSession("Back")
-
-        assertTrue(fixture.controller.state.value.forkAvailable)
-    }
-
-    @Test
-    fun forkIsRefusedLocallyWhenTheServerDoesNotExposeIt() = runTest {
-        val fixture = Fixture()
-        fixture.gateway.capabilities = SessionCapabilities(forkAvailable = false)
         fixture.controller.refresh()
 
         fixture.controller.forkSession("ses_1")
 
-        assertEquals(
-            SessionListError.Rejected("This server does not expose session forking"),
-            fixture.controller.state.value.error,
-        )
-        assertFalse(
-            fixture.gateway.calls.any { it.startsWith("fork:") },
-            "a server without fork must see no rejected call",
-        )
+        assertTrue(fixture.gateway.calls.contains("fork:ses_1"))
+        assertEquals(null, fixture.controller.state.value.error)
     }
 
     @Test

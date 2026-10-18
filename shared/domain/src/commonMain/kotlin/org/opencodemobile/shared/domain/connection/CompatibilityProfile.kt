@@ -13,7 +13,7 @@ package org.opencodemobile.shared.domain.connection
  * gate for the pinned server (`docs/ARCHITECTURE.md` §4.2).
  */
 public data class CompatibilityProfile(
-    /** The server major version this client was generated against (`1` for the pinned spec). */
+    /** The server major version this client was generated against (`2` for the pinned spec). */
     public val majorVersion: Int,
     /** The oldest supported version. Any version `>= minimumVersion` in [majorVersion] is accepted. */
     public val minimumVersion: ServerVersion,
@@ -44,12 +44,12 @@ public data class CompatibilityProfile(
     public companion object {
         /**
          * The compatibility profile for the pinned OpenCode Server v2
-         * (`docs/ARCHITECTURE.md` §4.2, spec `1.18.32`): server major line `1`,
-         * not older than `1.18.0`.
+         * (`docs/ARCHITECTURE.md` §4.2, `/api` HttpApi, spec `2.0.6`): server
+         * major line `2`, not older than `2.0.0`.
          */
         public val OpenCodeServerV2: CompatibilityProfile = CompatibilityProfile(
-            majorVersion = 1,
-            minimumVersion = ServerVersion(1, 18, 0),
+            majorVersion = 2,
+            minimumVersion = ServerVersion(2, 0, 0),
         )
     }
 }

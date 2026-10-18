@@ -1,4 +1,5 @@
 <resources>
+    <string name="question_waiting">[?] L’agent attend votre réponse</string>
     <string name="app_name">OpenCode Mobile</string>
     <string name="app_tagline">Pilotez votre serveur OpenCode à distance</string>
     <string name="question_reply">Répondre</string>

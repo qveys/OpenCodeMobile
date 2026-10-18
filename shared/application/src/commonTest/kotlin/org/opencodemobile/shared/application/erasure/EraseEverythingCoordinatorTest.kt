@@ -7,6 +7,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import org.opencodemobile.shared.application.notification.LocalNotificationCoordinator
 import org.opencodemobile.shared.domain.cache.LocalCacheEraser
+import org.opencodemobile.shared.domain.connection.BasicAuthCredential
 import org.opencodemobile.shared.domain.connection.ConnectionHandshake
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerCredential
@@ -188,6 +189,7 @@ class EraseEverythingCoordinatorTest {
         override suspend fun connect(
             profile: ServerProfile,
             credential: ServerCredential?,
+            basicAuth: BasicAuthCredential?,
         ): ConnectionHandshake = throw UnsupportedOperationException("not used by the erase path")
 
         override fun disconnect() {

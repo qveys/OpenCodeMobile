@@ -6,7 +6,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.opencodemobile.shared.domain.interaction.PendingQuestion
-import org.opencodemobile.shared.domain.interaction.QuestionItem
 import org.opencodemobile.shared.domain.notification.NotificationKind
 import org.opencodemobile.shared.domain.notification.NotificationPolicy
 import org.opencodemobile.shared.domain.permission.PermissionCapabilities
@@ -23,7 +22,7 @@ class IosNotificationContentTest {
 
     private val permission = PermissionRequest(
         id = "per_mock_0001",
-        sessionId = null,
+        sessionId = "s1",
         tool = "bash",
         patterns = listOf("rm -rf build"),
         rawArguments = """{"command":"rm -rf build"}""",
@@ -34,7 +33,7 @@ class IosNotificationContentTest {
     private val question = PendingQuestion(
         id = "q_mock_0001",
         sessionId = "ses_1",
-        questions = listOf(QuestionItem(question = "Which branch?", header = "Branch")),
+        title = "Branch",
     )
 
     private val permissionsNotification = NotificationPolicy.permissionFor(permission)

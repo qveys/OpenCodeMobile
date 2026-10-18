@@ -64,3 +64,6 @@ Thumbs.db
 # (scripts/ci/package-android-debug-apk.sh). Never commit staged outputs.
 dist-android-debug/
 .worktrees/
+
+# Cursor agent local hook state
+.cursor/

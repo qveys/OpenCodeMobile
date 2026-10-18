@@ -20,6 +20,7 @@ import org.opencodemobile.shared.domain.connection.ServerFingerprint
 import org.opencodemobile.shared.domain.connection.ServerIdentityStore
 import org.opencodemobile.shared.domain.connection.ServerIdentityVerifier
 import org.opencodemobile.shared.domain.connection.ServerProfile
+import org.opencodemobile.shared.domain.interaction.FormValue
 import org.opencodemobile.shared.networking.adapter.OpenCodeV2Adapter
 import org.opencodemobile.shared.networking.realtime.NetworkingRealtimeTransport
 import org.opencodemobile.shared.realtime.EventProcessor
@@ -40,7 +41,7 @@ import org.opencodemobile.shared.testsupport.OpenCodeFixtures
  * [PendingQuestionsRealtimeBridge] drive the controller against the mock.
  *
  * Covered:
- * - a question is listed from `GET /question` and exposed with its exact header
+ * - a question is listed from `GET /api/form` and exposed with its exact header
  *   and options,
  * - **kill → relaunch**: a fresh process (new controller + pipeline) re-reads the
  *   server and shows the question again, with nothing lost,
@@ -96,7 +97,7 @@ class PendingQuestionsAppWiringTest {
     @Test
     fun questionSurvivesAKillAgainstTheRealServer() = runTest {
         val server = startServer(MockOpenCodeScenario.PermissionRequest)
-        val requestId = OpenCodeFixtures.QUESTION_REQUEST_ID
+        val requestId = OpenCodeFixtures.FORM_REQUEST_ID
 
         val first = rebuildProcess(server)
         withContext(Dispatchers.Default) {
@@ -110,14 +111,14 @@ class PendingQuestionsAppWiringTest {
         val question = before.questions.single()
         assertEquals(requestId, question.id)
         assertEquals(OpenCodeFixtures.sessions.first().id, question.sessionId)
-        assertEquals("Rebase target", question.questions.single().header)
-        assertEquals(listOf("main", "release"), question.questions.single().options.map { it.label })
+        assertEquals("Rebase target", question.title)
+        assertEquals(listOf("main", "release"), question.fields.single().options.map { it.label })
 
         // Kill: tear the pipeline and the scope down. Nothing is persisted locally.
         first.processor.stop()
         first.scope.cancel()
 
-        // Relaunch: a brand-new process re-reads `GET /question` and must show the
+        // Relaunch: a brand-new process re-reads `GET /api/form` and must show the
         // very same pending question.
         val second = rebuildProcess(server)
         withContext(Dispatchers.Default) {
@@ -133,8 +134,8 @@ class PendingQuestionsAppWiringTest {
         )
         assertTrue(second.controller.state.value.blocksTurn)
         assertTrue(
-            server.requests.count { it.startsWith("GET ${MockOpenCodeServer.QUESTION_PATH}") } >= 2,
-            "both processes must have read GET /question: ${server.requests}",
+            server.requests.count { it.startsWith("GET ${MockOpenCodeServer.FORM_PATH}") } >= 2,
+            "both processes must have read GET /api/form: ${server.requests}",
         )
 
         second.processor.stop()
@@ -143,22 +144,26 @@ class PendingQuestionsAppWiringTest {
     @Test
     fun replyAndRejectReachTheWireWithTheExactDecision() = runTest {
         val server = startServer(MockOpenCodeScenario.PermissionRequest)
-        val requestId = OpenCodeFixtures.QUESTION_REQUEST_ID
+        val requestId = OpenCodeFixtures.FORM_REQUEST_ID
         val controller = PendingQuestionsController(connectedAdapter(server), onlineGate())
 
         assertFalse(controller.state.value.blocksTurn, "nothing blocks the turn before the refresh")
         assertTrue(controller.refresh().isSuccess)
         assertTrue(controller.state.value.blocksTurn)
 
-        assertTrue(controller.answer(requestId, listOf(listOf("main"))).isSuccess)
-        assertTrue(controller.reject(requestId).isSuccess)
+        val form = controller.state.value.questions.first()
+        val answer = mapOf(form.fields.first().key to FormValue.Choices(listOf("main")))
+        assertTrue(controller.answer(form.sessionId, requestId, answer).isSuccess)
+        assertTrue(controller.reject(form.sessionId, requestId).isSuccess)
 
-        val decisions = server.questionReplies
+        val decisions = server.formReplies
         assertEquals(2, decisions.size)
         assertEquals("reply", decisions[0].decision)
         assertEquals(requestId, decisions[0].requestID)
-        assertEquals(listOf(listOf("main")), decisions[0].answers)
-        assertEquals("reject", decisions[1].decision)
+        assertEquals(form.sessionId, decisions[0].sessionId)
+        assertEquals(form.sessionId, decisions[1].sessionId)
+        assertEquals("{\"branch\":[\"main\"]}", decisions[0].answer.toString())
+        assertEquals("cancel", decisions[1].decision)
     }
 
     /** A "process": its own adapter, controller, realtime pipeline and bridge. */
