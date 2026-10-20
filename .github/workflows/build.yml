@@ -103,6 +103,7 @@ jobs:
     # image (JDK 21 + Android SDK 35, pinned by digest) as uid 10001, instead of
     # on a GitHub-hosted runner that carries an implicit, unpinned toolchain.
     # See .github/workflows/ci-image.yml and docs/CI-RUNNER-STRATEGY.md §7.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, hostinger]
     timeout-minutes: 40
     container:
@@ -150,6 +151,7 @@ jobs:
 
   build-ios:
     name: Build iOS/macOS frameworks
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, macOS, mac]
     timeout-minutes: 60
     steps:
@@ -180,6 +182,7 @@ jobs:
     name: Package iOS Simulator app
     # OPE-295 (@qveys review): GitHub-hosted macOS runners are cost-forbidden;
     # run on the company self-hosted mac pool, like test-ios below.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, mac]
     timeout-minutes: 60
     env:
@@ -239,6 +242,7 @@ jobs:
     name: Package Android debug APK
     # OPE-255/OPE-291: same self-hosted hostinger pool and digest-pinned CI
     # image as build-android/test-android — no GitHub-hosted minutes.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, hostinger]
     timeout-minutes: 40
     container:
@@ -313,6 +317,7 @@ jobs:
     # pool — no GitHub-hosted minutes. Untrusted-PR isolation now relies on
     # the digest-pinned CI image running as uid 10001 (ADR 0007); the OPE-265
     # routing reservation is superseded.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, hostinger]
     timeout-minutes: 40
     container:
@@ -346,6 +351,7 @@ jobs:
 
   test-ios:
     name: Test iOS simulator (Kotlin/Native)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, mac]
     timeout-minutes: 60
     steps:

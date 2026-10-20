@@ -49,6 +49,7 @@ jobs:
     # pool — no GitHub-hosted minutes. Isolation relies on the digest-pinned
     # image running as uid 10001 (ADR 0007); the OPE-258 routing reservation
     # is superseded.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, hostinger]
     timeout-minutes: 5
     # OPE-212 — ephemeral, non-root isolation. The image is pinned by digest
@@ -140,6 +141,7 @@ jobs:
     # digest-pinned repository CI image instead of the host toolchain, and runs
     # as uid 10001. This preserves the T4 supply-chain policy: the toolchain is
     # a reviewed, digest-pinned image, not an unverified per-run download.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, hostinger]
     needs: static-scan
     timeout-minutes: 40

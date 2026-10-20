@@ -71,6 +71,7 @@ jobs:
     name: T1 handshake (JVM)
     # OPE-255 (ADR 0007 stage 2): repository CI image (JDK 21 + Android SDK 35,
     # pinned by digest), run as uid 10001. See .github/workflows/ci-image.yml.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, hostinger]
     timeout-minutes: 20
     container:
@@ -99,6 +100,7 @@ jobs:
   android-instrumented-compile:
     name: T1 Android instrumented test compiles
     # OPE-255 (ADR 0007 stage 2): same repository CI image as jvm-handshake.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, hostinger]
     timeout-minutes: 25
     container:

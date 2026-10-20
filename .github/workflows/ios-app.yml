@@ -67,6 +67,7 @@ jobs:
   # Acceptance host: the company `mac` self-hosted runner.
   ios-app-simulator:
     name: Build and smoke-test iosApp (self-hosted mac)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, mac]
     timeout-minutes: 75
     steps: &ios_app_steps
