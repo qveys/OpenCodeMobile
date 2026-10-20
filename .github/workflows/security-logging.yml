@@ -49,6 +49,7 @@ jobs:
     # pool — no GitHub-hosted minutes. Isolation relies on the digest-pinned
     # image running as uid 10001 (ADR 0007); the OPE-258 routing reservation
     # is superseded.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, hostinger]
     timeout-minutes: 5
     # OPE-212 — ephemeral, non-root isolation. The image is pinned by digest
@@ -114,15 +115,7 @@ jobs:
       - name: Restore workspace ownership for host runner
         if: always()
         run: |
-          set -euo pipefail
-          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
-          owner="$(stat -c '%u:%g' "$RUNNER_TEMP")"
-          if [[ "${owner%%:*}" == "0" ]]; then
-            echo '::error::Runner temp dir is root-owned; refusing to preserve root-owned checkout files.'
-            exit 1
-          fi
-          chown -R "$owner" "$GITHUB_WORKSPACE"
-          [[ ! -d "$RUNNER_TEMP/gradle" ]] || chown -R "$owner" "$RUNNER_TEMP/gradle"
+          bash scripts/ci/restore-runner-workspace-ownership.sh "$RUNNER_TEMP" "$GITHUB_WORKSPACE" "$RUNNER_TEMP/gradle"
 
   redaction-tests:
     name: Redaction unit tests
@@ -140,6 +133,7 @@ jobs:
     # digest-pinned repository CI image instead of the host toolchain, and runs
     # as uid 10001. This preserves the T4 supply-chain policy: the toolchain is
     # a reviewed, digest-pinned image, not an unverified per-run download.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, hostinger]
     needs: static-scan
     timeout-minutes: 40
@@ -159,12 +153,4 @@ jobs:
       - name: Restore workspace ownership for host runner
         if: always()
         run: |
-          set -euo pipefail
-          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
-          owner="$(stat -c '%u:%g' "$RUNNER_TEMP")"
-          if [[ "${owner%%:*}" == "0" ]]; then
-            echo '::error::Runner temp dir is root-owned; refusing to preserve root-owned checkout files.'
-            exit 1
-          fi
-          chown -R "$owner" "$GITHUB_WORKSPACE"
-          [[ ! -d "$RUNNER_TEMP/gradle" ]] || chown -R "$owner" "$RUNNER_TEMP/gradle"
+          bash scripts/ci/restore-runner-workspace-ownership.sh "$RUNNER_TEMP" "$GITHUB_WORKSPACE" "$RUNNER_TEMP/gradle"

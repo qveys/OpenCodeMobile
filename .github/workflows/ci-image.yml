@@ -65,6 +65,7 @@ defaults:
 jobs:
   build-and-push:
     name: Build JDK 21 + Android SDK 35 image
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, hostinger]
     timeout-minutes: 60
     steps:
