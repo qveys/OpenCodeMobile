@@ -76,7 +76,6 @@ import org.opencodemobile.shared.domain.interaction.FormField
 import org.opencodemobile.shared.domain.interaction.FormFieldType
 import org.opencodemobile.shared.domain.interaction.FormOption
 import org.opencodemobile.shared.domain.localaccess.LocalAccessSettings
-import org.opencodemobile.shared.domain.session.SessionCapabilities
 import org.opencodemobile.shared.domain.session.SessionGateway
 import org.opencodemobile.shared.domain.session.SessionSummary
 
@@ -193,8 +192,6 @@ class V1ScreenshotTest(private val locale: String, private val dark: Boolean) {
             override suspend fun deleteSession(sessionId: String) = Unit
 
             override suspend fun forkSession(sessionId: String) = sessions.first()
-
-            override suspend fun sessionCapabilities(directory: String?) = SessionCapabilities(forkAvailable = true)
         }
         val cache = object : SessionCache { // unused: the gate is open and the gateway never fails
             override suspend fun serverConfig(serverId: String) = null
