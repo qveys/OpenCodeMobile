@@ -3,7 +3,7 @@
 One PNG per V1 screen state (connexion, sessions, chat, dictée, réglages, états
 d'erreur), rendered on the JVM with Paparazzi: no emulator. Pixel 5 frame, OpenCode theme,
 FR/EN x light/dark (`<screen>_<fr|en>_<clair|sombre>.png`, 80 files, copied here
-from the Paparazzi output). Recorded at `68b496e`.
+from the Paparazzi output). Recorded at `9230dde`.
 
 - Images: this folder; Paparazzi's raw output (`[locale-dark]` suffix) is in `androidApp/src/test/snapshots/images/`.
 - Source: `androidApp/src/test/kotlin/org/opencodemobile/android/screenshots/V1ScreenshotTest.kt`.
