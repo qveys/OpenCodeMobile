@@ -135,15 +135,7 @@ jobs:
       - name: Restore workspace ownership for host runner
         if: always()
         run: |
-          set -euo pipefail
-          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
-          owner="$(stat -c '%u:%g' "$RUNNER_TEMP")"
-          if [[ "${owner%%:*}" == "0" ]]; then
-            echo '::error::Runner temp dir is root-owned; refusing to preserve root-owned checkout files.'
-            exit 1
-          fi
-          chown -R "$owner" "$GITHUB_WORKSPACE"
-          [[ ! -d "$RUNNER_TEMP/gradle" ]] || chown -R "$owner" "$RUNNER_TEMP/gradle"
+          bash scripts/ci/restore-runner-workspace-ownership.sh "$RUNNER_TEMP" "$GITHUB_WORKSPACE" "$RUNNER_TEMP/gradle"
 
   # Required status-check context (OPE-142). Always runs so the check is never
   # left "Expected" when no boundary-relevant path changed.

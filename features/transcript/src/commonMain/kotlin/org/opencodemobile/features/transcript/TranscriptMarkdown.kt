@@ -37,6 +37,9 @@ public fun AssistantMarkdown(
     modifier: Modifier = Modifier,
 ) {
     SelectionContainer(modifier = modifier) {
+        // immediate: first frame parses synchronously, so the body is never blank (and
+        // screenshots capture it); later updates re-parse off-thread. Off by default in
+        // production; debug fixtures (iOS screenshots) opt in via the local below.
         Markdown(
             markdownState = rememberMarkdownState(content, immediate = LocalMarkdownImmediate.current),
             components = transcriptMarkdownComponents(),

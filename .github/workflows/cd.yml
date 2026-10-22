@@ -255,14 +255,7 @@ jobs:
       - name: Restore workspace ownership for host runner
         if: always()
         run: |
-          set -euo pipefail
-          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
-          owner="$(stat -c '%u:%g' "$(dirname "$GITHUB_WORKSPACE")")"
-          if [[ "${owner%%:*}" == "0" ]]; then
-            echo '::error::Runner workspace parent is root-owned.'
-            exit 1
-          fi
-          chown -R "$owner" "$GITHUB_WORKSPACE"
+          bash scripts/ci/restore-runner-workspace-ownership.sh "$(dirname "$GITHUB_WORKSPACE")" "$GITHUB_WORKSPACE"
 
   deploy-ios:
     name: Deploy iOS (${{ needs.prepare.outputs.target_env }})
