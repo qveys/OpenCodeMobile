@@ -31,6 +31,7 @@ import org.opencodemobile.features.connection.ConnectionSetupScreen
 import org.opencodemobile.features.connection.IosQrCodeScanner
 import org.opencodemobile.features.settings.LocalAccessSettingsHost
 import org.opencodemobile.features.settings.SettingsModule
+import org.opencodemobile.shared.networking.adapter.OpenCodeV2Adapter
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerIdentityStore
 import org.opencodemobile.shared.domain.connection.ServerIdentityVerifier
@@ -91,7 +92,9 @@ internal val iosConnectionCompositionModule: Module = module {
     // client's `body()` calls need; the platform factory behind it applies the
     // outbound transport policy. The same pin controller instance also feeds the
     // platform TLS engine, so the pin backstop cannot silently disappear.
-    single<OpenCodeGateway> { createOpenCodeGateway(get(), get()) }
+    single { createOpenCodeGateway(get(), get()) }
+    single<OpenCodeGateway> { get<OpenCodeV2Adapter>() }
+    single { IosSessionHost(get(), get(), get(), get()) }
 
     single {
         val profileStore: SecureServerProfileStore = get()
@@ -108,6 +111,7 @@ internal val iosConnectionCompositionModule: Module = module {
                 identityStore.storePinnedFingerprint(profile.id, fingerprint)
             },
             basicAuthProvider = { profile -> basicAuthStore.credential(profile.id) },
+            onConnected = { profile, _ -> get<IosSessionHost>().connect(profile) },
             basicAuthPersister = { profile, credential -> basicAuthStore.storeCredential(profile.id, credential) },
         )
     }
@@ -185,6 +189,12 @@ public fun connectionSetupViewController(
                 // on Android; this shell only supplies the connection content.
                 val controller: ConnectionSetupController = koinInject()
                 val setupState by controller.state.collectAsState()
+                val sessions: IosSessionHost = koinInject()
+                val runtime by sessions.runtime.collectAsState()
+                if (runtime != null) {
+                    IosSessionsContent(runtime!!)
+                    return@Box
+                }
                 LocalAccessSettingsHost(showHeader = !setupState.isReviewing) {
                     // The controller hosting this Compose hierarchy is the presenter
                     // the scanner presents its full-screen capture from. It is read
@@ -214,4 +224,9 @@ public fun connectionSetupViewController(
 public fun submitScannedPayloadForAcceptance(payload: String) {
     startIosKoin()
     KoinPlatform.getKoin().get<ConnectionSetupController>().submitScannedPayload(payload)
+}
+
+/** Swift scene lifecycle keeps permission approval foreground-only. */
+public fun sessionForegroundChanged(active: Boolean) {
+    KoinPlatform.getKoin().get<IosSessionHost>().onForegroundChanged(active)
 }
