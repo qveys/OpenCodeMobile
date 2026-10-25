@@ -55,7 +55,11 @@ struct ContentView: View {
                     PrivacyCoverView()
                 }
             }
+            .onAppear {
+                IosConnectionCompositionRootKt.sessionForegroundChanged(active: scenePhase == .active)
+            }
             .onChange(of: scenePhase) { phase in
+                IosConnectionCompositionRootKt.sessionForegroundChanged(active: phase == .active)
                 switch phase {
                 case .active:
                     privacyCoverShown = false

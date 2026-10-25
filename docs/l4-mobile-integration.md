@@ -160,11 +160,14 @@ Erasure is best-effort per category but never silent: each category is attempted
 independently and any residue is reported and named in the UI. A partial erase is
 never presented as a success.
 
-**Known gap, documented rather than hidden.** On iOS the cache stack is not
-composed in this build, so no cache artifact exists on the device; the iOS
-composition root binds an `EmptyLocalCacheEraser`, which is honest because there
-is nothing to erase. When the iOS cache stack lands, only that binding changes —
-the coordinator already calls the port.
+The iOS connection host now binds the shared sessions, transcript, composer,
+questions and permission controllers after a successful handshake. Its realtime
+pipeline drives the offline mutation gate and the Data Protection cache; the
+local-cache eraser closes and removes that database and its sidecars. The Swift
+scene lifecycle keeps permission approvals foreground-only. Session navigation
+returns to the list, and local-access settings remain reachable after connecting.
+This wiring does not itself validate the L4 device scenarios or expose the
+"Erase everything" screen, which remains a separate navigation gap.
 
 **Evidence.** Decision [OPE-271](/OPE/issues/OPE-271) → ADR 0009 (PR #82);
 implementation [OPE-275](/OPE/issues/OPE-275) → PR #83; security review
