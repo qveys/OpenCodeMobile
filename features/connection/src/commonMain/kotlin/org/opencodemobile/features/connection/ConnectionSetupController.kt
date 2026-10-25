@@ -51,6 +51,8 @@ public class ConnectionSetupController(
      * here (OPE-176); the feature itself never wires L2/L3 surfaces.
      */
     private val onConnected: (ServerProfile, ConnectionHandshake) -> Unit = { _, _ -> },
+    /** Saves only a successfully verified profile for the next app launch. */
+    private val profilePersister: suspend (ServerProfile) -> Unit = {},
 ) {
     private val mutableState = MutableStateFlow(ConnectionSetupUiState())
 
@@ -58,6 +60,38 @@ public class ConnectionSetupController(
     public val state: StateFlow<ConnectionSetupUiState> = mutableState.asStateFlow()
 
     private var lastPlan: ServerSetupPlan? = null
+    private var restorationAttempted = false
+
+    /** Revalidates the saved trust unit once; a missing pin still requires review. */
+    public fun restoreSavedConnection() {
+        if (restorationAttempted || mutableState.value.busy || mutableState.value.isReviewing) return
+        restorationAttempted = true
+        mutableState.update { it.copy(busy = true, failure = null) }
+        scope.launch {
+            val profile = readOrFail { existingProfileProvider() }.getOrElse { return@launch }
+            if (profile == null) {
+                mutableState.update { it.copy(busy = false) }
+                return@launch
+            }
+            val pinned = readOrFail { existingFingerprintProvider(profile) }.getOrElse { return@launch }
+            val basicAuth = readOrFail { basicAuthProvider(profile) }.getOrElse { return@launch }
+            val plan = ServerSetupPlan(profile, ServerSetupSource.ManualEntry)
+            lastPlan = plan
+            mutableState.update {
+                it.copy(
+                    address = profile.baseUrl,
+                    label = profile.label.orEmpty(),
+                    review = plan,
+                    existingProfile = profile,
+                    existingFingerprint = pinned,
+                    username = basicAuth?.username.orEmpty(),
+                    password = basicAuth?.password.orEmpty(),
+                    busy = pinned != null,
+                )
+            }
+            if (pinned != null) proceed(plan)
+        }
+    }
 
     /** Called as the user types in the address field. */
     public fun onAddressChange(value: String) {
@@ -248,6 +282,7 @@ public class ConnectionSetupController(
                         return
                     }
                 }
+                readOrFail { profilePersister(plan.profile) }.getOrElse { return }
                 mutableState.update { it.copy(busy = false, connected = result.handshake, review = null, failure = null) }
                 onConnected(plan.profile, result.handshake)
             }
