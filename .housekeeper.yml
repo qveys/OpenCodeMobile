@@ -11,6 +11,17 @@ handlers:
     enabled: true
     checkPolicy: informational
 
+  # Fail-closed against the emoji + Conventional Commits format. Mirrors
+  # qveys/my-housekeeper commitlint.config.mjs and src/handlers/commit-lint.ts
+  # (emoji prefix, type enum, header-max-length 100, no git trailers, no
+  # same-emoji twice in a row). The Housekeeper App publishes the canonical
+  # verdict; the repo-local mirror in `.github/workflows/commit-message.yml`
+  # covers the same rules independently so a commit is gated even when the
+  # bot is unavailable.
+  commit-message-check:
+    enabled: true
+    mode: error
+
   # Publishes and maintains the single master PR comment (anchor used by the
   # other handlers to report their sections).
   pr-comment:
