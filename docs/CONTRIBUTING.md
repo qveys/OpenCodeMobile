@@ -42,11 +42,20 @@ request rather than by review alone.
 
 ## Commit conventions
 
-Every commit message must start with a **Unicode emoji prefix**, then Conventional Commits
-format:
+Every commit message and every pull-request title **must start with a Unicode
+emoji prefix**, then follow Conventional Commits format. The same rules apply
+on the bot side (`commit-message-check` handler in
+[qveys/my-housekeeper](https://github.com/qveys/my-housekeeper)) and on a
+repo-local mirror (`.github/workflows/commit-message.yml` calling
+`scripts/check-commit-message.sh`), so a commit that violates them is blocked
+both ways.
+
+Format:
 
 ```text
 <emoji> <type>(<scope>): <short description>
+<BLANK LINE>
+<body — optional, free-form, no Co-authored-by: or other git trailers>
 ```
 
 Examples:
@@ -57,14 +66,54 @@ Examples:
 🐛 fix(realtime): recover SSE stream after network change
 ```
 
-- Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`.
-- Lowercase description, no trailing period, subject under 72 characters.
-- **No co-authors and no Git trailers** (`Co-authored-by:`, `Signed-off-by:`, etc.) in the
-  subject or body.
+Rules:
 
-Because the repository requires verified commits, agent and automation commits must be created
-through the GitHub API or a signing identity. A plain local `git commit` produces an unverified
-commit that branch protection rejects.
+- **Types** — `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
+  `build`, `ci`, `chore`. The same enum as
+  [my-housekeeper `commitlint.config.mjs`](https://github.com/qveys/my-housekeeper/blob/main/commitlint.config.mjs).
+- **Lowercase description**, no trailing period, subject under
+  **100 characters** total (the bot raises the older 72-char bound to fit
+  richer scopes).
+- **Breaking changes** — append `!` to the type (`feat!:`, `fix(api)!:`).
+  **No** `BREAKING CHANGE:` prose trailer in the body; the bot forbids it.
+- **No git trailers** — `Co-authored-by:`, `Signed-off-by:`,
+  `Reported-by:`, `Suggested-by:`, `Reviewed-by:`, `Acked-by:`,
+  `Tested-by:`, `Cc:`, `Link:`, `Refs:`, `See-also:`, `Helped-by:`,
+  `Noticed-by:`, `Recommended-by:` are all rejected, including by the
+  bot. The same convention applies to PR bodies — do not paste
+  `Co-authored-by:` trailers from generated commits.
+- **Different emojis back-to-back** — the bot enforces that two adjacent
+  commits do not share the same leading emoji (e.g. two consecutive
+  `✨ feat(...)` commits will be flagged). Vary the emoji (use the table
+  below) or batch related work into a single commit.
+- **Ignored headers** — merge / revert / fixup! / squash! / amend!
+  commits are exempted (same as `@commitlint/is-ignored`), so a
+  GitHub-side squash merge or a `Rebase and merge` does not fail the
+  gate.
+
+### Emoji pool by type
+
+Pick from these emojis for consistency with the bot's `normalizeTitle`
+picks. The first one in each row is the most common choice; the others let
+you vary adjacent commits to satisfy the back-to-back rule.
+
+| Type      | Emojis |
+| ---       | --- |
+| `feat`    | ✨ 🎉 🚀 💡 🌟 |
+| `fix`     | 🩹 🔒 🐛 🚑 💊 |
+| `docs`    | 📝 📖 📚 🗒️ ✍️ |
+| `style`   | 🎨 💄 ✏️ 🖌️ 💅 |
+| `refactor`| ♻️ 🔄 🧱 🏗️ 🔨 |
+| `perf`    | ⚡ 🚀 🏎️ 💨 ⏱️ |
+| `test`    | ✅ 🧪 🔍 🧬 🎯 |
+| `build`   | 🏗️ 📦 🔨 🧱 ⚒️ |
+| `ci`      | 🤖 ⚙️ 🔁 🏭 🔌 |
+| `chore`   | 🧹 🔧 🗑️ 📦 🛠️ |
+
+Because the repository requires verified commits, agent and automation
+commits must be created through the GitHub API or a signing identity. A
+plain local `git commit` produces an unverified commit that branch
+protection rejects.
 
 ## Review tiers
 

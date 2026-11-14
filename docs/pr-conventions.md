@@ -22,8 +22,27 @@ Examples:
 ## PR Title & Description
 
 ### PR Title
-Conventional Commits format: `<type>: <short description>`
-Max 72 characters, lowercase after colon, no ending period.
+Conventional Commits format with the **mandatory Unicode emoji prefix** that
+[my-housekeeper `commitlint.config.mjs`](https://github.com/qveys/my-housekeeper/blob/main/commitlint.config.mjs)
+and the repo-local `scripts/check-commit-message.sh` enforce:
+
+```text
+<emoji> <type>(<scope>): <short description>
+```
+
+Rules:
+
+- Picking the emoji and the type follows
+  [docs/CONTRIBUTING.md § Emoji pool by type](../CONTRIBUTING.md#emoji-pool-by-type).
+- Max **100 characters** total for `<emoji> <type>(<scope>): <description>`.
+- The PR title **must not include** ` (#N)` — GitHub appends it to the
+  squash-merged commit message automatically, and `normalize-title` (the
+  bot's handler that renames PR/issue titles) explicitly strips a
+  user-supplied ` (#N)` so the resulting commit does not end up with
+  ` (#12) (#12)`. Use `Closes OPE-XX` in the PR body to link the issue.
+- Lowercase after the colon, no trailing period.
+- Breaking change: append `!` to the type (`feat!:`, `fix(api)!:`).
+  Do not write `BREAKING CHANGE:` in the body — it is rejected.
 
 ### PR Body Template
 ```markdown
