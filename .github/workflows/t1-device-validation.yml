@@ -71,6 +71,7 @@ jobs:
     name: T1 handshake (JVM)
     # OPE-255 (ADR 0007 stage 2): repository CI image (JDK 21 + Android SDK 35,
     # pinned by digest), run as uid 10001. See .github/workflows/ci-image.yml.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, hostinger]
     timeout-minutes: 20
     container:
@@ -87,18 +88,12 @@ jobs:
       - name: Restore workspace ownership for host runner
         if: always()
         run: |
-          set -euo pipefail
-          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
-          owner="$(stat -c '%u:%g' "$(dirname "$GITHUB_WORKSPACE")")"
-          if [[ "${owner%%:*}" == "0" ]]; then
-            echo '::error::Runner workspace parent is root-owned; refusing to preserve root-owned checkout files.'
-            exit 1
-          fi
-          chown -R "$owner" "$GITHUB_WORKSPACE"
+          bash scripts/ci/restore-runner-workspace-ownership.sh "$(dirname "$GITHUB_WORKSPACE")" "$GITHUB_WORKSPACE"
 
   android-instrumented-compile:
     name: T1 Android instrumented test compiles
     # OPE-255 (ADR 0007 stage 2): same repository CI image as jvm-handshake.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, hostinger]
     timeout-minutes: 25
     container:
@@ -115,14 +110,7 @@ jobs:
       - name: Restore workspace ownership for host runner
         if: always()
         run: |
-          set -euo pipefail
-          [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
-          owner="$(stat -c '%u:%g' "$(dirname "$GITHUB_WORKSPACE")")"
-          if [[ "${owner%%:*}" == "0" ]]; then
-            echo '::error::Runner workspace parent is root-owned; refusing to preserve root-owned checkout files.'
-            exit 1
-          fi
-          chown -R "$owner" "$GITHUB_WORKSPACE"
+          bash scripts/ci/restore-runner-workspace-ownership.sh "$(dirname "$GITHUB_WORKSPACE")" "$GITHUB_WORKSPACE"
 
   # OPE-316 exception: retain host provisioning until a KVM-capable runner
   # and an emulator image/device-access path are verified (ADR 0007).
