@@ -462,4 +462,121 @@ class ConnectionSetupControllerTest {
         assertNull(controller.state.value.failure)
         assertNotNull(controller.state.value.connected)
     }
+
+    @Test
+    fun restoringWithoutAStoredProfileLeavesManualEntryAvailable() = runTest {
+        val controller = ConnectionSetupController(
+            ServerConnectionSetup(FakeGateway { _, _ -> error("must not connect") }), this,
+        )
+        controller.restoreSavedConnection()
+        advanceUntilIdle()
+        assertFalse(controller.state.value.busy)
+        assertFalse(controller.state.value.isReviewing)
+        assertNull(controller.state.value.connected)
+        assertNull(controller.state.value.failure)
+    }
+
+    @Test
+    fun restorationRevalidatesTheStoredProfileAndCredentialsOnlyOnce() = runTest {
+        val saved = ServerProfile("saved", "127.0.0.1", 4096, "Test")
+        var connects = 0
+        var persisted: ServerProfile? = null
+        var bound: ServerProfile? = null
+        val gateway = object : OpenCodeGateway {
+            override suspend fun connect(
+                profile: ServerProfile, credential: ServerCredential?, basicAuth: BasicAuthCredential?,
+            ): ConnectionHandshake {
+                connects++
+                assertEquals(saved, profile)
+                assertNull(credential)
+                assertEquals("proxy-user", basicAuth?.username)
+                assertEquals("proxy-password", basicAuth?.password)
+                return handshake(profile)
+            }
+            override fun disconnect() = Unit
+        }
+        val controller = ConnectionSetupController(
+            ServerConnectionSetup(gateway), this,
+            existingProfileProvider = { saved },
+            existingFingerprintProvider = { fingerprint(1) },
+            basicAuthProvider = { profile ->
+                assertEquals(saved, profile)
+                BasicAuthCredential("proxy-user", "proxy-password")
+            },
+            profilePersister = { persisted = it },
+            onConnected = { profile, _ -> bound = profile },
+        )
+        controller.restoreSavedConnection()
+        controller.restoreSavedConnection()
+        advanceUntilIdle()
+        controller.restoreSavedConnection()
+        advanceUntilIdle()
+        assertEquals(1, connects)
+        assertEquals(saved, bound)
+        assertEquals(saved, persisted)
+        assertNotNull(controller.state.value.connected)
+        assertFalse(controller.state.value.busy)
+        assertFalse(controller.state.value.isReviewing)
+    }
+
+    @Test
+    fun restorationWithoutAPinRequiresExplicitReview() = runTest {
+        val saved = ServerProfile("saved", "127.0.0.1", 4096)
+        val controller = ConnectionSetupController(
+            ServerConnectionSetup(FakeGateway { _, _ -> error("must not connect without review") }), this,
+            existingProfileProvider = { saved },
+        )
+        controller.restoreSavedConnection()
+        advanceUntilIdle()
+        assertEquals(saved, controller.state.value.review?.profile)
+        assertFalse(controller.state.value.busy)
+        assertNull(controller.state.value.connected)
+    }
+
+    @Test
+    fun restorationRejectsAChangedServerIdentity() = runTest {
+        val controller = ConnectionSetupController(
+            ServerConnectionSetup(FakeGateway { _, _ -> throw DomainError.IdentityChanged(fingerprint(1), fingerprint(2)) }),
+            this,
+            existingProfileProvider = { ServerProfile("saved", "127.0.0.1", 4096) },
+            existingFingerprintProvider = { fingerprint(1) },
+            onConnected = { _, _ -> error("must not bind an untrusted server") },
+            profilePersister = { error("must not persist an untrusted server") },
+        )
+        controller.restoreSavedConnection()
+        advanceUntilIdle()
+        assertEquals(FailureKind.CHANGED, controller.state.value.failure?.kind)
+        assertNull(controller.state.value.connected)
+        assertFalse(controller.state.value.busy)
+        assertTrue(controller.state.value.isReviewing)
+    }
+
+    @Test
+    fun aLockedProfileStoreProducesARecoverableFailure() = runTest {
+        val controller = ConnectionSetupController(
+            ServerConnectionSetup(FakeGateway { _, _ -> error("must not connect") }), this,
+            existingProfileProvider = { throw DomainError.StorageFailure("locked") },
+        )
+        controller.restoreSavedConnection()
+        advanceUntilIdle()
+        assertEquals(FailureKind.STORAGE, controller.state.value.failure?.kind)
+        assertFalse(controller.state.value.busy)
+        assertNull(controller.state.value.connected)
+    }
+
+    @Test
+    fun profilePersistenceFailureDoesNotOpenSessions() = runTest {
+        val controller = ConnectionSetupController(
+            ServerConnectionSetup(FakeGateway { profile, _ -> handshake(profile) }), this,
+            profilePersister = { throw DomainError.StorageFailure("locked") },
+            onConnected = { _, _ -> error("must not bind before the profile is saved") },
+        )
+        controller.onAddressChange("127.0.0.1")
+        controller.submitManualEntry()
+        advanceUntilIdle()
+        controller.confirmReview()
+        advanceUntilIdle()
+        assertEquals(FailureKind.STORAGE, controller.state.value.failure?.kind)
+        assertNull(controller.state.value.connected)
+    }
 }

@@ -112,8 +112,9 @@ internal val iosConnectionCompositionModule: Module = module {
             },
             basicAuthProvider = { profile -> basicAuthStore.credential(profile.id) },
             onConnected = { profile, _ -> get<IosSessionHost>().connect(profile) },
+            profilePersister = profileStore::save,
             basicAuthPersister = { profile, credential -> basicAuthStore.storeCredential(profile.id, credential) },
-        )
+        ).also { it.restoreSavedConnection() }
     }
 }
 
