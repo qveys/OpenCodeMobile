@@ -21,25 +21,31 @@ internal fun ApiAgentInfo.toDomain(): AgentDescriptor = AgentDescriptor(
 )
 
 /** Native messages carry their role in `type`; content block identity is its ordinal. */
-internal fun ApiMessage.toDomain(sessionId: String): TranscriptMessage = TranscriptMessage(
-    id = id, sessionId = sessionId,
-    role = when (type) {
-        "shell" -> TranscriptRole.Tool
-        else -> TranscriptRole.fromWire(type)
-    },
-    parts = if (type == "user") {
-        listOf(TranscriptPart(id = "$id:0", type = "text", text = text.orEmpty()))
-    } else if (type == "shell") {
-        listOf(
-            TranscriptPart(id = "$id:0", type = "code", text = command.orEmpty(), language = "shell"),
-            TranscriptPart(id = "$id:1", type = "text", text = output?.output.orEmpty()),
-        )
-    } else {
-        content.mapIndexed { ordinal, part ->
-            TranscriptPart(id = "$id:$ordinal", type = part.type, text = part.text.orEmpty())
-        }
-    },
-)
+internal fun ApiMessage.toDomain(sessionId: String): TranscriptMessage? {
+    // These records describe session state, not conversation content.
+    if (type in setOf("idle", "agent-switched", "model-switched", "location-switched", "compaction")) return null
+    return TranscriptMessage(
+        id = id, sessionId = sessionId,
+        role = when (type) {
+            "shell" -> TranscriptRole.Tool
+            // Skill records contain injected instructions (text), so retain them as system context.
+            "synthetic", "skill" -> TranscriptRole.System
+            else -> TranscriptRole.fromWire(type)
+        },
+        parts = if (type in setOf("user", "system", "synthetic", "skill")) {
+            listOf(TranscriptPart(id = "$id:0", type = "text", text = (text ?: description).orEmpty()))
+        } else if (type == "shell") {
+            listOf(
+                TranscriptPart(id = "$id:0", type = "code", text = command.orEmpty(), language = "shell"),
+                TranscriptPart(id = "$id:1", type = "text", text = output?.output.orEmpty()),
+            )
+        } else {
+            content.mapIndexed { ordinal, part ->
+                TranscriptPart(id = "$id:$ordinal", type = part.type, text = part.text.orEmpty())
+            }
+        },
+    )
+}
 
 internal fun ApiForm.toDomain(): PendingQuestion = PendingQuestion(
     id = id, sessionId = sessionID, title = title,
