@@ -122,9 +122,14 @@ jobs:
           # is that user and chown to it is correct; real host root still fails.
           root_host_uid=0
           if [[ -r /proc/self/uid_map ]]; then
-            while read -r inner outer _; do
+            while read -r inner outer len _; do
               if [[ "$inner" == "0" ]]; then
-                root_host_uid="$outer"
+                # Any range length >= 1 is fine (subuid ranges such as
+                # "0 100000 65536"); a malformed entry keeps root_host_uid=0
+                # so the guard still refuses.
+                if [[ "$outer" =~ ^[0-9]+$ && "$len" =~ ^[0-9]+$ ]] && ((10#$len >= 1)); then
+                  root_host_uid=$((10#$outer))
+                fi
                 break
               fi
             done < /proc/self/uid_map
@@ -179,9 +184,14 @@ jobs:
           # is that user and chown to it is correct; real host root still fails.
           root_host_uid=0
           if [[ -r /proc/self/uid_map ]]; then
-            while read -r inner outer _; do
+            while read -r inner outer len _; do
               if [[ "$inner" == "0" ]]; then
-                root_host_uid="$outer"
+                # Any range length >= 1 is fine (subuid ranges such as
+                # "0 100000 65536"); a malformed entry keeps root_host_uid=0
+                # so the guard still refuses.
+                if [[ "$outer" =~ ^[0-9]+$ && "$len" =~ ^[0-9]+$ ]] && ((10#$len >= 1)); then
+                  root_host_uid=$((10#$outer))
+                fi
                 break
               fi
             done < /proc/self/uid_map
