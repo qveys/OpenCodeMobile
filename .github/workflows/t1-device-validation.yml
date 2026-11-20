@@ -90,7 +90,19 @@ jobs:
           set -euo pipefail
           [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
           owner="$(stat -c '%u:%g' "$(dirname "$GITHUB_WORKSPACE")")"
-          if [[ "${owner%%:*}" == "0" ]]; then
+          # Rootless Docker maps container uid 0 to the unprivileged host runner
+          # user (/proc/self/uid_map line "0 <host uid> 1"), so an apparent uid 0
+          # is that user and chown to it is correct; real host root still fails.
+          root_host_uid=0
+          if [[ -r /proc/self/uid_map ]]; then
+            while read -r inner outer _; do
+              if [[ "$inner" == "0" ]]; then
+                root_host_uid="$outer"
+                break
+              fi
+            done < /proc/self/uid_map
+          fi
+          if [[ "${owner%%:*}" == "0" && "$root_host_uid" == "0" ]]; then
             echo '::error::Runner workspace parent is root-owned; refusing to preserve root-owned checkout files.'
             exit 1
           fi
@@ -118,7 +130,19 @@ jobs:
           set -euo pipefail
           [[ -d "$GITHUB_WORKSPACE" ]] || exit 0
           owner="$(stat -c '%u:%g' "$(dirname "$GITHUB_WORKSPACE")")"
-          if [[ "${owner%%:*}" == "0" ]]; then
+          # Rootless Docker maps container uid 0 to the unprivileged host runner
+          # user (/proc/self/uid_map line "0 <host uid> 1"), so an apparent uid 0
+          # is that user and chown to it is correct; real host root still fails.
+          root_host_uid=0
+          if [[ -r /proc/self/uid_map ]]; then
+            while read -r inner outer _; do
+              if [[ "$inner" == "0" ]]; then
+                root_host_uid="$outer"
+                break
+              fi
+            done < /proc/self/uid_map
+          fi
+          if [[ "${owner%%:*}" == "0" && "$root_host_uid" == "0" ]]; then
             echo '::error::Runner workspace parent is root-owned; refusing to preserve root-owned checkout files.'
             exit 1
           fi
