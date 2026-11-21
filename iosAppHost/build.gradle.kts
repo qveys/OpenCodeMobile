@@ -13,6 +13,7 @@ kotlin {
         iosArm64(),
         iosSimulatorArm64(),
     ).forEach { target ->
+        target.binaries.all { linkerOpts("-lsqlite3") }
         target.binaries.framework {
             baseName = "iosAppHost"
             isStatic = true
@@ -27,12 +28,16 @@ kotlin {
             implementation(project(":design-system"))
             implementation(project(":features:catalog"))
             implementation(project(":features:connection"))
+            implementation(project(":features:sessions"))
+            implementation(project(":features:composer"))
             implementation(project(":features:permissions"))
             implementation(project(":features:questions"))
             implementation(project(":features:settings"))
             implementation(project(":features:transcript"))
             implementation(project(":shared:domain"))
             implementation(project(":shared:application"))
+            implementation(project(":shared:data"))
+            implementation(project(":shared:realtime"))
             implementation(project(":shared:networking"))
             implementation(project(":shared:security"))
 
@@ -49,6 +54,7 @@ kotlin {
         // V1-13: the iOS notification projection is asserted on the simulator.
         maybeCreate("iosTest").dependencies {
             implementation(kotlin("test"))
+            implementation(libs.kotlinx.coroutines.test)
             implementation(project(":shared:domain"))
         }
     }

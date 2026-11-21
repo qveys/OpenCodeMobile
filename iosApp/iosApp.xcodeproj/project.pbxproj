@@ -383,6 +383,7 @@
 				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
+					"-lsqlite3",
 					"-framework",
 					iosAppHost,
 				);
@@ -411,6 +412,7 @@
 				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
+					"-lsqlite3",
 					"-framework",
 					iosAppHost,
 				);

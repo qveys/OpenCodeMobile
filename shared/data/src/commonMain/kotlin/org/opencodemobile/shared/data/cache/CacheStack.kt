@@ -50,6 +50,9 @@ public class CacheStack(
     /** Wipes and rebuilds after key loss or a profile removal (never gated; returns reads). */
     public suspend fun wipeAndRebuild(): SessionCache = database.wipeAndRebuild()
 
+    /** Closes the driver and removes the database and its sidecars. */
+    public suspend fun eraseLocalFiles(): Boolean = database.eraseLocalFiles()
+
     /** Closes the driver; the cache can be reopened later. */
     public suspend fun close(): Unit = database.close()
 

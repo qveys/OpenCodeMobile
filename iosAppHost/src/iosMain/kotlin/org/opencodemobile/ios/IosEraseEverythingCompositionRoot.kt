@@ -10,7 +10,8 @@ import org.koin.dsl.module
 import org.opencodemobile.ios.notification.IosLocalNotificationSink
 import org.opencodemobile.shared.application.erasure.EraseEverythingCoordinator
 import org.opencodemobile.shared.application.notification.LocalNotificationCoordinator
-import org.opencodemobile.shared.domain.cache.EmptyLocalCacheEraser
+import org.opencodemobile.shared.data.cache.createIosCacheStack
+import org.opencodemobile.shared.data.cache.CacheStack
 import org.opencodemobile.shared.domain.cache.LocalCacheEraser
 import org.opencodemobile.shared.domain.connection.OpenCodeGateway
 import org.opencodemobile.shared.domain.connection.ServerIdentityStore
@@ -28,19 +29,19 @@ import org.opencodemobile.shared.security.store.SecureServerProfileStore
  * credential and identity stores are the Keychain-backed singletons the
  * connection root already bound.
  *
- * Cache erasure is the one platform difference. The iOS cache stack
- * (Data Protection, `shared/data` CacheStack) is not composed in this build yet,
- * so no cache artifact exists on disk and [EmptyLocalCacheEraser] is honest:
- * there is nothing to erase. When that stack lands it must bind a real
- * [LocalCacheEraser] that deletes the SQLDelight database, its `-wal`/`-shm`
- * sidecars and the Data Protection key — the coordinator already calls the port,
- * so only this binding changes.
+ * The Data Protection cache is shared with the connected session graph.
  */
 internal val iosEraseEverythingCompositionModule: Module = module {
     single<BiometricAuthenticator> { IosBiometricAuthenticator() }
     single<LocalNotificationSink> { IosLocalNotificationSink() }
     single { LocalNotificationCoordinator(get()) }
-    single<LocalCacheEraser> { EmptyLocalCacheEraser }
+    single { createIosCacheStack() }
+    single<LocalCacheEraser> {
+        val cache = get<CacheStack>()
+        object : LocalCacheEraser {
+            override suspend fun eraseLocalCache(): Boolean = cache.eraseLocalFiles()
+        }
+    }
 
     single { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
 

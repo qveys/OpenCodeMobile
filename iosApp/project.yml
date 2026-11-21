@@ -69,6 +69,7 @@ targets:
         # through XCUIApplication).
         OTHER_LDFLAGS:
           - "$(inherited)"
+          - "-lsqlite3"
           - "-framework"
           - "iosAppHost"
     preBuildScripts:
