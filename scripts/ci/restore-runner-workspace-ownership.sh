@@ -58,7 +58,7 @@ if [[ "$uid" == 0 ]] && ! namespace_root_maps_to_host_user /proc/self/uid_map; t
   echo '::error::Runner owner is uid 0 and uid_map does not prove a rootless mapping; refusing to chown checkout files.'
   exit 1
 fi
-if [[ "$gid" == 0 ]] && ! namespace_root_maps_to_host_user /proc/self/gid_map; then
+if [[ "$uid" == 0 && "$gid" == 0 ]] && ! namespace_root_maps_to_host_user /proc/self/gid_map; then
   echo '::error::Runner owner is gid 0 and gid_map does not prove a rootless mapping; refusing to chown checkout files.'
   exit 1
 fi
