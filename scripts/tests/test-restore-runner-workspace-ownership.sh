@@ -55,11 +55,18 @@ check_text 'uid 0 line among others accepted' 0 '0 100000 65536
 check_text 'any 0 0 line refused' 1 '0 100000 65536
 0 0 1
 '
+check_text 'malformed trailing row refused' 1 '0 100000 65536
+65536 abc 1000
+'
 
 unreadable="$TMP/unreadable"
 printf '0 994 1\n' >"$unreadable"
 chmod 000 "$unreadable"
-check_file 'unreadable refused' 1 "$unreadable"
+if [[ "$(id -u)" -eq 0 ]]; then
+  printf 'SKIP  unreadable refused (root bypasses file mode)\n'
+else
+  check_file 'unreadable refused' 1 "$unreadable"
+fi
 
 printf 'passed=%s failed=%s\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]
