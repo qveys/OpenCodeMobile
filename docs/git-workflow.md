@@ -10,26 +10,55 @@
 
 ## Commit Conventions
 
-Use Conventional Commits format for all commit messages:
+Use Conventional Commits format for every commit message. The format is the
+same as [my-housekeeper `commitlint.config.mjs`](https://github.com/qveys/my-housekeeper/blob/main/commitlint.config.mjs):
 
 ```text
-<type>: <short description>
+<emoji> <type>(<scope>): <short description>
 ```
 
 ### Types
 - `feat`: New feature or user-facing capability
 - `fix`: Bug fix
 - `docs`: Documentation updates or additions
-- `chore`: Maintenance, dependencies, scaffolding
+- `style`: Code style changes that do not affect behavior (formatting, lint)
 - `refactor`: Code change that neither fixes a bug nor adds a feature
-- `test`: Adding or correcting tests
 - `perf`: Performance improvement
+- `test`: Adding or correcting tests
+- `build`: Build system or dependency changes
+- `ci`: CI/CD configuration changes (workflows, runners, scripts/ci)
+- `chore`: Maintenance, scaffolding, housekeeping
 
 ### Rules
-- Lowercase description after the colon and space
-- No trailing period
-- Under 72 characters for the subject line
-- Reference issue identifier in commit body or trailers (e.g. `Closes OPE-10` or `Ref: OPE-10`)
+
+- **Emoji prefix is mandatory** — every commit header **must** start with a
+  Unicode emoji followed by a single space, then the Conventional Commits
+  type and (optional) scope. The same rule is applied by the
+  [my-housekeeper](https://github.com/qveys/my-housekeeper)
+  `commit-message-check` handler (canonical) and by the repo-local
+  `.github/workflows/commit-message.yml` (mirror), both of which call
+  `scripts/check-commit-message.sh --range base..head` on every push
+  and pull-request. See `docs/CONTRIBUTING.md` for the full emoji pool
+  by type and the back-to-back emoji rule.
+- **Types** — `feat`, `fix`, `docs`, `style`, `refactor`, `perf`,
+  `test`, `build`, `ci`, `chore` (same enum as my-housekeeper
+  `commitlint.config.mjs`).
+- **Breaking changes** — append `!` to the type (`feat!:`, `fix(api)!:`).
+  Do **not** write `BREAKING CHANGE:` in the commit body; the rule check
+  fails on that prose marker.
+- **No git trailers** — `Co-authored-by:`, `Signed-off-by:`,
+  `Reported-by:`, `Suggested-by:`, etc. are all rejected. Use `<type>!`
+  for breaking change attribution instead.
+- Lowercase description after the colon and space.
+- No trailing period.
+- Subject under **100 characters** total (the bot raises the older
+  72-char bound for richer scopes).
+- Different emojis back-to-back — two adjacent commits with the same
+  leading emoji (e.g. `✨ feat` twice in a row) will be flagged. Vary
+  the emoji using the pool table in `docs/CONTRIBUTING.md` or batch
+  related work into a single commit.
+- Reference issue identifier in commit body or PR body
+  (`Closes OPE-XX` or `Ref: OPE-XX`).
 
 ---
 
