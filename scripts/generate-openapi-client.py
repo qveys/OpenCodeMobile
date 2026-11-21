@@ -209,6 +209,7 @@ data class ApiMessage(
     val type: String,
     val time: ApiMessageTime,
     val text: String? = null,
+    val description: String? = null,
     val agent: String? = null,
     val model: ApiModelRef? = null,
     val content: List<ApiMessageContent> = emptyList(),
